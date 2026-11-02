@@ -153,7 +153,7 @@ internal static class Program
         Assert(Peak(At(LightingEffect.RainbowPulse, 0)) == 255 && Peak(At(LightingEffect.RainbowPulse, 1.0 / 6)) < 40,
             "Rainbow Pulse does not breathe while its hue changes");
 
-        foreach (var effect in Enum.GetValues<LightingEffect>().Where(e => e != LightingEffect.SfxLoudness))
+        foreach (var effect in Enum.GetValues<LightingEffect>().Where(e => !LightingEffects.IsSfx(e)))
         {
             var s = settings with { Effect = effect, PlayerLights = 21, PlayerAnimation = PlayerIndicatorAnimation.Chase };
             var colors = new HashSet<(byte, byte, byte)>();
@@ -192,7 +192,7 @@ internal static class Program
 
     private static async Task CheckAnimatedRgbSessions()
     {
-        foreach (var effect in Enum.GetValues<LightingEffect>().Where(e => e is not (LightingEffect.Solid or LightingEffect.SfxLoudness)))
+        foreach (var effect in Enum.GetValues<LightingEffect>().Where(e => e != LightingEffect.Solid && !LightingEffects.IsSfx(e)))
         {
             var foreground = true;
             var devices = new FakeDevices(() => foreground);
@@ -308,10 +308,11 @@ internal static class Program
             new SfxEnvelope().Update(0.01f, 0, settings with { SfxAutomaticGate = false, SfxNoiseGate = 0 }, true) > 0,
             "Advanced manual noise-gate override was ignored");
 
+        foreach (var mode in new[] { LightingEffect.SfxLoudness, LightingEffect.SfxColorBlend })
         foreach (var animation in Enum.GetValues<PlayerIndicatorAnimation>())
         foreach (var level in new[] { -1f, 0, 0.25f, 0.8f, 1, 5, float.NaN, float.PositiveInfinity })
         {
-            var s = settings with { Red = 255, Green = 128, Blue = 64, SecondaryRed = 255, SecondaryGreen = 128, SecondaryBlue = 64,
+            var s = settings with { Effect = mode, Red = 255, Green = 128, Blue = 64, SecondaryRed = 255, SecondaryGreen = 128, SecondaryBlue = 64,
                 Brightness = 0.5f, PlayerLights = 27, PlayerAnimation = animation };
             var frame = LightingEffects.Render(s, 0.37, level);
             Assert(ControllerPreviewGeometry.Frame(s, true, 0.37, level) == frame, "SFX preview and hardware use different loudness");
@@ -322,7 +323,9 @@ internal static class Program
             var later = LightingEffects.Render(s, 3.14, level);
             Assert(later.Red == frame.Red && later.Green == frame.Green && later.Blue == frame.Blue,
                 "SFX RGB consumers drifted by calculating separate time envelopes");
-            if (!float.IsFinite(level) || level <= 0) Assert(frame.Red == 0 && frame.Green == 0 && frame.Blue == 0, "Invalid or silent SFX input illuminated RGB");
+            if (!float.IsFinite(level) || level <= 0)
+                Assert(mode == LightingEffect.SfxLoudness ? frame.Red == 0 && frame.Green == 0 && frame.Blue == 0 :
+                    frame.Red == 128 && frame.Green == 64 && frame.Blue == 32, "Quiet-state behavior is incorrect for the selected SFX mode");
             foreach (var length in new[] { 48, 63, 64 })
             {
                 var report = Enumerable.Range(0, length).Select(i => (byte)(i * 13)).ToArray(); report[0] = 2;
@@ -337,31 +340,46 @@ internal static class Program
 
     private static void CheckSfxColors()
     {
+        Assert((int)LightingEffect.SfxLoudness == 9 && (int)LightingEffect.SfxColorBlend == 10 &&
+            LightingEffects.IsSfx(LightingEffect.SfxLoudness) && LightingEffects.IsSfx(LightingEffect.SfxColorBlend),
+            "Original SFX selection changed identity or either mode is excluded from audio capture");
         var settings = LightingSettings.Default with
         {
-            Effect = LightingEffect.SfxLoudness, Red = 0, Green = 0, Blue = 255,
+            Effect = LightingEffect.SfxColorBlend, Red = 0, Green = 0, Blue = 255,
             SecondaryRed = 255, SecondaryGreen = 0, SecondaryBlue = 0, PlayerLights = 10,
         };
-        Assert(LightingEffects.Render(settings, 0, 0.01f) == new LightingFrame(0, 0, 3, 10),
-            "A quiet SFX did not use the low color at low brightness");
-        Assert(LightingEffects.Render(settings, 0, 0.5f) == new LightingFrame(64, 0, 64, 10),
-            "Half-loud SFX did not blend both colors and brightness");
+        Assert(LightingEffects.Render(settings, 0, 0.01f) == new LightingFrame(3, 0, 252, 10),
+            "A quiet SFX dimmed the low color to invisibility");
+        Assert(LightingEffects.Render(settings, 0, 0.5f) == new LightingFrame(128, 0, 128, 10),
+            "Half-loud SFX did not blend both colors at the configured brightness");
         Assert(LightingEffects.Render(settings, 0, 1) == new LightingFrame(255, 0, 0, 10),
             "Maximum SFX did not reach the high color");
-        Assert(LightingEffects.Render(settings, 0, 0) == new LightingFrame(0, 0, 0, 10),
-            "Low SFX color kept the lightbar on during silence");
+        Assert(LightingEffects.Render(settings, 0, 0) == new LightingFrame(0, 0, 255, 10),
+            "The low SFX color disappeared between sounds");
         Assert(LightingEffects.Render(settings with { Brightness = 0.25f }, 0, 1) == new LightingFrame(64, 0, 0, 10),
             "The high SFX color ignored the overall brightness limit");
         var swapped = settings with { Red = 255, Blue = 0, SecondaryRed = 0, SecondaryBlue = 255 };
-        Assert(LightingEffects.Render(swapped, 0, 0.01f) == new LightingFrame(3, 0, 0, 10) &&
+        Assert(LightingEffects.Render(swapped, 0, 0.01f) == new LightingFrame(252, 0, 3, 10) &&
             LightingEffects.Render(swapped, 0, 1) == new LightingFrame(0, 0, 255, 10), "Changing endpoint colors did not update the SFX gradient");
+        var original = settings with { Effect = LightingEffect.SfxLoudness };
+        Assert(LightingEffects.Render(original, 0, 0) == new LightingFrame(0, 0, 0, 10) &&
+            LightingEffects.Render(original, 0, 0.5f) == new LightingFrame(0, 0, 128, 10) &&
+            LightingEffects.Render(original, 0, 1) == new LightingFrame(0, 0, 255, 10),
+            "Original SFX Loudness no longer pulses only the chosen single color");
+        var gatedLevel = new SfxEnvelope().Update(0.001f, 0, settings, true);
+        Assert(gatedLevel == 0 && LightingEffects.Render(settings, 0, gatedLevel) == new LightingFrame(0, 0, 255, 10),
+            "The automatic gate made the two-color quiet state go dark");
+        Assert(LightingEffects.Render(settings with { Brightness = 0.25f }, 0, 0) == new LightingFrame(0, 0, 64, 10) &&
+            LightingEffects.Render(settings with { Brightness = 0 }, 0, 0) == new LightingFrame(0, 0, 0, 10),
+            "The low SFX color ignored the user's brightness setting");
         var previous = LightingEffects.Render(settings, 0, 0);
         for (var i = 1; i <= 100; i++)
         {
             var level = i / 100f;
             var frame = LightingEffects.Render(settings, 1.25, level);
             Assert(ControllerPreviewGeometry.Frame(settings, true, 1.25, level) == frame, "Two-color SFX preview diverged from hardware");
-            Assert(frame.Red >= previous.Red && Math.Abs(frame.Red - previous.Red) <= 6 && Math.Abs(frame.Blue - previous.Blue) <= 3,
+            Assert(frame.Red >= previous.Red && frame.Blue <= previous.Blue &&
+                Math.Abs(frame.Red - previous.Red) <= 3 && Math.Abs(frame.Blue - previous.Blue) <= 3,
                 "The SFX color blend jumped between nearby loudness levels");
             Assert(ControllerPreviewGeometry.Frame(settings, false, 1.25, level) == default &&
                 ControllerPreviewGeometry.Frame(settings with { Enabled = false }, true, 1.25, level) == default,
@@ -412,14 +430,23 @@ internal static class Program
 
     private static async Task CheckSfxSession()
     {
+        foreach (var mode in new[] { LightingEffect.SfxLoudness, LightingEffect.SfxColorBlend })
+            await CheckSfxSession(mode);
+    }
+
+    private static async Task CheckSfxSession(LightingEffect mode)
+    {
         var foreground = true;
         var devices = new FakeDevices(() => foreground);
         devices.OnOpen = () => devices.Opened.Last().AllowBackground = true;
         using var session = new LightingSession(devices, () => foreground, _ => throw new Exception("Unexpected SFX HID failure"),
             (_, _) => new LightingFrame(0, 0, 0, 0));
-        var settings = LightingSettings.Default with { Effect = LightingEffect.SfxLoudness, PlayerLights = 10,
+        var settings = LightingSettings.Default with { Effect = mode, PlayerLights = 10,
             Red = 255, Green = 0, Blue = 0, SecondaryRed = 0, SecondaryGreen = 0, SecondaryBlue = 255 };
         await session.TickAsync(settings, 0, default, 0);
+        var quiet = devices.Opened.Last().Reports.Last();
+        var baseline = mode == LightingEffect.SfxColorBlend ? 255 : 0;
+        Assert(quiet[45] == baseline && quiet[46] == 0 && quiet[47] == 0, "SFX mode has an incorrect quiet-state hardware color");
         await session.TickAsync(settings, 0.033, default, 0.8f);
         var preview = ControllerPreviewGeometry.Frame(settings, true, 0.033, 0.8f);
         var report = devices.Opened.Last().Reports.Last();
@@ -432,12 +459,17 @@ internal static class Program
             devices.Opened.Last().Reports.Last().Skip(44).Take(4).All(b => b == 0), "SFX did not turn off once and release on focus loss");
         foreground = true;
         await session.TickAsync(settings, 1, default, 0);
-        Assert(devices.Opened.Last().Reports.Last().Skip(45).Take(3).All(b => b == 0), "SFX resumed an old flash before a new sound arrived");
+        var resumed = devices.Opened.Last().Reports.Last();
+        Assert(resumed[45] == baseline && resumed[46] == 0 && resumed[47] == 0, "SFX did not return to its own quiet state after focus return");
         devices.Paths = []; await session.TickAsync(settings, 2, default, 0);
         devices.Paths = ["controller"]; await session.TickAsync(settings, 3, default, 0.5f);
         var reconnect = devices.Opened.Last().Reports.Last();
-        Assert(reconnect[45] == 64 && reconnect[46] == 0 && reconnect[47] == 64 && reconnect[44] == 10,
-            "Two-color SFX did not recover after replugging");
+        Assert(reconnect[45] == 128 && reconnect[46] == 0 && reconnect[47] == (mode == LightingEffect.SfxColorBlend ? 128 : 0) && reconnect[44] == 10,
+            "The selected SFX mode did not recover after replugging");
+        var switched = settings with { Effect = mode == LightingEffect.SfxColorBlend ? LightingEffect.SfxLoudness : LightingEffect.SfxColorBlend };
+        await session.TickAsync(switched, 3.033, default, 0.5f);
+        Assert(devices.Opened.Last().Reports.Last()[47] == (switched.Effect == LightingEffect.SfxColorBlend ? 128 : 0),
+            "Switching between the separate SFX options did not change controller output");
         await session.TickAsync(settings with { Enabled = false }, 3.1, default, 1);
         Assert(session.HandoffCount == 2 && session.DeviceCount == 0, "Disabling SFX did not perform lights-off release");
         foreach (var device in devices.Opened)

@@ -12,7 +12,10 @@ public static class LightingEffects
         [new(0, 255, 160, 0), new(0, 180, 255, 0), new(105, 70, 255, 0), new(215, 40, 255, 0)];
 
     public static bool UsesPrimaryColor(LightingEffect effect) => effect is LightingEffect.Solid or
-        LightingEffect.Breathing or LightingEffect.ColorShift or LightingEffect.Heartbeat or LightingEffect.Comet or LightingEffect.SfxLoudness;
+        LightingEffect.Breathing or LightingEffect.ColorShift or LightingEffect.Heartbeat or LightingEffect.Comet or
+        LightingEffect.SfxLoudness or LightingEffect.SfxColorBlend;
+
+    public static bool IsSfx(LightingEffect effect) => effect is LightingEffect.SfxLoudness or LightingEffect.SfxColorBlend;
 
     public static LightingFrame Render(LightingSettings settings, double seconds, float sfxLevel = 0)
     {
@@ -31,7 +34,8 @@ public static class LightingEffects
             LightingEffect.Heartbeat => Dim(primary, Math.Max(Pulse(phase, 0.04, 0.16), 0.7 * Pulse(phase, 0.28, 0.22))),
             LightingEffect.Comet => Dim(primary, phase < 0.06 ? Smooth(phase / 0.06) : Math.Pow((1 - phase) / 0.94, 3)),
             LightingEffect.RainbowPulse => Dim(HueToRgb((float)(phase * 360)), 0.15 + 0.85 * Wave(phase * 3)),
-            LightingEffect.SfxLoudness => Dim(Mix(primary, secondary, level), level),
+            LightingEffect.SfxLoudness => Dim(primary, level),
+            LightingEffect.SfxColorBlend => Mix(primary, secondary, level),
             _ => primary,
         };
         var indicators = PlayerIndicatorEffects.Render(s.PlayerLights, s.PlayerAnimation, s.PlayerCycleSeconds, seconds);

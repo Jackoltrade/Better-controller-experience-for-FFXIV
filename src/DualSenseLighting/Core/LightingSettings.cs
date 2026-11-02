@@ -5,7 +5,7 @@ using System;
 namespace DualSenseLighting.Core;
 
 // Append effects so saved Solid/Rainbow/Breathing selections retain their numeric values.
-public enum LightingEffect { Solid, Rainbow, Breathing, ColorShift, Aurora, Fire, Heartbeat, Comet, RainbowPulse, SfxLoudness }
+public enum LightingEffect { Solid, Rainbow, Breathing, ColorShift, Aurora, Fire, Heartbeat, Comet, RainbowPulse, SfxLoudness, SfxColorBlend }
 
 public sealed record LightingSettings(
     bool Enabled, LightingEffect Effect, byte Red, byte Green, byte Blue,

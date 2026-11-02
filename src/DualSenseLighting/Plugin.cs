@@ -14,7 +14,7 @@ using DualSenseLighting.Core;
 using DualSenseLighting.Windows;
 using DualSenseLighting.Ui;
 
-[assembly: System.Reflection.AssemblyVersion("0.6.0.0")]
+[assembly: System.Reflection.AssemblyVersion("0.6.1.0")]
 
 namespace DualSenseLighting;
 
@@ -97,7 +97,7 @@ public sealed class Plugin : IDalamudPlugin
                 var snapshot = Volatile.Read(ref settings);
                 var seconds = clock.Elapsed.TotalSeconds;
                 var capture = Volatile.Read(ref audioCapture);
-                var active = snapshot.Enabled && snapshot.Effect == LightingEffect.SfxLoudness &&
+                var active = snapshot.Enabled && LightingEffects.IsSfx(snapshot.Effect) &&
                     Native.IsCurrentProcessForeground() && capture != null && !capture.Faulted && capture.LayoutSupported;
                 capture?.Loudness.SetActive(active);
                 var rms = active ? capture!.Loudness.TakePeak() : 0;
@@ -132,7 +132,7 @@ public sealed class Plugin : IDalamudPlugin
         // Scanning a large executable must not block a game frame. The optional observer
         // remains inactive until its completed initialization is published to the worker.
         var snapshot = Volatile.Read(ref settings);
-        if (audioInitialization == null && snapshot.Enabled && snapshot.Effect == LightingEffect.SfxLoudness)
+        if (audioInitialization == null && snapshot.Enabled && LightingEffects.IsSfx(snapshot.Effect))
             audioInitialization = Task.Run(() => new SfxAudioCapture(interop, scanner));
         if (audioInitialization?.IsCompleted == true && Volatile.Read(ref audioCapture) == null && audioError == null)
         {
@@ -197,7 +197,7 @@ public sealed class Plugin : IDalamudPlugin
             var effect = (int)settings.Effect;
             ImGui.Separator();
             ImGui.TextDisabled("Lightbar");
-            if (ImGui.Combo("Lightbar effect", ref effect, "Solid\0Rainbow\0Breathing\0Color Shift\0Aurora\0Fire\0Heartbeat\0Comet\0Rainbow Pulse\0SFX Loudness (Prototype)\0"))
+            if (ImGui.Combo("Lightbar effect", ref effect, "Solid\0Rainbow\0Breathing\0Color Shift\0Aurora\0Fire\0Heartbeat\0Comet\0Rainbow Pulse\0SFX Loudness (Prototype)\0SFX Color Blend (Prototype)\0"))
             { configuration.Effect = (LightingEffect)effect; Changed(); }
             if (settings.Effect != LightingEffect.Solid)
             {
@@ -211,25 +211,28 @@ public sealed class Plugin : IDalamudPlugin
                     LightingEffect.Heartbeat => "A bright beat, a softer echo, then a pause.",
                     LightingEffect.Comet => "A quick flare trails into a long fading glow.",
                     LightingEffect.RainbowPulse => "Rainbow colors breathe three times per cycle.",
-                    LightingEffect.SfxLoudness => "Sound intensity blends your low and high colors.",
+                    LightingEffect.SfxLoudness => "Combat sounds brighten your color, then fade naturally.",
+                    LightingEffect.SfxColorBlend => "Sound intensity blends your low and high colors.",
                     _ => "",
                 });
             }
-            var sfx = settings.Effect == LightingEffect.SfxLoudness;
-            if (LightingEffects.UsesPrimaryColor(settings.Effect)) DrawColor(false, sfx ? "Low SFX color" : "Color");
-            if (settings.Effect is LightingEffect.ColorShift or LightingEffect.SfxLoudness)
-                DrawColor(true, sfx ? "High SFX color" : "Second color");
+            var sfx = LightingEffects.IsSfx(settings.Effect);
+            var sfxBlend = settings.Effect == LightingEffect.SfxColorBlend;
+            if (LightingEffects.UsesPrimaryColor(settings.Effect)) DrawColor(false, sfxBlend ? "Low SFX color" : "Color");
+            if (settings.Effect is LightingEffect.ColorShift or LightingEffect.SfxColorBlend)
+                DrawColor(true, sfxBlend ? "High SFX color" : "Second color");
             var brightness = settings.Brightness;
             if (ImGui.SliderFloat("Brightness", ref brightness, 0, 1, "%.2f"))
             { configuration.Brightness = brightness; Changed(); }
-            if (settings.Effect == LightingEffect.SfxLoudness)
+            if (sfx)
             {
-                ImGui.TextDisabled("Quiet sounds use Low; loud impacts reach High; silence fades out.");
+                ImGui.TextDisabled(sfxBlend ? "Low stays visible between sounds; loud impacts reach High." :
+                    "Your color brightens with sound and fades out in silence.");
                 var sensitivity = settings.SfxSensitivity;
                 if (ImGui.SliderFloat("SFX sensitivity", ref sensitivity, 1, 32, "%.1fx"))
                 { configuration.SfxSensitivity = sensitivity; Changed(); }
                 var release = settings.SfxReleaseSeconds;
-                if (ImGui.SliderFloat("SFX fade (seconds)", ref release, 0.05f, 1, "%.2f"))
+                if (ImGui.SliderFloat(sfxBlend ? "Color return (seconds)" : "SFX fade (seconds)", ref release, 0.05f, 1, "%.2f"))
                 { configuration.SfxReleaseSeconds = release; Changed(); }
                 if (ImGui.CollapsingHeader("Advanced SFX settings"))
                 {
@@ -237,7 +240,7 @@ public sealed class Plugin : IDalamudPlugin
                     if (ImGui.Checkbox("Automatic noise gate", ref automatic))
                     { configuration.SfxAutomaticGate = automatic; Changed(); }
                     if (settings.SfxAutomaticGate)
-                        ImGui.TextDisabled("Follows sensitivity to suppress faint light flicker.");
+                        ImGui.TextDisabled("Follows sensitivity to ignore very quiet sounds.");
                     else
                     {
                         var gate = settings.SfxNoiseGate;

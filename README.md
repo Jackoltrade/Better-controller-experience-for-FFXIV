@@ -20,8 +20,8 @@ DualSense Edge controllers**. Bluetooth transport is not implemented.
 
 Open `/ds5light` or the plugin's configuration button to change:
 
-- Ten RGB effects: Solid, Rainbow, Breathing, Color Shift, Aurora, Fire,
-  Heartbeat, Comet, Rainbow Pulse and SFX Loudness (Prototype).
+- Eleven RGB effects: Solid, Rainbow, Breathing, Color Shift, Aurora, Fire,
+  Heartbeat, Comet, Rainbow Pulse, SFX Loudness and SFX Color Blend.
 - RGB color, brightness, and animation period.
 - Player indicators: off or one through five lights, animation, and independent timing.
 
@@ -43,7 +43,8 @@ addressed LEDs is not available through this protocol.
 | Heartbeat | One bright pulse, a softer echo, then a pause | Your color |
 | Comet | A quick flare with a long fading afterglow | Your color |
 | Rainbow Pulse | Cycles the spectrum with three breaths per loop | Automatic |
-| SFX Loudness (Prototype) | Blends from the low color to the high color with combat-sound energy, then fades | Low SFX color and High SFX color |
+| SFX Loudness (Prototype) | Original single-color brightness pulses; fades to black in silence | Your color |
+| SFX Color Blend (Prototype) | Blends from Low to High as sound gets louder; keeps Low visible between sounds | Low SFX color and High SFX color |
 
 Brightness applies to every RGB effect. The lightbar cycle slider sets a complete
 loop (1–60 seconds), independently of the white indicator animation. Both side
@@ -57,13 +58,20 @@ energetic flicker, or Comet at 2 seconds with your favorite color.
 
 ### Combat SFX loudness prototype
 
-Select **SFX Loudness (Prototype)** in `/ds5light` to opt in. Set **Low SFX color**
-for quiet sounds and **High SFX color** for the loudest sounds. The lightbar blends
-smoothly between them using the shared loudness envelope, while brightness still
-rises with loudness and fades to black during silence. Maximum loudness reaches
-the high color at the main brightness ceiling. **SFX sensitivity** scales the input,
-and **SFX fade** controls the decay. The noise gate is automatic by default, so
-there is no separate threshold to tune during normal use.
+Choose one of two separate options in the `/ds5light` **Lightbar effect** list:
+
+- **SFX Loudness (Prototype)** retains the original behavior: one chosen color
+  brightens with sound and fades to black in silence. Existing saved SFX selections
+  retain this original mode.
+- **SFX Color Blend (Prototype)** adds the low/high color behavior. Set **Low SFX
+  color** for quiet sounds and **High SFX color** for the loudest sounds. Sound level
+  blends between them at the configured brightness. Low remains visible even when
+  the sound is below the noise gate or silent; the blend does not apply extra
+  loudness dimming. **Color return** controls how quickly it returns toward Low.
+
+**SFX sensitivity** scales the input in both modes. **SFX fade** controls the
+brightness decay in the original mode. The noise gate is automatic by default,
+so there is no separate threshold to tune during normal use.
 The level meter and controller preview share the same envelope value used by the
 controller worker and the native game-output guard. White indicators keep their
 independent count, animation and timing.
@@ -73,8 +81,8 @@ Color Shift. Their labeled pickers use the same color control as the other modes
 The low/high mapping is applied by the shared renderer, so the preview, worker
 and guarded native controller reports use the same colors at every sound level.
 
-The gate prevents very quiet sounds and faint tails from causing low-level LED
-flicker; it does not change game audio. Its automatic threshold follows sensitivity
+The gate prevents very quiet sounds and faint tails from causing brightness or
+color flutter; it does not change game audio. Its automatic threshold follows sensitivity
 to keep a small 1.6% dead zone in the lighting response. At the default sensitivity,
 it matches the 0.002 RMS threshold used in the successful live prototype test.
 This is a conservative default, not a learned estimate that could mistake quiet
@@ -106,8 +114,11 @@ scanning runs off the game frame thread; unload joins any pending initialization
 Focus loss immediately hides the custom preview, resets the audio envelope on the
 next worker tick, and performs the existing one-time lights-off release. Pending
 audio blocks are discarded across focus changes, disabling or switching modes,
-including callbacks that span a focus change. Returning to FFXIV waits for fresh
-SFX; unplugging/replugging reapplies the saved mode. The existing native controller
+including callbacks that span a focus change. Returning to FFXIV restores the
+selected mode's quiet state (black for Loudness, Low color for Color Blend) until
+fresh SFX arrives. Both modes turn all lights off on focus loss, disabling or
+unloading, even though Color Blend has a visible foreground quiet state.
+Unplugging/replugging reapplies the saved mode. The existing native controller
 report guard still preserves haptic, speaker and trigger fields.
 
 The native bindings were checked against the local game build
@@ -123,9 +134,11 @@ Automated checks cover RMS, noise rejection, decay, stale-callback rejection,
 preview/output agreement, bus filtering and unchanged native controller bytes.
 On 2026-11-02, the user confirmed v0.5.0 passed live SFX/preview synchronization,
 native haptic and controller-speaker effects, and lights-off release/return on
-Alt-Tab, and subsequently confirmed v0.5.2 works well. Version 0.6.0 adds the
-low/high color blend, covered by automated endpoint, continuity, preview and
-reconnect checks; its final in-game appearance still requires a reload.
+Alt-Tab, and subsequently confirmed v0.5.2 works well. Version 0.6.1 separates the
+two SFX modes and keeps the low color visible. Automated checks cover the quiet
+state below the gate, mode switching, endpoints, continuity, preview agreement,
+native report preservation, focus release and reconnects. Its final in-game
+appearance still requires a reload.
 
 ### Player indicator animations
 
