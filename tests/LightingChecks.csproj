@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>LightingChecks</AssemblyName>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../src/DualSenseLighting/Core/*.cs" Link="Core/%(Filename)%(Extension)" />
+    <Compile Include="../src/DualSenseLighting/Windows/Native.cs" Link="Windows/Native.cs" />
+    <Compile Include="../src/DualSenseLighting/Windows/HidDevices.cs" Link="Windows/HidDevices.cs" />
+  </ItemGroup>
+</Project>

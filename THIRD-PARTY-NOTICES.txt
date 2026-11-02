@@ -1,0 +1,33 @@
+DS4Windows source adaptations
+============================
+Upstream: https://github.com/hbashton/DS4Windows
+Revision: 2637673e0ecd03b042c30476224da398475d9cc7
+License: GNU General Public License version 3 (GPL-3.0); see LICENSE.txt.
+Upstream authors and contributors retain their copyrights.
+Original DualSenseDevice.cs and DS4LightBar.cs headers:
+Copyright (C) 2023 Travis Nickles; GPL version 3 or, at your option, any later version.
+
+src/DualSenseLighting/Core/DualSenseReport.cs adapts the USB lighting byte
+offsets, validity masks, player LED mask and pulse-cancellation command from:
+DS4Windows/DS4Library/InputDevices/DualSenseDevice.cs
+https://github.com/hbashton/DS4Windows/blob/2637673e0ecd03b042c30476224da398475d9cc7/DS4Windows/DS4Library/InputDevices/DualSenseDevice.cs
+
+src/DualSenseLighting/Core/LightingEffects.cs adapts the six-sector hue-to-RGB
+conversion from DS4Windows/DS4Control/DS4LightBar.cs (HuetoRGB).
+https://github.com/hbashton/DS4Windows/blob/2637673e0ecd03b042c30476224da398475d9cc7/DS4Windows/DS4Control/DS4LightBar.cs
+
+src/DualSenseLighting/Windows/HidDevices.cs adapts the shared HID device
+enumeration approach from DS4Windows/HidLibrary/HidDevices.cs.
+https://github.com/hbashton/DS4Windows/blob/2637673e0ecd03b042c30476224da398475d9cc7/DS4Windows/HidLibrary/HidDevices.cs
+Original HidLibrary notice: Copyright (c) 2010 Ultraviolet Catastrophe (MIT).
+The original MIT license is reproduced in LICENSE-HidLibrary.txt.
+
+Changes made in this project, 2026-11-02:
+- Restrict transport to shared-access USB DualSense/Edge gamepad interfaces.
+- Remove all input/remapping, audio, haptics and trigger generation.
+- Add foreground-only effects and a background lighting-validity guard.
+- Add normalized settings, Dalamud configuration and regression checks.
+
+The earlier local Steam Lighting Guard prototype was reused for the narrow
+Dalamud WriteFile/HidD_SetOutputReport interception approach. It is not shipped
+as a separate dependency and must be disabled before loading this replacement.
