@@ -23,6 +23,7 @@ internal static class Program
         if (args.Contains("--probe")) { Probe(); return; }
         CheckReports();
         CheckEffects();
+        CheckPlayerAnimations();
         CheckControllerPreview();
         CheckSteamProfiles();
         await CheckOwnership();
@@ -34,8 +35,10 @@ internal static class Program
         await CheckWriteTimeout();
         await CheckCancellation();
         await CheckSteamHandoff();
+        await CheckGlobalRelease();
         await CheckHandoffRegainFocus();
         await CheckHandoffFailure();
+        await CheckAnimatedIndicatorSession();
         Console.WriteLine($"Passed {checks:N0} lighting checks: native report preservation, background guard, effects, focus transitions, reconnect and cancellation.");
     }
 
@@ -136,6 +139,97 @@ internal static class Program
         Assert(session.DeviceCount == 1 && session.WriteCount == 3, "Focus return did not reapply lighting");
         await session.TickAsync(LightingSettings.Default with { Enabled = false }, 103, default);
         Assert(session.DeviceCount == 0 && session.WriteCount == 3, "Disabling did not stop output");
+    }
+
+    private static void CheckPlayerAnimations()
+    {
+        byte[] legacy = [0, 4, 10, 21, 27, 31];
+        for (var count = 0; count <= 5; count++)
+        {
+            var mask = PlayerIndicatorEffects.MaskForCount(count);
+            Assert(mask == legacy[count] && PlayerIndicatorEffects.Count(mask) == count, "Legacy player layout changed");
+            foreach (var animation in Enum.GetValues<PlayerIndicatorAnimation>())
+            {
+                var settings = LightingSettings.Default with { PlayerLights = mask, PlayerAnimation = animation, PlayerCycleSeconds = 2 };
+                var seen = new HashSet<byte>();
+                for (var i = 0; i < 160; i++)
+                {
+                    var time = i / 80.0;
+                    var frame = LightingEffects.Render(settings, time);
+                    var lit = PlayerIndicatorEffects.Count(frame.PlayerLights);
+                    Assert(frame.PlayerLights <= 31 && lit <= count && (frame.PlayerLights & ~mask) == 0, "Animation lit an indicator outside the selected pool");
+                    Assert(frame.Red == settings.Red && frame.Green == settings.Green && frame.Blue == settings.Blue, "Player animation altered the RGB effect");
+                    Assert(ControllerPreviewGeometry.Frame(settings, true, time) == frame, "Player preview differs from the hardware frame");
+                    Assert(LightingEffects.Render(settings, time + 2).PlayerLights == frame.PlayerLights, $"Player animation does not repeat: {animation}, count {count}, time {time}");
+                    Assert(frame.PlayerLightsImmediate == (animation != PlayerIndicatorAnimation.Steady), "Animated update/fade mode incorrect");
+                    if (animation == PlayerIndicatorAnimation.Steady) Assert(lit == count, "Steady layout changed the selected count");
+                    if (animation is PlayerIndicatorAnimation.Chase or PlayerIndicatorAnimation.Bounce)
+                        Assert(lit == Math.Min(count, 1), "Traveling effect did not move a single light within the pool");
+                    if (count == 0) Assert(frame.PlayerLights == 0, "Off count produced a lit indicator");
+                    seen.Add(frame.PlayerLights);
+                }
+                if (count > 0 && animation != PlayerIndicatorAnimation.Steady &&
+                    !(count == 1 && animation is PlayerIndicatorAnimation.Chase or PlayerIndicatorAnimation.Bounce))
+                    Assert(seen.Count > 1, "Animation never changed");
+            }
+        }
+
+        byte Render(int count, PlayerIndicatorAnimation animation, double time) => PlayerIndicatorEffects.Render(
+            PlayerIndicatorEffects.MaskForCount(count), animation, 2, time);
+        Assert(Render(2, PlayerIndicatorAnimation.Chase, 0) == 2 && Render(2, PlayerIndicatorAnimation.Chase, 1.7) == 8, "Chase left the selected inner pair");
+        byte[] fourChase = [1, 2, 8, 16];
+        for (var i = 0; i < fourChase.Length; i++) Assert(Render(4, PlayerIndicatorAnimation.Chase, i * 0.5) == fourChase[i], "Four-light chase used the excluded center LED");
+        byte[] bounce = [1, 2, 8, 16, 8, 2];
+        for (var i = 0; i < bounce.Length; i++) Assert(Render(4, PlayerIndicatorAnimation.Bounce, i / 3.0) == bounce[i], "Bounce direction or selected pool incorrect");
+        Assert(Render(3, PlayerIndicatorAnimation.Blink, 0.2) == 21 && Render(3, PlayerIndicatorAnimation.Blink, 1.2) == 0, "Blink pattern incorrect");
+        Assert(Render(2, PlayerIndicatorAnimation.Heartbeat, 0.1) == 10 && Render(2, PlayerIndicatorAnimation.Heartbeat, 0.54) == 10 &&
+            Render(2, PlayerIndicatorAnimation.Heartbeat, 0.3) == 0 && Render(2, PlayerIndicatorAnimation.Heartbeat, 1.2) == 0, "Heartbeat is not two distinct pulses");
+        byte[] loading = [0, 1, 5, 21];
+        for (var i = 0; i < loading.Length; i++) Assert(Render(3, PlayerIndicatorAnimation.Loading, i * 0.5) == loading[i], "Loading does not fill up to the selected count");
+        var rainbow = LightingSettings.Default with { Effect = LightingEffect.Rainbow, PlayerLights = 10, PlayerAnimation = PlayerIndicatorAnimation.Chase };
+        Assert(LightingEffects.Render(rainbow, 0.3).PlayerLights == LightingEffects.Render(rainbow with { CycleSeconds = 60 }, 0.3).PlayerLights, "RGB speed changes the indicator speed");
+        var normalized = (rainbow with { PlayerAnimation = (PlayerIndicatorAnimation)99, PlayerCycleSeconds = float.NaN }).Normalize();
+        Assert(normalized.PlayerAnimation == PlayerIndicatorAnimation.Steady && normalized.PlayerCycleSeconds == 2, "Invalid indicator settings not normalized");
+
+        foreach (var length in new[] { 48, 63, 64 })
+        foreach (var mask in new byte[] { 0, 1, 10, 21, 31 })
+        {
+            var original = new byte[length];
+            new Random(56).NextBytes(original); original[0] = 2;
+            var steady = (byte[])original.Clone();
+            var animated = (byte[])original.Clone();
+            DualSenseReport.Apply(steady, true, true, new LightingFrame(11, 22, 33, mask));
+            DualSenseReport.Apply(animated, true, true, new LightingFrame(11, 22, 33, mask, true));
+            Assert(animated[44] == (byte)(mask | 0x20), "Animated/off frame is missing the no-fade flag");
+            for (var i = 0; i < length; i++) if (i != 44)
+                Assert(animated[i] == steady[i], "Indicator animation changed another native field");
+        }
+    }
+
+    private static async Task CheckAnimatedIndicatorSession()
+    {
+        var foreground = true;
+        var devices = new FakeDevices(() => foreground);
+        using var session = new LightingSession(devices, () => foreground, _ => throw new Exception("Unexpected animation output failure"),
+            (device, _) => { ((FakeDevice)device).AllowBackground = true; return new LightingFrame(0, 0, 0, 0); });
+        var settings = LightingSettings.Default with { PlayerLights = 27, PlayerAnimation = PlayerIndicatorAnimation.Chase, PlayerCycleSeconds = 2 };
+        await session.TickAsync(settings, 0, default);
+        await session.TickAsync(settings, 0.51, default);
+        await session.TickAsync(settings, 1.01, default);
+        Assert(session.WriteCount == 3 && devices.Opened.Single().Reports.Select(r => r[44]).SequenceEqual(new byte[] { 33, 34, 40 }), "Indicator animation used the excluded center or failed with solid RGB");
+        foreground = false;
+        await session.TickAsync(settings, 1.1, default);
+        Assert(session.HandoffCount == 1 && devices.Opened.Single().Reports.Last().Skip(44).Take(4).All(b => b == 0) && devices.Opened.Single().Disposed, "Animated lighting did not turn off and release control");
+        await session.TickAsync(settings, 1.5, default);
+        Assert(session.HandoffCount == 1 && session.WriteCount == 3, "Player animation kept writing in the background");
+        foreground = true;
+        await session.TickAsync(settings, 2, default);
+        Assert(session.WriteCount == 4 && devices.Opened.Last().Reports.Last()[44] == 33, "Player animation did not resume on focus return");
+        devices.Paths = [];
+        await session.TickAsync(settings, 3, default);
+        devices.Paths = ["controller"];
+        await session.TickAsync(settings, 4, default);
+        Assert(session.WriteCount == 5 && devices.Opened.Last().Reports.Last()[44] == 33, "Saved player animation did not return after replugging");
     }
 
     private static void CheckControllerPreview()
@@ -250,6 +344,47 @@ internal static class Program
         Assert(session.WriteCount == 2 && devices.Opened.Last().Reports.Last()[45] == 119, "FFXIV lighting did not resume after handoff");
         await session.TickAsync(LightingSettings.Default with { Enabled = false }, 102, default);
         Assert(session.HandoffCount == 2 && session.DeviceCount == 0, "Disabling custom lighting did not hand back to Steam");
+    }
+
+    private static async Task CheckGlobalRelease()
+    {
+        var foreground = true;
+        var devices = new FakeDevices(() => foreground);
+        devices.OnOpen = () => devices.Opened.Last().AllowBackground = true;
+        using var session = new LightingSession(devices, () => foreground,
+            _ => throw new Exception("Unexpected global release error"),
+            (_, _) => new LightingFrame(0, 0, 0, 0));
+        var settings = LightingSettings.Default with { Effect = LightingEffect.Rainbow, PlayerLights = 31 };
+        await session.TickAsync(settings, 0, default);
+        foreground = false;
+        await session.TickAsync(settings, 0.1, default);
+        var device = devices.Opened.Single();
+        var release = device.Reports.Last();
+        Assert(session.HandoffCount == 1 && device.Disposed && session.DeviceCount == 0,
+            "Global release did not close the controller after focus loss");
+        Assert(release[44] == 0 && release.Skip(45).Take(3).All(b => b == 0),
+            "Global release left a custom RGB color or player indicator on");
+        Assert(release[1] == 0 && release[2] == 0x14 && release.Skip(3).Take(36).All(b => b == 0),
+            "Lights-off update enabled native haptic/audio/trigger changes");
+        for (var i = 1; i <= 50; i++) await session.TickAsync(settings, i, default);
+        devices.Paths = [];
+        await session.TickAsync(settings, 51, default);
+        devices.Paths = ["controller"];
+        await session.TickAsync(settings, 52, default);
+        Assert(device.Reports.Count == 2 && devices.Opened.Count == 1 && session.HandoffCount == 1,
+            "Background updates or reconnect interfered with another lighting app");
+        foreground = true;
+        await session.TickAsync(settings, 56, default);
+        Assert(session.WriteCount == 2 && devices.Opened.Last().Reports.Last()[45] == 255,
+            "Returning to FFXIV did not resume the saved custom effect");
+        await session.TickAsync(settings with { Enabled = false }, 57, default);
+        Assert(session.HandoffCount == 2 && devices.Opened.Last().Disposed,
+            "Disabling lighting did not perform the same automatic release");
+        await session.TickAsync(settings, 64, default);
+        await session.ReleaseAsync(true, default);
+        await session.ReleaseAsync(true, default);
+        Assert(session.HandoffCount == 3 && devices.Opened.Last().Disposed,
+            "Unloading failed to release lighting once or repeated the release");
     }
 
     private static async Task CheckHandoffRegainFocus()

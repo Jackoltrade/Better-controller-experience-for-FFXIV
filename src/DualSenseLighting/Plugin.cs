@@ -14,14 +14,13 @@ using DualSenseLighting.Core;
 using DualSenseLighting.Windows;
 using DualSenseLighting.Ui;
 
-[assembly: System.Reflection.AssemblyVersion("0.2.3.0")]
+[assembly: System.Reflection.AssemblyVersion("0.3.1.0")]
 
 namespace DualSenseLighting;
 
 public sealed class Plugin : IDalamudPlugin
 {
     private const string Command = "/ds5light";
-    private static readonly byte[] PlayerMasks = [0, 4, 10, 21, 27, 31];
     private readonly IDalamudPluginInterface pluginInterface;
     private readonly ICommandManager commands;
     private readonly IFramework framework;
@@ -34,7 +33,6 @@ public sealed class Plugin : IDalamudPlugin
     private readonly Task worker;
     private readonly ControllerPreview preview;
     private LightingSettings settings;
-    private volatile bool restoreSteamLighting;
     private bool windowOpen;
     private double saveAt = double.PositiveInfinity;
     private string? lastError;
@@ -52,10 +50,8 @@ public sealed class Plugin : IDalamudPlugin
         configuration = pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
         settings = configuration.Snapshot();
         preview = new ControllerPreview(textures);
-        restoreSteamLighting = configuration.RestoreSteamLighting;
-        var steam = new SteamLightingProfiles(SteamInstallation.GetRoot(), SteamInstallation.GetActiveAccount);
         session = new LightingSession(new HidDevices(), Native.IsCurrentProcessForeground, ReportError,
-            (device, count) => restoreSteamLighting ? steam.Read(device.Serial, count) : null);
+            (_, _) => new LightingFrame(0, 0, 0, 0));
         guard = new GameOutputGuard(interop, () => Volatile.Read(ref settings), () => clock.Elapsed.TotalSeconds);
         try
         {
@@ -119,7 +115,6 @@ public sealed class Plugin : IDalamudPlugin
     private void Changed()
     {
         Volatile.Write(ref settings, configuration.Snapshot());
-        restoreSteamLighting = configuration.RestoreSteamLighting;
         saveAt = clock.Elapsed.TotalSeconds + 0.5;
     }
 
@@ -144,11 +139,10 @@ public sealed class Plugin : IDalamudPlugin
             ImGui.Separator();
             var enabled = configuration.Enabled;
             if (ImGui.Checkbox("Enable custom lighting", ref enabled)) { configuration.Enabled = enabled; Changed(); }
-            var restore = configuration.RestoreSteamLighting;
-            if (ImGui.Checkbox("Restore Steam lighting when leaving FFXIV", ref restore))
-            { configuration.RestoreSteamLighting = restore; Changed(); }
             var effect = (int)settings.Effect;
-            if (ImGui.Combo("Effect", ref effect, "Solid\0Rainbow\0Breathing\0"))
+            ImGui.Separator();
+            ImGui.TextDisabled("Lightbar");
+            if (ImGui.Combo("Lightbar effect", ref effect, "Solid\0Rainbow\0Breathing\0"))
             { configuration.Effect = (LightingEffect)effect; Changed(); }
             if (settings.Effect != LightingEffect.Rainbow)
             {
@@ -167,20 +161,34 @@ public sealed class Plugin : IDalamudPlugin
             if (settings.Effect != LightingEffect.Solid)
             {
                 var cycle = settings.CycleSeconds;
-                if (ImGui.SliderFloat("Cycle (seconds)", ref cycle, 1, 60, "%.1f"))
+                if (ImGui.SliderFloat("Lightbar cycle (seconds)", ref cycle, 1, 60, "%.1f"))
                 { configuration.CycleSeconds = cycle; Changed(); }
             }
-            var player = Array.IndexOf(PlayerMasks, settings.PlayerLights);
-            if (player < 0) player = 0;
-            if (ImGui.Combo("Player indicator", ref player, "Off\0One light\0Two lights\0Three lights\0Four lights\0Five lights\0"))
-            { configuration.PlayerLights = PlayerMasks[player]; Changed(); }
             ImGui.Separator();
-            ImGui.TextWrapped("Custom effects run while FFXIV is active. On leaving, saved Steam lighting is restored once if enabled, then other apps control the LEDs. Native haptics, speaker and trigger effects pass through.");
+            ImGui.TextDisabled("Player indicators");
+            var player = PlayerIndicatorEffects.Count(settings.PlayerLights);
+            if (ImGui.Combo("Indicator count", ref player, "Off\0One light\0Two lights\0Three lights\0Four lights\0Five lights\0"))
+            { configuration.PlayerLights = PlayerIndicatorEffects.MaskForCount(player); Changed(); }
+            var animation = (int)settings.PlayerAnimation;
+            if (ImGui.Combo("Indicator animation", ref animation, "Steady\0Chase\0Bounce\0Blink\0Heartbeat\0Sparkle\0Loading\0"))
+            { configuration.PlayerAnimation = (PlayerIndicatorAnimation)animation; Changed(); }
+            if (settings.PlayerAnimation != PlayerIndicatorAnimation.Steady)
+            {
+                var cycle = settings.PlayerCycleSeconds;
+                if (ImGui.SliderFloat("Indicator cycle (seconds)", ref cycle, 1, 12, "%.1f"))
+                { configuration.PlayerCycleSeconds = cycle; Changed(); }
+                ImGui.TextDisabled("Animation stays within the selected indicator positions.");
+            }
+            if (player == 0) ImGui.TextDisabled("Choose an indicator count to light the strip.");
+            else if (player == 1 && settings.PlayerAnimation is PlayerIndicatorAnimation.Chase or PlayerIndicatorAnimation.Bounce)
+                ImGui.TextDisabled("Choose two or more indicators to see movement.");
+            ImGui.Separator();
+            ImGui.TextWrapped("Custom lighting runs only while FFXIV is active. On leaving, its lights turn off once and controller handles close so any other lighting app can take over. Background protection is always active. Native haptics, speaker and trigger effects pass through.");
             ImGui.TextDisabled("Changes are saved automatically.");
             if (ImGui.CollapsingHeader("Diagnostics"))
             {
                 ImGui.TextUnformatted($"Lighting writes: {session.WriteCount}");
-                ImGui.TextUnformatted($"Steam handoffs: {session.HandoffCount}");
+                ImGui.TextUnformatted($"Lighting releases: {session.HandoffCount}");
                 ImGui.TextUnformatted($"Foreground reports: {guard.ForegroundReports}");
                 ImGui.TextUnformatted($"Background reports guarded: {guard.BackgroundReports}");
                 ImGui.TextUnformatted($"Inspection errors: {guard.Errors}");

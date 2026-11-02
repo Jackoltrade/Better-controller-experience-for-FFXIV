@@ -17,7 +17,9 @@ public static class LightingEffects
         var gain = s.Brightness;
         if (s.Effect == LightingEffect.Breathing)
             gain *= (float)((1 + Math.Cos(phase * Math.PI * 2)) / 2);
-        return new(Scale(color.Red, gain), Scale(color.Green, gain), Scale(color.Blue, gain), s.PlayerLights);
+        var indicators = PlayerIndicatorEffects.Render(s.PlayerLights, s.PlayerAnimation, s.PlayerCycleSeconds, seconds);
+        return new(Scale(color.Red, gain), Scale(color.Green, gain), Scale(color.Blue, gain), indicators,
+            s.PlayerAnimation != PlayerIndicatorAnimation.Steady);
     }
 
     private static byte Scale(byte value, float gain) => (byte)Math.Clamp((int)Math.Round(value * gain), 0, 255);

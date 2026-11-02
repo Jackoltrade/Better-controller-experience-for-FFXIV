@@ -5,7 +5,7 @@ using System.Collections.Concurrent;
 namespace DualSenseLighting.Core;
 
 // Only the plugin's shared output handles bypass the game's report guard.
-// This permits a single Steam restore after focus loss without allowing native
+// This permits a single lights-off update after focus loss without allowing native
 // FFXIV lighting commands through in the background.
 internal static class OwnedLightingHandles
 {

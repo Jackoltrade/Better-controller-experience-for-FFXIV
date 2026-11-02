@@ -8,7 +8,8 @@ public enum LightingEffect { Solid, Rainbow, Breathing }
 
 public sealed record LightingSettings(
     bool Enabled, LightingEffect Effect, byte Red, byte Green, byte Blue,
-    float Brightness, float CycleSeconds, byte PlayerLights)
+    float Brightness, float CycleSeconds, byte PlayerLights,
+    PlayerIndicatorAnimation PlayerAnimation = PlayerIndicatorAnimation.Steady, float PlayerCycleSeconds = 2)
 {
     public static LightingSettings Default { get; } = new(true, LightingEffect.Solid, 119, 255, 0, 1, 8, 0);
 
@@ -18,7 +19,9 @@ public sealed record LightingSettings(
         Brightness = float.IsFinite(Brightness) ? Math.Clamp(Brightness, 0, 1) : 1,
         CycleSeconds = float.IsFinite(CycleSeconds) ? Math.Clamp(CycleSeconds, 1, 60) : 8,
         PlayerLights = (byte)(PlayerLights & 0x1f),
+        PlayerAnimation = Enum.IsDefined(PlayerAnimation) ? PlayerAnimation : PlayerIndicatorAnimation.Steady,
+        PlayerCycleSeconds = float.IsFinite(PlayerCycleSeconds) ? Math.Clamp(PlayerCycleSeconds, 1, 12) : 2,
     };
 }
 
-public readonly record struct LightingFrame(byte Red, byte Green, byte Blue, byte PlayerLights);
+public readonly record struct LightingFrame(byte Red, byte Green, byte Blue, byte PlayerLights, bool PlayerLightsImmediate = false);

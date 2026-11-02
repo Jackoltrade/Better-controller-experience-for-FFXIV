@@ -22,12 +22,40 @@ Open `/ds5light` or the plugin's configuration button to change:
 
 - Solid color, rainbow color cycle, or breathing effect.
 - RGB color, brightness, and animation period.
-- Player indicator: off or one through five lights.
+- Player indicators: off or one through five lights, animation, and independent timing.
 
 Settings are saved through Dalamud and reapplied after reconnecting. The settings
 apply to all supported USB controllers connected to this game process. The
 controller exposes one lightbar RGB color; a spatial wave with independently
 addressed LEDs is not available through this protocol.
+
+### Player indicator animations
+
+The **Player indicators** controls set the number of white lights, an animation,
+and its cycle length (1–12 seconds). This runs independently of the RGB lightbar.
+The count chooses the set of available positions. Every animation stays inside
+that set. For example, a four-indicator selection uses the two outer and two inner
+positions; the excluded center LED never turns on during its animations.
+
+| Animation | Behavior |
+| --- | --- |
+| Steady | Holds the existing centered/symmetric player layout |
+| Chase | Moves one light across the selected positions and wraps around |
+| Bounce | Moves one light back and forth within the selected positions |
+| Blink | Flashes the selected player layout on and off |
+| Heartbeat | Two short pulses followed by a rest |
+| Sparkle | Flashes a light in varied selected positions |
+| Loading | Fills the selected positions from left to right, then restarts |
+
+With only one position selected, Chase and Bounce stay on that position. Select
+at least two for visible travel, or use a pulse effect for one indicator. Five
+selected indicators let the traveling effects use the full strip. Indicators
+retain their fixed white color and on/off behavior.
+
+The live preview follows the same patterns and clock as the hardware. Animation
+state returns after focus changes or reconnecting; the automatic lights-off release and
+background guard still apply. Existing saved counts load as Steady, so installing
+the update does not start an animation until one is selected.
 
 ### Live controller preview
 
@@ -75,30 +103,26 @@ again before each write. It uses shared, asynchronous HID handles and never read
 controller input. Animation updates are capped at approximately 30 per second;
 an unchanged solid color is refreshed once per second while foreground.
 
-When FFXIV loses focus, the worker restores the controller's saved Steam lighting
-once, then closes its handles and stops creating lighting updates. The default-on
-**Restore Steam lighting when leaving FFXIV** option includes RGB, saturation,
-brightness and player indicators. The profile is matched to the controller's serial
-and Steam's active account, and read again on each handoff so current saved settings
-are used. If no valid profile is available, the error is shown in Diagnostics and
-the handles are closed without repeated background writes.
+When FFXIV loses focus, the worker turns off the custom RGB and player indicators
+once, then closes its handles and stops creating lighting updates. This behavior
+is automatic and has no toggle or application selection. It does not read or apply
+Steam's profile over another lighting app's settings.
 
 A narrow guard inside FFXIV removes lightbar, player-indicator, brightness
 and boot-pulse validity bits from the game's outgoing USB reports. Other fields,
 including haptic, audio, trigger and microphone controls, pass through. The guard
 checks the actual HID vendor/product, gamepad usage and report layout before
 modifying a buffer. Only the plugin's own shared output handles bypass this guard,
-allowing the one-time Steam handoff. It does not hook Steam or other processes.
+allowing the one-time lights-off update. It does not hook Steam or other processes.
 
 Returning to FFXIV reapplies the selected effect. Disabling custom lighting or
-unloading also attempts a Steam handoff for controllers whose lighting the session
+unloading also turns off the lights for controllers whose lighting the session
 changed. The background guard remains enabled until the plugin is unloaded.
 
-This handoff reads Steam's saved configuration; it does not inspect arbitrary
-applications' LED settings. Other apps can freely change the LEDs after the handoff.
-Turn the restore option off if a different lighting application should handle the
-transition itself. With restoration off, the last color remains until that app sends
-an update.
+Other apps can freely change the LEDs after release. Their color or animation
+appears when they send their next lighting update; the plugin cannot restore an
+arbitrary app's saved settings or make that app send a new report. If no app writes
+a new setting, the lights remain off instead of freezing at the last custom frame.
 
 ### Load the local build
 
@@ -149,6 +173,9 @@ write timeouts, cancellation, Steam preference validation and account/controller
 matching, one-time handoffs, and foreground return during a profile read.
 Preview checks cover embedded artwork, aspect ratio and mask alignment, player
 positions and bitmasks, animation phase/color agreement, and paused/disabled states.
+Indicator-animation checks cover every effect and count, cycle boundaries, exclusion
+of LEDs outside the selected set, the LED-only immediate-update flag, independent
+output with solid RGB, and animation resume/reconnect/release behavior.
 
 ### In-game verification
 
@@ -159,8 +186,8 @@ Before treating compatibility as verified on a particular setup, check:
 | --- | --- |
 | Select a solid color and player indicator | LEDs follow the selection while FFXIV is active |
 | Select rainbow or breathing | Animation stays steady while playing |
-| Alt-Tab while rainbow is red | Saved Steam lighting returns instead of freezing red |
-| Change Steam lighting while FFXIV remains in the background | FFXIV's guard does not replace Steam's updates |
+| Alt-Tab while rainbow is red | Custom lights turn off once; any other lighting app can then apply its effect |
+| Change another app's lighting while FFXIV remains in the background | FFXIV's guard does not replace the app's updates |
 | Return to FFXIV | The saved game effect resumes |
 | Unplug/replug while FFXIV is active | Saved lighting returns within approximately one second |
 | Trigger native controller sound and haptics | Native effects remain functional with custom lighting |

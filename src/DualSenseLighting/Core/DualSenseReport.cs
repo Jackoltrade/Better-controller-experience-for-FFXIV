@@ -30,7 +30,9 @@ public static class DualSenseReport
         report[39] |= 0x03; // Brightness and setup; preserve the improved-rumble bit.
         report[42] = 0x02; // Cancel the controller's boot-time blue pulse.
         report[43] = 0;    // Full hardware brightness; RGB handles the user's brightness.
-        report[44] = (byte)(frame.PlayerLights & 0x1f);
+        // DS4Windows documents bit 0x20 here as an immediate update, bypassing fade-in.
+        // Use it for animation frames (including off frames) so motion remains crisp.
+        report[44] = (byte)((frame.PlayerLights & 0x1f) | (frame.PlayerLightsImmediate ? 0x20 : 0));
         report[45] = frame.Red;
         report[46] = frame.Green;
         report[47] = frame.Blue;
