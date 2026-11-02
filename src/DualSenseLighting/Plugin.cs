@@ -14,7 +14,7 @@ using DualSenseLighting.Core;
 using DualSenseLighting.Windows;
 using DualSenseLighting.Ui;
 
-[assembly: System.Reflection.AssemblyVersion("0.5.2.0")]
+[assembly: System.Reflection.AssemblyVersion("0.6.0.0")]
 
 namespace DualSenseLighting;
 
@@ -163,12 +163,12 @@ public sealed class Plugin : IDalamudPlugin
         saveAt = double.PositiveInfinity;
     }
 
-    private void DrawColor(bool secondary)
+    private void DrawColor(bool secondary, string label)
     {
         var color = (secondary
             ? new Vector3(configuration.SecondaryRed, configuration.SecondaryGreen, configuration.SecondaryBlue)
             : new Vector3(configuration.Red, configuration.Green, configuration.Blue)) / 255;
-        if (!ImGui.ColorEdit3(secondary ? "Second color" : "Color", ref color)) return;
+        if (!ImGui.ColorEdit3(label, ref color)) return;
         var red = (byte)Math.Clamp((int)Math.Round(color.X * 255), 0, 255);
         var green = (byte)Math.Clamp((int)Math.Round(color.Y * 255), 0, 255);
         var blue = (byte)Math.Clamp((int)Math.Round(color.Z * 255), 0, 255);
@@ -211,17 +211,20 @@ public sealed class Plugin : IDalamudPlugin
                     LightingEffect.Heartbeat => "A bright beat, a softer echo, then a pause.",
                     LightingEffect.Comet => "A quick flare trails into a long fading glow.",
                     LightingEffect.RainbowPulse => "Rainbow colors breathe three times per cycle.",
-                    LightingEffect.SfxLoudness => "Combat sounds brighten your color, then fade naturally.",
+                    LightingEffect.SfxLoudness => "Sound intensity blends your low and high colors.",
                     _ => "",
                 });
             }
-            if (LightingEffects.UsesPrimaryColor(settings.Effect)) DrawColor(false);
-            if (settings.Effect == LightingEffect.ColorShift) DrawColor(true);
+            var sfx = settings.Effect == LightingEffect.SfxLoudness;
+            if (LightingEffects.UsesPrimaryColor(settings.Effect)) DrawColor(false, sfx ? "Low SFX color" : "Color");
+            if (settings.Effect is LightingEffect.ColorShift or LightingEffect.SfxLoudness)
+                DrawColor(true, sfx ? "High SFX color" : "Second color");
             var brightness = settings.Brightness;
             if (ImGui.SliderFloat("Brightness", ref brightness, 0, 1, "%.2f"))
             { configuration.Brightness = brightness; Changed(); }
             if (settings.Effect == LightingEffect.SfxLoudness)
             {
+                ImGui.TextDisabled("Quiet sounds use Low; loud impacts reach High; silence fades out.");
                 var sensitivity = settings.SfxSensitivity;
                 if (ImGui.SliderFloat("SFX sensitivity", ref sensitivity, 1, 32, "%.1fx"))
                 { configuration.SfxSensitivity = sensitivity; Changed(); }

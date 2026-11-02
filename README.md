@@ -43,7 +43,7 @@ addressed LEDs is not available through this protocol.
 | Heartbeat | One bright pulse, a softer echo, then a pause | Your color |
 | Comet | A quick flare with a long fading afterglow | Your color |
 | Rainbow Pulse | Cycles the spectrum with three breaths per loop | Automatic |
-| SFX Loudness (Prototype) | Brightens with measured combat-sound energy, then fades | Your color |
+| SFX Loudness (Prototype) | Blends from the low color to the high color with combat-sound energy, then fades | Low SFX color and High SFX color |
 
 Brightness applies to every RGB effect. The lightbar cycle slider sets a complete
 loop (1–60 seconds), independently of the white indicator animation. Both side
@@ -57,13 +57,21 @@ energetic flicker, or Comet at 2 seconds with your favorite color.
 
 ### Combat SFX loudness prototype
 
-Select **SFX Loudness (Prototype)** in `/ds5light` to opt in. The lightbar uses your
-chosen color and the main brightness ceiling. **SFX sensitivity** scales the input,
+Select **SFX Loudness (Prototype)** in `/ds5light` to opt in. Set **Low SFX color**
+for quiet sounds and **High SFX color** for the loudest sounds. The lightbar blends
+smoothly between them using the shared loudness envelope, while brightness still
+rises with loudness and fades to black during silence. Maximum loudness reaches
+the high color at the main brightness ceiling. **SFX sensitivity** scales the input,
 and **SFX fade** controls the decay. The noise gate is automatic by default, so
 there is no separate threshold to tune during normal use.
 The level meter and controller preview share the same envelope value used by the
 controller worker and the native game-output guard. White indicators keep their
 independent count, animation and timing.
+
+These colors reuse the existing saved primary/secondary color pair, also used by
+Color Shift. Their labeled pickers use the same color control as the other modes.
+The low/high mapping is applied by the shared renderer, so the preview, worker
+and guarded native controller reports use the same colors at every sound level.
 
 The gate prevents very quiet sounds and faint tails from causing low-level LED
 flicker; it does not change game audio. Its automatic threshold follows sensitivity
@@ -115,8 +123,9 @@ Automated checks cover RMS, noise rejection, decay, stale-callback rejection,
 preview/output agreement, bus filtering and unchanged native controller bytes.
 On 2026-11-02, the user confirmed v0.5.0 passed live SFX/preview synchronization,
 native haptic and controller-speaker effects, and lights-off release/return on
-Alt-Tab. The later muted-voice guard, background initialization and automatic gate
-are covered by automated checks; their final in-game verification is pending.
+Alt-Tab, and subsequently confirmed v0.5.2 works well. Version 0.6.0 adds the
+low/high color blend, covered by automated endpoint, continuity, preview and
+reconnect checks; its final in-game appearance still requires a reload.
 
 ### Player indicator animations
 

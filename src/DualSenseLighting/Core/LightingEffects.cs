@@ -19,17 +19,19 @@ public static class LightingEffects
         var s = settings.Normalize();
         var phase = double.IsFinite(seconds) ? Math.Max(0, seconds) % s.CycleSeconds / s.CycleSeconds : 0;
         var primary = new LightingFrame(s.Red, s.Green, s.Blue, 0);
+        var secondary = new LightingFrame(s.SecondaryRed, s.SecondaryGreen, s.SecondaryBlue, 0);
+        var level = float.IsFinite(sfxLevel) ? Math.Clamp(sfxLevel, 0, 1) : 0;
         var color = s.Effect switch
         {
             LightingEffect.Rainbow => HueToRgb((float)(phase * 360)),
             LightingEffect.Breathing => Dim(primary, Wave(phase)),
-            LightingEffect.ColorShift => Mix(primary, new(s.SecondaryRed, s.SecondaryGreen, s.SecondaryBlue, 0), 1 - Wave(phase)),
+            LightingEffect.ColorShift => Mix(primary, secondary, 1 - Wave(phase)),
             LightingEffect.Aurora => Dim(Palette(AuroraColors, phase), 0.65 + 0.35 * Wave(phase * 2)),
             LightingEffect.Fire => Fire(phase),
             LightingEffect.Heartbeat => Dim(primary, Math.Max(Pulse(phase, 0.04, 0.16), 0.7 * Pulse(phase, 0.28, 0.22))),
             LightingEffect.Comet => Dim(primary, phase < 0.06 ? Smooth(phase / 0.06) : Math.Pow((1 - phase) / 0.94, 3)),
             LightingEffect.RainbowPulse => Dim(HueToRgb((float)(phase * 360)), 0.15 + 0.85 * Wave(phase * 3)),
-            LightingEffect.SfxLoudness => Dim(primary, float.IsFinite(sfxLevel) ? Math.Clamp(sfxLevel, 0, 1) : 0),
+            LightingEffect.SfxLoudness => Dim(Mix(primary, secondary, level), level),
             _ => primary,
         };
         var indicators = PlayerIndicatorEffects.Render(s.PlayerLights, s.PlayerAnimation, s.PlayerCycleSeconds, seconds);

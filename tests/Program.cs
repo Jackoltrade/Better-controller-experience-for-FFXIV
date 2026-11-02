@@ -25,6 +25,7 @@ internal static class Program
         CheckEffects();
         CheckRgbAnimations();
         CheckSfxLoudness();
+        CheckSfxColors();
         CheckSfxAudioLayout();
         CheckPlayerAnimations();
         CheckControllerPreview();
@@ -310,7 +311,8 @@ internal static class Program
         foreach (var animation in Enum.GetValues<PlayerIndicatorAnimation>())
         foreach (var level in new[] { -1f, 0, 0.25f, 0.8f, 1, 5, float.NaN, float.PositiveInfinity })
         {
-            var s = settings with { Red = 255, Green = 128, Blue = 64, Brightness = 0.5f, PlayerLights = 27, PlayerAnimation = animation };
+            var s = settings with { Red = 255, Green = 128, Blue = 64, SecondaryRed = 255, SecondaryGreen = 128, SecondaryBlue = 64,
+                Brightness = 0.5f, PlayerLights = 27, PlayerAnimation = animation };
             var frame = LightingEffects.Render(s, 0.37, level);
             Assert(ControllerPreviewGeometry.Frame(s, true, 0.37, level) == frame, "SFX preview and hardware use different loudness");
             Assert(ControllerPreviewGeometry.Frame(s, false, 0.37, level) == default, "SFX preview remained on in background");
@@ -330,6 +332,41 @@ internal static class Program
                     if (i != 2 && i != 39 && i != 42 && i != 43 && (i < 44 || i > 47))
                         Assert(report[i] == originalReport[i], "SFX lighting changed native haptic, audio or trigger bytes");
             }
+        }
+    }
+
+    private static void CheckSfxColors()
+    {
+        var settings = LightingSettings.Default with
+        {
+            Effect = LightingEffect.SfxLoudness, Red = 0, Green = 0, Blue = 255,
+            SecondaryRed = 255, SecondaryGreen = 0, SecondaryBlue = 0, PlayerLights = 10,
+        };
+        Assert(LightingEffects.Render(settings, 0, 0.01f) == new LightingFrame(0, 0, 3, 10),
+            "A quiet SFX did not use the low color at low brightness");
+        Assert(LightingEffects.Render(settings, 0, 0.5f) == new LightingFrame(64, 0, 64, 10),
+            "Half-loud SFX did not blend both colors and brightness");
+        Assert(LightingEffects.Render(settings, 0, 1) == new LightingFrame(255, 0, 0, 10),
+            "Maximum SFX did not reach the high color");
+        Assert(LightingEffects.Render(settings, 0, 0) == new LightingFrame(0, 0, 0, 10),
+            "Low SFX color kept the lightbar on during silence");
+        Assert(LightingEffects.Render(settings with { Brightness = 0.25f }, 0, 1) == new LightingFrame(64, 0, 0, 10),
+            "The high SFX color ignored the overall brightness limit");
+        var swapped = settings with { Red = 255, Blue = 0, SecondaryRed = 0, SecondaryBlue = 255 };
+        Assert(LightingEffects.Render(swapped, 0, 0.01f) == new LightingFrame(3, 0, 0, 10) &&
+            LightingEffects.Render(swapped, 0, 1) == new LightingFrame(0, 0, 255, 10), "Changing endpoint colors did not update the SFX gradient");
+        var previous = LightingEffects.Render(settings, 0, 0);
+        for (var i = 1; i <= 100; i++)
+        {
+            var level = i / 100f;
+            var frame = LightingEffects.Render(settings, 1.25, level);
+            Assert(ControllerPreviewGeometry.Frame(settings, true, 1.25, level) == frame, "Two-color SFX preview diverged from hardware");
+            Assert(frame.Red >= previous.Red && Math.Abs(frame.Red - previous.Red) <= 6 && Math.Abs(frame.Blue - previous.Blue) <= 3,
+                "The SFX color blend jumped between nearby loudness levels");
+            Assert(ControllerPreviewGeometry.Frame(settings, false, 1.25, level) == default &&
+                ControllerPreviewGeometry.Frame(settings with { Enabled = false }, true, 1.25, level) == default,
+                "The SFX gradient remained visible in background or while disabled");
+            previous = frame;
         }
     }
 
@@ -380,7 +417,8 @@ internal static class Program
         devices.OnOpen = () => devices.Opened.Last().AllowBackground = true;
         using var session = new LightingSession(devices, () => foreground, _ => throw new Exception("Unexpected SFX HID failure"),
             (_, _) => new LightingFrame(0, 0, 0, 0));
-        var settings = LightingSettings.Default with { Effect = LightingEffect.SfxLoudness, PlayerLights = 10 };
+        var settings = LightingSettings.Default with { Effect = LightingEffect.SfxLoudness, PlayerLights = 10,
+            Red = 255, Green = 0, Blue = 0, SecondaryRed = 0, SecondaryGreen = 0, SecondaryBlue = 255 };
         await session.TickAsync(settings, 0, default, 0);
         await session.TickAsync(settings, 0.033, default, 0.8f);
         var preview = ControllerPreviewGeometry.Frame(settings, true, 0.033, 0.8f);
@@ -398,7 +436,8 @@ internal static class Program
         devices.Paths = []; await session.TickAsync(settings, 2, default, 0);
         devices.Paths = ["controller"]; await session.TickAsync(settings, 3, default, 0.5f);
         var reconnect = devices.Opened.Last().Reports.Last();
-        Assert(reconnect[46] == 128 && reconnect[44] == 10, "SFX did not recover after replugging");
+        Assert(reconnect[45] == 64 && reconnect[46] == 0 && reconnect[47] == 64 && reconnect[44] == 10,
+            "Two-color SFX did not recover after replugging");
         await session.TickAsync(settings with { Enabled = false }, 3.1, default, 1);
         Assert(session.HandoffCount == 2 && session.DeviceCount == 0, "Disabling SFX did not perform lights-off release");
         foreach (var device in devices.Opened)
