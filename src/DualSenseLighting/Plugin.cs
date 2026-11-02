@@ -14,7 +14,7 @@ using DualSenseLighting.Core;
 using DualSenseLighting.Windows;
 using DualSenseLighting.Ui;
 
-[assembly: System.Reflection.AssemblyVersion("0.3.2.0")]
+[assembly: System.Reflection.AssemblyVersion("0.4.0.0")]
 
 namespace DualSenseLighting;
 
@@ -124,6 +124,22 @@ public sealed class Plugin : IDalamudPlugin
         saveAt = double.PositiveInfinity;
     }
 
+    private void DrawColor(bool secondary)
+    {
+        var color = (secondary
+            ? new Vector3(configuration.SecondaryRed, configuration.SecondaryGreen, configuration.SecondaryBlue)
+            : new Vector3(configuration.Red, configuration.Green, configuration.Blue)) / 255;
+        if (!ImGui.ColorEdit3(secondary ? "Second color" : "Color", ref color)) return;
+        var red = (byte)Math.Clamp((int)Math.Round(color.X * 255), 0, 255);
+        var green = (byte)Math.Clamp((int)Math.Round(color.Y * 255), 0, 255);
+        var blue = (byte)Math.Clamp((int)Math.Round(color.Z * 255), 0, 255);
+        if (secondary)
+        { configuration.SecondaryRed = red; configuration.SecondaryGreen = green; configuration.SecondaryBlue = blue; }
+        else
+        { configuration.Red = red; configuration.Green = green; configuration.Blue = blue; }
+        Changed();
+    }
+
     private void Draw()
     {
         if (!windowOpen) return;
@@ -142,19 +158,25 @@ public sealed class Plugin : IDalamudPlugin
             var effect = (int)settings.Effect;
             ImGui.Separator();
             ImGui.TextDisabled("Lightbar");
-            if (ImGui.Combo("Lightbar effect", ref effect, "Solid\0Rainbow\0Breathing\0"))
+            if (ImGui.Combo("Lightbar effect", ref effect, "Solid\0Rainbow\0Breathing\0Color Shift\0Aurora\0Fire\0Heartbeat\0Comet\0Rainbow Pulse\0"))
             { configuration.Effect = (LightingEffect)effect; Changed(); }
-            if (settings.Effect != LightingEffect.Rainbow)
+            if (settings.Effect != LightingEffect.Solid)
             {
-                var color = new Vector3(configuration.Red, configuration.Green, configuration.Blue) / 255;
-                if (ImGui.ColorEdit3("Color", ref color))
+                ImGui.TextDisabled(settings.Effect switch
                 {
-                    configuration.Red = (byte)Math.Clamp((int)Math.Round(color.X * 255), 0, 255);
-                    configuration.Green = (byte)Math.Clamp((int)Math.Round(color.Y * 255), 0, 255);
-                    configuration.Blue = (byte)Math.Clamp((int)Math.Round(color.Z * 255), 0, 255);
-                    Changed();
-                }
+                    LightingEffect.Rainbow => "A continuous journey around the color spectrum.",
+                    LightingEffect.Breathing => "Your color gently fades in and out.",
+                    LightingEffect.ColorShift => "Two chosen colors slowly melt into each other.",
+                    LightingEffect.Aurora => "Teal, blue and violet drift with a soft shimmer.",
+                    LightingEffect.Fire => "Warm embers flicker into golden flames.",
+                    LightingEffect.Heartbeat => "A bright beat, a softer echo, then a pause.",
+                    LightingEffect.Comet => "A quick flare trails into a long fading glow.",
+                    LightingEffect.RainbowPulse => "Rainbow colors breathe three times per cycle.",
+                    _ => "",
+                });
             }
+            if (LightingEffects.UsesPrimaryColor(settings.Effect)) DrawColor(false);
+            if (settings.Effect == LightingEffect.ColorShift) DrawColor(true);
             var brightness = settings.Brightness;
             if (ImGui.SliderFloat("Brightness", ref brightness, 0, 1, "%.2f"))
             { configuration.Brightness = brightness; Changed(); }

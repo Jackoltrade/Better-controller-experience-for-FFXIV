@@ -23,6 +23,7 @@ internal static class Program
         if (args.Contains("--probe")) { Probe(); return; }
         CheckReports();
         CheckEffects();
+        CheckRgbAnimations();
         CheckPlayerAnimations();
         CheckControllerPreview();
         CheckSteamProfiles();
@@ -39,6 +40,7 @@ internal static class Program
         await CheckHandoffRegainFocus();
         await CheckHandoffFailure();
         await CheckAnimatedIndicatorSession();
+        await CheckAnimatedRgbSessions();
         Console.WriteLine($"Passed {checks:N0} lighting checks: native report preservation, background guard, effects, focus transitions, reconnect and cancellation.");
     }
 
@@ -115,6 +117,113 @@ internal static class Program
             var a = LightingEffects.Render(rainbow, i / 100.0);
             var b = LightingEffects.Render(rainbow, i / 100.0 + 0.001);
             Assert(Math.Abs(a.Red - b.Red) <= 1 && Math.Abs(a.Green - b.Green) <= 1 && Math.Abs(a.Blue - b.Blue) <= 1, "Rainbow discontinuity");
+        }
+    }
+
+    private static void CheckRgbAnimations()
+    {
+        Assert((int)LightingEffect.Solid == 0 && (int)LightingEffect.Rainbow == 1 && (int)LightingEffect.Breathing == 2,
+            "Existing saved RGB effect selections changed meaning");
+        var settings = LightingSettings.Default with
+        {
+            Red = 255, Green = 0, Blue = 0, SecondaryRed = 0, SecondaryGreen = 0, SecondaryBlue = 255, CycleSeconds = 8,
+        };
+        LightingFrame At(LightingEffect effect, double phase) => LightingEffects.Render(settings with { Effect = effect }, phase * 8);
+        int Peak(LightingFrame frame) => Math.Max(frame.Red, Math.Max(frame.Green, frame.Blue));
+        bool Near(LightingFrame a, LightingFrame b) => Math.Abs(a.Red - b.Red) <= 1 &&
+            Math.Abs(a.Green - b.Green) <= 1 && Math.Abs(a.Blue - b.Blue) <= 1;
+
+        Assert(At(LightingEffect.ColorShift, 0) == new LightingFrame(255, 0, 0, 0) &&
+            At(LightingEffect.ColorShift, 0.5) == new LightingFrame(0, 0, 255, 0) &&
+            At(LightingEffect.ColorShift, 0.25) == new LightingFrame(128, 0, 128, 0), "Color Shift missed its chosen colors or midpoint");
+        var sameColor = settings with { Effect = LightingEffect.ColorShift, SecondaryRed = 255, SecondaryGreen = 0, SecondaryBlue = 0 };
+        Assert(LightingEffects.Render(sameColor, 1.37) == new LightingFrame(255, 0, 0, 0), "Identical Color Shift endpoints should stay steady");
+        Assert(At(LightingEffect.Heartbeat, 0.12).Red == 255 && At(LightingEffect.Heartbeat, 0.39).Red is >= 177 and <= 179 &&
+            At(LightingEffect.Heartbeat, 0.23).Red == 0 && At(LightingEffect.Heartbeat, 0.8).Red == 0,
+            "RGB Heartbeat lost its two distinct pulses and rest");
+        Assert(At(LightingEffect.Comet, 0).Red == 0 && At(LightingEffect.Comet, 0.06).Red == 255 &&
+            At(LightingEffect.Comet, 0.4).Red > At(LightingEffect.Comet, 0.8).Red && At(LightingEffect.Comet, 1).Red == 0,
+            "Comet lost its fast flare or fading tail");
+        Assert(At(LightingEffect.Aurora, 0).Green > At(LightingEffect.Aurora, 0).Red &&
+            At(LightingEffect.Aurora, 0.5).Blue > At(LightingEffect.Aurora, 0.5).Green, "Aurora does not move from teal into violet");
+        Assert(Peak(At(LightingEffect.RainbowPulse, 0)) == 255 && Peak(At(LightingEffect.RainbowPulse, 1.0 / 6)) < 40,
+            "Rainbow Pulse does not breathe while its hue changes");
+
+        foreach (var effect in Enum.GetValues<LightingEffect>())
+        {
+            var s = settings with { Effect = effect, PlayerLights = 21, PlayerAnimation = PlayerIndicatorAnimation.Chase };
+            var colors = new HashSet<(byte, byte, byte)>();
+            foreach (var cycle in new[] { 1f, 3.7f, 60f })
+            for (var i = 0; i < 120; i++)
+            {
+                s = s with { CycleSeconds = cycle };
+                var time = i * cycle / 120.0;
+                var frame = LightingEffects.Render(s, time);
+                colors.Add((frame.Red, frame.Green, frame.Blue));
+                Assert(Near(frame, LightingEffects.Render(s, time + cycle)), $"RGB loop did not repeat: {effect}");
+                Assert(ControllerPreviewGeometry.Frame(s, true, time) == frame, $"RGB preview differs from output: {effect}");
+                var dim = LightingEffects.Render(s with { Brightness = 0.25f }, time);
+                Assert(Math.Abs(dim.Red - frame.Red * 0.25) <= 0.5 && Math.Abs(dim.Green - frame.Green * 0.25) <= 0.5 &&
+                    Math.Abs(dim.Blue - frame.Blue * 0.25) <= 0.5 && Peak(dim) <= 64, $"RGB brightness ceiling ignored: {effect}");
+                var off = LightingEffects.Render(s with { Brightness = 0 }, time);
+                var indicators = PlayerIndicatorEffects.Render(s.PlayerLights, s.PlayerAnimation, s.PlayerCycleSeconds, time);
+                Assert(Peak(off) == 0 && off.PlayerLights == indicators && frame.PlayerLights == indicators && frame.PlayerLightsImmediate,
+                    $"RGB effect changed white indicator timing or brightness: {effect}");
+                if (effect == LightingEffect.Fire)
+                    Assert(frame.Red >= frame.Green && frame.Green > frame.Blue && frame.Red >= 110, "Fire left its warm palette or became a strobe");
+            }
+            Assert(effect == LightingEffect.Solid ? colors.Count == 1 : colors.Count > 10, $"RGB effect appears frozen: {effect}");
+            var start = LightingEffects.Render(s, 0);
+            Assert(Near(start, LightingEffects.Render(s, s.CycleSeconds - 0.000001)), $"RGB loop has a visible seam: {effect}");
+            foreach (var time in new[] { -1.0, double.NaN, double.NegativeInfinity, double.PositiveInfinity })
+                Assert(LightingEffects.Render(s, time) == start, $"RGB effect mishandled invalid time: {effect}");
+            for (var i = 0; i < 100; i++)
+            {
+                var time = i * 8 / 100.0;
+                Assert(Near(LightingEffects.Render(s with { CycleSeconds = 8 }, time),
+                    LightingEffects.Render(s with { CycleSeconds = 8 }, time + 0.0001)), $"RGB animation jumps between adjacent times: {effect}");
+            }
+        }
+    }
+
+    private static async Task CheckAnimatedRgbSessions()
+    {
+        foreach (var effect in Enum.GetValues<LightingEffect>().Where(e => e != LightingEffect.Solid))
+        {
+            var foreground = true;
+            var devices = new FakeDevices(() => foreground);
+            devices.OnOpen = () => devices.Opened.Last().AllowBackground = true;
+            using var session = new LightingSession(devices, () => foreground, _ => throw new Exception($"Unexpected {effect} failure"),
+                (_, _) => new LightingFrame(0, 0, 0, 0));
+            var settings = LightingSettings.Default with { Effect = effect, CycleSeconds = 2, PlayerLights = 10 };
+            void Matches(double time)
+            {
+                var frame = LightingEffects.Render(settings, time);
+                var report = devices.Opened.Last().Reports.Last();
+                Assert(report[44] == 10 && report[45] == frame.Red && report[46] == frame.Green && report[47] == frame.Blue,
+                    $"RGB session differs from effect rendering: {effect}");
+                Assert(report[1] == 0 && report[2] == 0x14 && report.Skip(3).Take(36).All(b => b == 0),
+                    $"RGB animation enabled native haptic/audio/trigger changes: {effect}");
+            }
+            await session.TickAsync(settings, 0, default);
+            await session.TickAsync(settings, 0.24, default);
+            Matches(0.24);
+            Assert(session.WriteCount == 2, $"RGB effect did not animate without indicator animation: {effect}");
+            foreground = false;
+            await session.TickAsync(settings, 0.5, default);
+            Assert(session.HandoffCount == 1 && session.DeviceCount == 0 && devices.Opened.Last().Disposed &&
+                devices.Opened.Last().Reports.Last().Skip(44).Take(4).All(b => b == 0), $"RGB effect did not turn off and release on focus loss: {effect}");
+            await session.TickAsync(settings, 1.5, default);
+            Assert(session.WriteCount == 2 && session.HandoffCount == 1, $"RGB effect continued writing in background: {effect}");
+            foreground = true;
+            await session.TickAsync(settings, 2, default);
+            Matches(2);
+            devices.Paths = [];
+            await session.TickAsync(settings, 3, default);
+            devices.Paths = ["controller"];
+            await session.TickAsync(settings, 4.24, default);
+            Matches(4.24);
+            Assert(session.WriteCount == 4, $"RGB animation did not return after focus change and reconnect: {effect}");
         }
     }
 

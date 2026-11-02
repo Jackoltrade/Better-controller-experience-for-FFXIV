@@ -4,12 +4,14 @@ using System;
 
 namespace DualSenseLighting.Core;
 
-public enum LightingEffect { Solid, Rainbow, Breathing }
+// Append effects so saved Solid/Rainbow/Breathing selections retain their numeric values.
+public enum LightingEffect { Solid, Rainbow, Breathing, ColorShift, Aurora, Fire, Heartbeat, Comet, RainbowPulse }
 
 public sealed record LightingSettings(
     bool Enabled, LightingEffect Effect, byte Red, byte Green, byte Blue,
     float Brightness, float CycleSeconds, byte PlayerLights,
-    PlayerIndicatorAnimation PlayerAnimation = PlayerIndicatorAnimation.Steady, float PlayerCycleSeconds = 2)
+    PlayerIndicatorAnimation PlayerAnimation = PlayerIndicatorAnimation.Steady, float PlayerCycleSeconds = 2,
+    byte SecondaryRed = 0, byte SecondaryGreen = 160, byte SecondaryBlue = 255)
 {
     public static LightingSettings Default { get; } = new(true, LightingEffect.Solid, 119, 255, 0, 1, 8, 0);
 

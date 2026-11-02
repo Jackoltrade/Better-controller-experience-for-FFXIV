@@ -13,6 +13,9 @@ public sealed class Configuration : IPluginConfiguration
     public byte Red { get; set; } = 119;
     public byte Green { get; set; } = 255;
     public byte Blue { get; set; }
+    public byte SecondaryRed { get; set; }
+    public byte SecondaryGreen { get; set; } = 160;
+    public byte SecondaryBlue { get; set; } = 255;
     public float Brightness { get; set; } = 1;
     public float CycleSeconds { get; set; } = 8;
     public byte PlayerLights { get; set; }
@@ -20,5 +23,6 @@ public sealed class Configuration : IPluginConfiguration
     public float PlayerCycleSeconds { get; set; } = 2;
 
     public LightingSettings Snapshot() => new LightingSettings(Enabled, Effect, Red, Green, Blue,
-        Brightness, CycleSeconds, PlayerLights, PlayerAnimation, PlayerCycleSeconds).Normalize();
+        Brightness, CycleSeconds, PlayerLights, PlayerAnimation, PlayerCycleSeconds,
+        SecondaryRed, SecondaryGreen, SecondaryBlue).Normalize();
 }

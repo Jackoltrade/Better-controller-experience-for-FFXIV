@@ -20,7 +20,8 @@ DualSense Edge controllers**. Bluetooth transport is not implemented.
 
 Open `/ds5light` or the plugin's configuration button to change:
 
-- Solid color, rainbow color cycle, or breathing effect.
+- Nine RGB effects: Solid, Rainbow, Breathing, Color Shift, Aurora, Fire,
+  Heartbeat, Comet and Rainbow Pulse.
 - RGB color, brightness, and animation period.
 - Player indicators: off or one through five lights, animation, and independent timing.
 
@@ -28,6 +29,30 @@ Settings are saved through Dalamud and reapplied after reconnecting. The setting
 apply to all supported USB controllers connected to this game process. The
 controller exposes one lightbar RGB color; a spatial wave with independently
 addressed LEDs is not available through this protocol.
+
+### RGB animations
+
+| Effect | Behavior | Color controls |
+| --- | --- | --- |
+| Solid | Holds a constant color | Your color |
+| Rainbow | Travels smoothly around the full color spectrum | Automatic |
+| Breathing | Gently fades in and out | Your color |
+| Color Shift | Blends between two colors and back | Your color and Second color |
+| Aurora | Teal, blue and violet drift with a soft shimmer | Preset palette |
+| Fire | Warm ember-to-gold flicker with overlapping rhythms | Preset palette |
+| Heartbeat | One bright pulse, a softer echo, then a pause | Your color |
+| Comet | A quick flare with a long fading afterglow | Your color |
+| Rainbow Pulse | Cycles the spectrum with three breaths per loop | Automatic |
+
+Brightness applies to every RGB effect. The lightbar cycle slider sets a complete
+loop (1–60 seconds), independently of the white indicator animation. Both side
+lightpipes share the same color and brightness. The live preview uses exactly the
+same effect calculation as controller output, including Fire's repeatable flicker.
+Color Shift's second color is saved with the rest of the settings. Existing saved
+Solid, Rainbow and Breathing selections keep their original meaning.
+
+Try Aurora with a 12-second cycle for a slow shimmer, Fire at 3 seconds for an
+energetic flicker, or Comet at 2 seconds with your favorite color.
 
 ### Player indicator animations
 
@@ -64,7 +89,7 @@ the update does not start an animation until one is selected.
 The top of `/ds5light` shows a centered touchpad close-up with a white touchpad,
 tapered RGB lightpipes and five white player indicators along the lower rim.
 The D-pad and action-button details are omitted to keep the preview focused on lighting.
-Color, brightness, rainbow and breathing use the same effect engine and clock as
+All RGB effects and brightness use the same effect engine and clock as
 the hardware output. Player indicators follow the actual five-bit masks, including
 the centered single light, inner pair, outer pair plus center, and four-light layout.
 Their centers are deliberately not five equally spaced positions. The white marks
@@ -175,7 +200,9 @@ write timeouts, cancellation, Steam preference validation and account/controller
 matching, one-time handoffs, and foreground return during a profile read.
 Preview checks cover embedded artwork, aspect ratio and mask alignment, player
 positions and bitmasks, animation phase/color agreement, and paused/disabled states.
-Indicator-animation checks cover every effect and count, cycle boundaries, effect-specific
+RGB-animation checks cover color endpoints, pulse timing, seamless loops,
+brightness limits, independent player indicators and lifecycle behavior for every
+effect. Indicator-animation checks cover every effect and count, cycle boundaries, effect-specific
 count/range behavior, the LED-only immediate-update flag, independent
 output with solid RGB, and animation resume/reconnect/release behavior.
 
