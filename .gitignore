@@ -1,0 +1,20 @@
+# .NET build and test artifacts
+**/bin/
+**/obj/
+TestResults/
+
+# IDE and local tooling state
+.vs/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+.agents/
+.aws/
+.codex/
+
+# Logs and operating system files
+*.log
+.DS_Store
+Thumbs.db
