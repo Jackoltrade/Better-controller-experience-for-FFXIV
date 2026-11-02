@@ -48,7 +48,7 @@ public sealed class LightingSession : IDisposable
         this.backgroundLighting = backgroundLighting;
     }
 
-    public async Task TickAsync(LightingSettings settings, double seconds, CancellationToken cancellationToken)
+    public async Task TickAsync(LightingSettings settings, double seconds, CancellationToken cancellationToken, float sfxLevel = 0)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (!settings.Enabled || !isForeground())
@@ -64,7 +64,7 @@ public sealed class LightingSession : IDisposable
             catch (Exception error) { Dispose(); nextScan = seconds + 1; onError(error); return; }
         }
 
-        var frame = LightingEffects.Render(settings, seconds);
+        var frame = LightingEffects.Render(settings, seconds, sfxLevel);
         foreach (var path in open.Keys.ToArray())
         {
             cancellationToken.ThrowIfCancellationRequested();

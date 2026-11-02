@@ -30,7 +30,7 @@ if "--probe" in sys.argv:
     subprocess.run([dotnet, plan["Checks"], "--probe"], check=True)
 output = Path(wsl_path(plan["Plugin"])).parent
 shutil.copy2(ROOT / "src/DualSenseLighting/DualSenseLighting.json", output)
-for name in ["LICENSE.txt", "LICENSE-HidLibrary.txt", "THIRD-PARTY-NOTICES.txt"]:
+for name in ["LICENSE.txt", "LICENSE-HidLibrary.txt", "LICENSE-FFXIVClientStructs.txt", "THIRD-PARTY-NOTICES.txt"]:
     shutil.copy2(ROOT / name, output)
 publish = ROOT / "artifacts/plugin"
 publish.mkdir(parents=True, exist_ok=True)

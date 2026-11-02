@@ -24,6 +24,8 @@ internal static class Program
         CheckReports();
         CheckEffects();
         CheckRgbAnimations();
+        CheckSfxLoudness();
+        CheckSfxAudioLayout();
         CheckPlayerAnimations();
         CheckControllerPreview();
         CheckSteamProfiles();
@@ -41,6 +43,7 @@ internal static class Program
         await CheckHandoffFailure();
         await CheckAnimatedIndicatorSession();
         await CheckAnimatedRgbSessions();
+        await CheckSfxSession();
         Console.WriteLine($"Passed {checks:N0} lighting checks: native report preservation, background guard, effects, focus transitions, reconnect and cancellation.");
     }
 
@@ -149,7 +152,7 @@ internal static class Program
         Assert(Peak(At(LightingEffect.RainbowPulse, 0)) == 255 && Peak(At(LightingEffect.RainbowPulse, 1.0 / 6)) < 40,
             "Rainbow Pulse does not breathe while its hue changes");
 
-        foreach (var effect in Enum.GetValues<LightingEffect>())
+        foreach (var effect in Enum.GetValues<LightingEffect>().Where(e => e != LightingEffect.SfxLoudness))
         {
             var s = settings with { Effect = effect, PlayerLights = 21, PlayerAnimation = PlayerIndicatorAnimation.Chase };
             var colors = new HashSet<(byte, byte, byte)>();
@@ -188,7 +191,7 @@ internal static class Program
 
     private static async Task CheckAnimatedRgbSessions()
     {
-        foreach (var effect in Enum.GetValues<LightingEffect>().Where(e => e != LightingEffect.Solid))
+        foreach (var effect in Enum.GetValues<LightingEffect>().Where(e => e is not (LightingEffect.Solid or LightingEffect.SfxLoudness)))
         {
             var foreground = true;
             var devices = new FakeDevices(() => foreground);
@@ -225,6 +228,182 @@ internal static class Program
             Matches(4.24);
             Assert(session.WriteCount == 4, $"RGB animation did not return after focus change and reconnect: {effect}");
         }
+    }
+
+    private static void CheckSfxLoudness()
+    {
+        var meter = new SfxLoudness();
+        float[] samples = [0.2f, -0.2f, 0.2f, -0.2f];
+        var original = (float[])samples.Clone();
+        meter.Observe(samples);
+        Assert(meter.TakePeak() == 0, "SFX was recorded before opting in");
+        meter.SetActive(true);
+        meter.Observe(samples);
+        Assert(Math.Abs(meter.TakePeak() - 0.2f) < 0.00001 && samples.SequenceEqual(original), "SFX RMS is incorrect or modified playback samples");
+        Assert(meter.TakePeak() == 0, "SFX observation was replayed twice");
+        meter.Observe([0.4f, -0.4f]);
+        meter.Observe([0.1f, -0.1f]);
+        meter.Observe([0, 0]);
+        Assert(Math.Abs(meter.TakePeak() - 0.4f) < 0.00001, "Quiet concurrent voices diluted an impact");
+        foreach (var invalid in new[] { float.NaN, float.PositiveInfinity, float.NegativeInfinity, 1000f })
+        {
+            meter.Observe([0.2f, invalid]);
+            Assert(meter.TakePeak() == 0, "Invalid native sample caused a flash");
+        }
+        meter.Observe([2, -2]);
+        Assert(meter.TakePeak() == 1, "Loud audio did not saturate safely");
+        var oldGeneration = meter.Generation;
+        meter.Observe(samples);
+        meter.SetActive(false);
+        Assert(meter.TakePeak() == 0, "Focus loss retained pending SFX");
+        meter.SetActive(true);
+        meter.Observe(samples, oldGeneration);
+        Assert(meter.TakePeak() == 0, "A callback spanning Alt-Tab republished stale audio after focus return");
+        meter.Observe(samples);
+        Assert(meter.TakePeak() > 0, "New SFX did not recover after focus return");
+
+        // A warmed audio callback must not allocate; buffers already belong to the game.
+        for (var i = 0; i < 20; i++) { meter.Observe(samples); meter.TakePeak(); }
+        var allocated = GC.GetAllocatedBytesForCurrentThread();
+        for (var i = 0; i < 1000; i++) { meter.Observe(samples); meter.TakePeak(); }
+        Assert(GC.GetAllocatedBytesForCurrentThread() == allocated, "SFX callback allocated on the audio thread");
+
+        var left = new SfxEnvelope(); var right = new SfxEnvelope();
+        var timingSettings = LightingSettings.Default;
+        left.Update(1, 0, timingSettings, true); right.Update(1, 0, timingSettings, true);
+        for (var i = 1; i < 60; i++) right.Update(0, i / 60.0, timingSettings, true);
+        Assert(Math.Abs(left.Update(0, 1, timingSettings, true) - right.Update(0, 1, timingSettings, true)) < 0.00001,
+            "SFX decay depends on UI frame rate or polling frequency");
+
+        var settings = LightingSettings.Default with { Effect = LightingEffect.SfxLoudness };
+        var envelope = new SfxEnvelope();
+        Assert(envelope.Update(0.001f, 0, settings, true) == 0, "SFX noise gate did not suppress quiet noise");
+        var peak = envelope.Update(0.052f, 0.033, settings, true);
+        Assert(Math.Abs(peak - 0.4f) < 0.00001, "SFX sensitivity did not scale the measured loudness");
+        var faded = envelope.Update(0, 0.213, settings, true);
+        Assert(Math.Abs(faded - peak / Math.E) < 0.00001, "SFX release time does not follow its configured decay");
+        Assert(envelope.Update(0, 0.213, settings, true) == faded, "Reading the same moment advanced the envelope");
+        Assert(envelope.Update(0, 10, settings, true) == 0, "A stalled audio source left a stale light on");
+        Assert(envelope.Update(1, 11, settings, true) == 1 && envelope.Update(1, 11.1, settings, false) == 0,
+            "SFX envelope did not reset immediately when disabled or backgrounded");
+        Assert(envelope.Update(0, 12, settings, true) == 0, "Old SFX returned when resuming from background");
+        foreach (var invalid in new[] { double.NaN, double.PositiveInfinity, double.NegativeInfinity, -1.0 })
+            Assert(envelope.Update(1, invalid, settings, true) == 0, "Invalid audio clock caused a flash");
+        envelope.Update(1, 20, settings, true);
+        Assert(envelope.Update(1, 19, settings, true) == 0, "Clock reset retained an old envelope");
+        var normalized = (settings with { SfxSensitivity = float.NaN, SfxNoiseGate = -1, SfxReleaseSeconds = float.PositiveInfinity }).Normalize();
+        Assert(normalized.SfxSensitivity == 8 && normalized.SfxNoiseGate == 0 && normalized.SfxReleaseSeconds == 0.18f,
+            "Invalid SFX controls were not normalized");
+        foreach (var sensitivity in new[] { 1f, 8f, 32f })
+        {
+            var automatic = settings with { SfxSensitivity = sensitivity, SfxNoiseGate = 0.05f };
+            var autoEnvelope = new SfxEnvelope();
+            Assert(autoEnvelope.Update(0.008f / sensitivity, 0, automatic, true) == 0,
+                "Automatic gate did not suppress the same faint light level across sensitivities");
+            Assert(Math.Abs(autoEnvelope.Update(0.216f / sensitivity, 0.033, automatic, true) - 0.2f) < 0.00001,
+                "Automatic gate changed a skill's scaled response or used a hidden manual threshold");
+        }
+        Assert(new SfxEnvelope().Update(0.01f, 0, settings with { SfxAutomaticGate = false, SfxNoiseGate = 0.05f }, true) == 0 &&
+            new SfxEnvelope().Update(0.01f, 0, settings with { SfxAutomaticGate = false, SfxNoiseGate = 0 }, true) > 0,
+            "Advanced manual noise-gate override was ignored");
+
+        foreach (var animation in Enum.GetValues<PlayerIndicatorAnimation>())
+        foreach (var level in new[] { -1f, 0, 0.25f, 0.8f, 1, 5, float.NaN, float.PositiveInfinity })
+        {
+            var s = settings with { Red = 255, Green = 128, Blue = 64, Brightness = 0.5f, PlayerLights = 27, PlayerAnimation = animation };
+            var frame = LightingEffects.Render(s, 0.37, level);
+            Assert(ControllerPreviewGeometry.Frame(s, true, 0.37, level) == frame, "SFX preview and hardware use different loudness");
+            Assert(ControllerPreviewGeometry.Frame(s, false, 0.37, level) == default, "SFX preview remained on in background");
+            Assert(frame.PlayerLights == PlayerIndicatorEffects.Render(s.PlayerLights, animation, s.PlayerCycleSeconds, 0.37),
+                "SFX loudness changed an independent white indicator animation");
+            Assert(frame.Red <= 128 && frame.Green <= 64 && frame.Blue <= 32, "SFX ignored the brightness ceiling");
+            var later = LightingEffects.Render(s, 3.14, level);
+            Assert(later.Red == frame.Red && later.Green == frame.Green && later.Blue == frame.Blue,
+                "SFX RGB consumers drifted by calculating separate time envelopes");
+            if (!float.IsFinite(level) || level <= 0) Assert(frame.Red == 0 && frame.Green == 0 && frame.Blue == 0, "Invalid or silent SFX input illuminated RGB");
+            foreach (var length in new[] { 48, 63, 64 })
+            {
+                var report = Enumerable.Range(0, length).Select(i => (byte)(i * 13)).ToArray(); report[0] = 2;
+                var originalReport = (byte[])report.Clone();
+                DualSenseReport.Apply(report, true, true, frame);
+                for (var i = 0; i < length; i++)
+                    if (i != 2 && i != 39 && i != 42 && i != 43 && (i < 44 || i > 47))
+                        Assert(report[i] == originalReport[i], "SFX lighting changed native haptic, audio or trigger bytes");
+            }
+        }
+    }
+
+    private static unsafe void CheckSfxAudioLayout()
+    {
+        for (byte bus = 0; bus <= 20; bus++)
+        for (uint flags = 0; flags < 128; flags++)
+            Assert(GameAudioLayout.IsCombatSound(bus, flags) == ((bus == 2 || bus == 10) && (flags & 4) == 0),
+                "SFX filter included music, voices, ambience, footsteps or vibration-only audio");
+        Assert(GameAudioLayout.SampleCount(256, 8, 0, 0) == 2048 && GameAudioLayout.SampleCount(256, 8, 1, 1) == 4096,
+            "Native audio sample span has an incorrect size");
+        Assert(GameAudioLayout.SampleCount(512, 8, 0, 0) == 0 && GameAudioLayout.SampleCount(256, 2, 0, 0) == 0 &&
+            GameAudioLayout.SampleCount(256, 8, 2, 0) == 0 && GameAudioLayout.SampleCount(256, 8, 0, 2) == 0,
+            "An unsupported mixer layout was accepted");
+        GameAudioLayout.SourceVoice source = default;
+        GameAudioLayout.VoiceOwner owner = default;
+        GameAudioLayout.Track track = default;
+        GameAudioLayout.RootSound sound = default;
+        const int vtable = 0x112233;
+        source.State = 3; source.QueuedBufferCount = 1; source.SendCount = 1; source.Pitch = 1; source.Volume = 1;
+        source.Callback = (nint)(&owner.CallbackVTable);
+        owner.CallbackVTable = vtable; owner.Source = &source; owner.Track = &track;
+        track.Voice = &owner; track.Owner = &sound; sound.BusId = 2;
+        Assert(GameAudioLayout.IsCombatVoice(&source, vtable), "A combat voice was rejected");
+        source.Volume = 0;
+        Assert(!GameAudioLayout.IsCombatVoice(&source, vtable), "A muted voice exposed stale mixer scratch samples");
+        source.PreviousVolume = 1;
+        Assert(GameAudioLayout.IsCombatVoice(&source, vtable), "A real fade-out block was incorrectly discarded");
+        source.Volume = 1; source.PreviousVolume = 0;
+        sound.BusId = 10; sound.ExtendedFlags = 2;
+        Assert(GameAudioLayout.IsCombatVoice(&source, vtable), "Audible combat audio with a native haptic send was rejected");
+        sound.ExtendedFlags = 4;
+        Assert(!GameAudioLayout.IsCombatVoice(&source, vtable), "Vibration-only audio triggered RGB");
+        sound.ExtendedFlags = 0;
+        Assert(!GameAudioLayout.IsCombatVoice(&source, vtable + 1), "An unknown callback type was interpreted as a game voice");
+        track.Voice = null;
+        Assert(!GameAudioLayout.IsCombatVoice(&source, vtable), "Broken voice ownership was accepted");
+        track.Voice = &owner; owner.Source = null;
+        Assert(!GameAudioLayout.IsCombatVoice(&source, vtable), "A reused voice owner was accepted");
+        owner.Source = &source; source.State = 0;
+        Assert(!GameAudioLayout.IsCombatVoice(&source, vtable), "An inactive voice triggered RGB");
+    }
+
+    private static async Task CheckSfxSession()
+    {
+        var foreground = true;
+        var devices = new FakeDevices(() => foreground);
+        devices.OnOpen = () => devices.Opened.Last().AllowBackground = true;
+        using var session = new LightingSession(devices, () => foreground, _ => throw new Exception("Unexpected SFX HID failure"),
+            (_, _) => new LightingFrame(0, 0, 0, 0));
+        var settings = LightingSettings.Default with { Effect = LightingEffect.SfxLoudness, PlayerLights = 10 };
+        await session.TickAsync(settings, 0, default, 0);
+        await session.TickAsync(settings, 0.033, default, 0.8f);
+        var preview = ControllerPreviewGeometry.Frame(settings, true, 0.033, 0.8f);
+        var report = devices.Opened.Last().Reports.Last();
+        Assert(report[45] == preview.Red && report[46] == preview.Green && report[47] == preview.Blue && report[44] == preview.PlayerLights,
+            "The actual SFX output report diverged from the preview");
+        foreground = false;
+        await session.TickAsync(settings, 0.066, default, 1);
+        await session.TickAsync(settings, 0.1, default, 1);
+        Assert(session.HandoffCount == 1 && session.WriteCount == 2 && devices.Opened.All(d => d.Disposed) &&
+            devices.Opened.Last().Reports.Last().Skip(44).Take(4).All(b => b == 0), "SFX did not turn off once and release on focus loss");
+        foreground = true;
+        await session.TickAsync(settings, 1, default, 0);
+        Assert(devices.Opened.Last().Reports.Last().Skip(45).Take(3).All(b => b == 0), "SFX resumed an old flash before a new sound arrived");
+        devices.Paths = []; await session.TickAsync(settings, 2, default, 0);
+        devices.Paths = ["controller"]; await session.TickAsync(settings, 3, default, 0.5f);
+        var reconnect = devices.Opened.Last().Reports.Last();
+        Assert(reconnect[46] == 128 && reconnect[44] == 10, "SFX did not recover after replugging");
+        await session.TickAsync(settings with { Enabled = false }, 3.1, default, 1);
+        Assert(session.HandoffCount == 2 && session.DeviceCount == 0, "Disabling SFX did not perform lights-off release");
+        foreach (var device in devices.Opened)
+        foreach (var sent in device.Reports)
+            Assert(sent[1] == 0 && sent.Skip(3).Take(36).All(b => b == 0), "SFX session wrote native haptic or audio controls");
     }
 
     private static async Task CheckOwnership()

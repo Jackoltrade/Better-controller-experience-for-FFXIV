@@ -20,8 +20,8 @@ DualSense Edge controllers**. Bluetooth transport is not implemented.
 
 Open `/ds5light` or the plugin's configuration button to change:
 
-- Nine RGB effects: Solid, Rainbow, Breathing, Color Shift, Aurora, Fire,
-  Heartbeat, Comet and Rainbow Pulse.
+- Ten RGB effects: Solid, Rainbow, Breathing, Color Shift, Aurora, Fire,
+  Heartbeat, Comet, Rainbow Pulse and SFX Loudness (Prototype).
 - RGB color, brightness, and animation period.
 - Player indicators: off or one through five lights, animation, and independent timing.
 
@@ -43,6 +43,7 @@ addressed LEDs is not available through this protocol.
 | Heartbeat | One bright pulse, a softer echo, then a pause | Your color |
 | Comet | A quick flare with a long fading afterglow | Your color |
 | Rainbow Pulse | Cycles the spectrum with three breaths per loop | Automatic |
+| SFX Loudness (Prototype) | Brightens with measured combat-sound energy, then fades | Your color |
 
 Brightness applies to every RGB effect. The lightbar cycle slider sets a complete
 loop (1–60 seconds), independently of the white indicator animation. Both side
@@ -53,6 +54,69 @@ Solid, Rainbow and Breathing selections keep their original meaning.
 
 Try Aurora with a 12-second cycle for a slow shimmer, Fire at 3 seconds for an
 energetic flicker, or Comet at 2 seconds with your favorite color.
+
+### Combat SFX loudness prototype
+
+Select **SFX Loudness (Prototype)** in `/ds5light` to opt in. The lightbar uses your
+chosen color and the main brightness ceiling. **SFX sensitivity** scales the input,
+and **SFX fade** controls the decay. The noise gate is automatic by default, so
+there is no separate threshold to tune during normal use.
+The level meter and controller preview share the same envelope value used by the
+controller worker and the native game-output guard. White indicators keep their
+independent count, animation and timing.
+
+The gate prevents very quiet sounds and faint tails from causing low-level LED
+flicker; it does not change game audio. Its automatic threshold follows sensitivity
+to keep a small 1.6% dead zone in the lighting response. At the default sensitivity,
+it matches the 0.002 RMS threshold used in the successful live prototype test.
+This is a conservative default, not a learned estimate that could mistake quiet
+skills for background noise. A manual override remains under **Advanced SFX
+settings** for unusual setups.
+
+This prototype reads decoded combat voices on the game's SE and CommonVFX buses.
+It excludes music, voice dialogue, ambience, footsteps, system sounds and
+vibration-only sounds. It includes combat SFX from other players and enemies;
+local-player-only attribution is not implemented. It does not use the broader
+built-in FFT group, which also includes voices and ambience.
+
+For each lighting tick, the observer keeps the loudest combat voice's RMS from
+the preceding interval. This retains short impacts without diluting them with
+quiet voices. It is a per-voice energy proxy, not a reconstruction of the final
+mixed waveform. Samples are measured after source volume, panning and effects,
+before the master/device volume. Increasing the SFX volume can change the response.
+
+The optional observer is installed only when SFX mode is first selected. Its native
+render hook always calls the original playback exactly once with the original
+arguments and return value. Analysis only reads the sample buffer; it never
+changes playback, sound routing or haptic/speaker audio. Its hot path has no HID
+writes, logging, file access or managed allocations. A bounded atomic handoff
+feeds the existing lighting worker at approximately 30 updates per second.
+Silent voices are excluded using the mixer's current/previous volume threshold,
+so their reused scratch memory cannot be mistaken for new audio. Initial signature
+scanning runs off the game frame thread; unload joins any pending initialization.
+
+Focus loss immediately hides the custom preview, resets the audio envelope on the
+next worker tick, and performs the existing one-time lights-off release. Pending
+audio blocks are discarded across focus changes, disabling or switching modes,
+including callbacks that span a focus change. Returning to FFXIV waits for fresh
+SFX; unplugging/replugging reapplies the saved mode. The existing native controller
+report guard still preserves haptic, speaker and trigger fields.
+
+The native bindings were checked against the local game build
+`2026.10.06.0000.0000` and upstream FFXIVClientStructs revision
+`b69073ae2d789527fc1b9a78aa7aa590e0f299dc`. Signatures must be unique, source-layout
+instruction checks must match, and the native callback type and ownership links
+must agree before inspecting samples. The prototype accepts the validated
+256-frame, eight-channel layout, plus its 16-channel ambisonic variant. If setup
+fails, the settings window reports the error and other lighting modes remain
+available. New game versions may require updated bindings.
+
+Automated checks cover RMS, noise rejection, decay, stale-callback rejection,
+preview/output agreement, bus filtering and unchanged native controller bytes.
+On 2026-11-02, the user confirmed v0.5.0 passed live SFX/preview synchronization,
+native haptic and controller-speaker effects, and lights-off release/return on
+Alt-Tab. The later muted-voice guard, background initialization and automatic gate
+are covered by automated checks; their final in-game verification is pending.
 
 ### Player indicator animations
 

@@ -21,8 +21,12 @@ public sealed class Configuration : IPluginConfiguration
     public byte PlayerLights { get; set; }
     public PlayerIndicatorAnimation PlayerAnimation { get; set; } = PlayerIndicatorAnimation.Steady;
     public float PlayerCycleSeconds { get; set; } = 2;
+    public float SfxSensitivity { get; set; } = 8;
+    public float SfxNoiseGate { get; set; } = 0.002f;
+    public float SfxReleaseSeconds { get; set; } = 0.18f;
+    public bool SfxAutomaticGate { get; set; } = true;
 
     public LightingSettings Snapshot() => new LightingSettings(Enabled, Effect, Red, Green, Blue,
         Brightness, CycleSeconds, PlayerLights, PlayerAnimation, PlayerCycleSeconds,
-        SecondaryRed, SecondaryGreen, SecondaryBlue).Normalize();
+        SecondaryRed, SecondaryGreen, SecondaryBlue, SfxSensitivity, SfxNoiseGate, SfxReleaseSeconds, SfxAutomaticGate).Normalize();
 }

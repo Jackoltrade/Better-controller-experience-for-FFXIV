@@ -22,7 +22,7 @@ internal sealed class ControllerPreview
         geometry = ControllerPreviewGeometry.Load(stream);
     }
 
-    internal void Draw(LightingSettings settings, bool foreground, double seconds)
+    internal void Draw(LightingSettings settings, bool foreground, double seconds, float sfxLevel = 0)
     {
         var uiScale = ImGui.GetFontSize() / 17f;
         var width = 420 * uiScale;
@@ -42,7 +42,7 @@ internal sealed class ControllerPreview
         if (ready)
         {
             var scale = width / geometry.Size.X;
-            var frame = ControllerPreviewGeometry.Frame(settings, foreground, seconds);
+            var frame = ControllerPreviewGeometry.Frame(settings, foreground, seconds, sfxLevel);
             var peak = Math.Max(frame.Red, Math.Max(frame.Green, frame.Blue));
             var lightbar = textures.GetFromManifestResource(typeof(ControllerPreview).Assembly, ControllerPreviewGeometry.LightbarResource);
             if (peak > 0 && lightbar.TryGetWrap(out var lightbarWrap, out _))

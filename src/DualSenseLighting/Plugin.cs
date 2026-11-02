@@ -14,7 +14,7 @@ using DualSenseLighting.Core;
 using DualSenseLighting.Windows;
 using DualSenseLighting.Ui;
 
-[assembly: System.Reflection.AssemblyVersion("0.4.0.0")]
+[assembly: System.Reflection.AssemblyVersion("0.5.2.0")]
 
 namespace DualSenseLighting;
 
@@ -32,6 +32,13 @@ public sealed class Plugin : IDalamudPlugin
     private readonly GameOutputGuard guard;
     private readonly Task worker;
     private readonly ControllerPreview preview;
+    private readonly IGameInteropProvider interop;
+    private readonly ISigScanner scanner;
+    private readonly SfxEnvelope sfxEnvelope = new();
+    private SfxAudioCapture? audioCapture;
+    private Task<SfxAudioCapture>? audioInitialization;
+    private string? audioError;
+    private float sfxLevel, sfxRms;
     private LightingSettings settings;
     private bool windowOpen;
     private double saveAt = double.PositiveInfinity;
@@ -39,12 +46,14 @@ public sealed class Plugin : IDalamudPlugin
     private bool reportedGuardError;
 
     public Plugin(IDalamudPluginInterface pluginInterface, ICommandManager commands,
-        IFramework framework, IGameInteropProvider interop, IPluginLog log, ITextureProvider textures)
+        IFramework framework, IGameInteropProvider interop, IPluginLog log, ITextureProvider textures, ISigScanner scanner)
     {
         this.pluginInterface = pluginInterface;
         this.commands = commands;
         this.framework = framework;
         this.log = log;
+        this.interop = interop;
+        this.scanner = scanner;
         if (pluginInterface.InstalledPlugins.Any(p => p.InternalName == "SteamLightingGuard" && p.IsLoaded))
             throw new InvalidOperationException("Disable the older Steam Lighting Guard before loading DualSense Lighting.");
         configuration = pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
@@ -52,7 +61,8 @@ public sealed class Plugin : IDalamudPlugin
         preview = new ControllerPreview(textures);
         session = new LightingSession(new HidDevices(), Native.IsCurrentProcessForeground, ReportError,
             (_, _) => new LightingFrame(0, 0, 0, 0));
-        guard = new GameOutputGuard(interop, () => Volatile.Read(ref settings), () => clock.Elapsed.TotalSeconds);
+        guard = new GameOutputGuard(interop, () => Volatile.Read(ref settings), () => clock.Elapsed.TotalSeconds,
+            () => Volatile.Read(ref sfxLevel));
         try
         {
             commands.AddHandler(Command, new CommandInfo(OnCommand) { HelpMessage = "Configure DualSense lighting while FFXIV is active." });
@@ -84,12 +94,27 @@ public sealed class Plugin : IDalamudPlugin
             using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(33));
             do
             {
-                await session.TickAsync(Volatile.Read(ref settings), clock.Elapsed.TotalSeconds, stop.Token).ConfigureAwait(false);
+                var snapshot = Volatile.Read(ref settings);
+                var seconds = clock.Elapsed.TotalSeconds;
+                var capture = Volatile.Read(ref audioCapture);
+                var active = snapshot.Enabled && snapshot.Effect == LightingEffect.SfxLoudness &&
+                    Native.IsCurrentProcessForeground() && capture != null && !capture.Faulted && capture.LayoutSupported;
+                capture?.Loudness.SetActive(active);
+                var rms = active ? capture!.Loudness.TakePeak() : 0;
+                Volatile.Write(ref sfxRms, rms);
+                var level = sfxEnvelope.Update(rms, seconds, snapshot, active);
+                Volatile.Write(ref sfxLevel, level);
+                await session.TickAsync(snapshot, seconds, stop.Token, level).ConfigureAwait(false);
             } while (await timer.WaitForNextTickAsync(stop.Token).ConfigureAwait(false));
         }
         catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
         catch (Exception error) { ReportError(error); }
-        finally { await session.ReleaseAsync(true, CancellationToken.None).ConfigureAwait(false); }
+        finally
+        {
+            Volatile.Read(ref audioCapture)?.Loudness.SetActive(false);
+            Volatile.Write(ref sfxLevel, 0);
+            await session.ReleaseAsync(true, CancellationToken.None).ConfigureAwait(false);
+        }
     }
 
     private void ReportError(Exception error)
@@ -104,6 +129,20 @@ public sealed class Plugin : IDalamudPlugin
 
     private void Update(IFramework _)
     {
+        // Scanning a large executable must not block a game frame. The optional observer
+        // remains inactive until its completed initialization is published to the worker.
+        var snapshot = Volatile.Read(ref settings);
+        if (audioInitialization == null && snapshot.Enabled && snapshot.Effect == LightingEffect.SfxLoudness)
+            audioInitialization = Task.Run(() => new SfxAudioCapture(interop, scanner));
+        if (audioInitialization?.IsCompleted == true && Volatile.Read(ref audioCapture) == null && audioError == null)
+        {
+            try { Volatile.Write(ref audioCapture, audioInitialization.GetAwaiter().GetResult()); }
+            catch (Exception error)
+            {
+                audioError = error.Message;
+                log.Warning(error, "SFX lighting prototype unavailable; other lighting modes remain available.");
+            }
+        }
         if (clock.Elapsed.TotalSeconds >= saveAt) Save();
         if (!reportedGuardError && guard.Errors > 0)
         {
@@ -149,7 +188,7 @@ public sealed class Plugin : IDalamudPlugin
         try
         {
             var foreground = Native.IsCurrentProcessForeground();
-            preview.Draw(Volatile.Read(ref settings), foreground, clock.Elapsed.TotalSeconds);
+            preview.Draw(Volatile.Read(ref settings), foreground, clock.Elapsed.TotalSeconds, Volatile.Read(ref sfxLevel));
             ImGui.TextUnformatted(foreground ? "FFXIV active" : "Background protected — custom output paused");
             ImGui.TextUnformatted($"Connected USB controllers: {session.DeviceCount}");
             ImGui.Separator();
@@ -158,7 +197,7 @@ public sealed class Plugin : IDalamudPlugin
             var effect = (int)settings.Effect;
             ImGui.Separator();
             ImGui.TextDisabled("Lightbar");
-            if (ImGui.Combo("Lightbar effect", ref effect, "Solid\0Rainbow\0Breathing\0Color Shift\0Aurora\0Fire\0Heartbeat\0Comet\0Rainbow Pulse\0"))
+            if (ImGui.Combo("Lightbar effect", ref effect, "Solid\0Rainbow\0Breathing\0Color Shift\0Aurora\0Fire\0Heartbeat\0Comet\0Rainbow Pulse\0SFX Loudness (Prototype)\0"))
             { configuration.Effect = (LightingEffect)effect; Changed(); }
             if (settings.Effect != LightingEffect.Solid)
             {
@@ -172,6 +211,7 @@ public sealed class Plugin : IDalamudPlugin
                     LightingEffect.Heartbeat => "A bright beat, a softer echo, then a pause.",
                     LightingEffect.Comet => "A quick flare trails into a long fading glow.",
                     LightingEffect.RainbowPulse => "Rainbow colors breathe three times per cycle.",
+                    LightingEffect.SfxLoudness => "Combat sounds brighten your color, then fade naturally.",
                     _ => "",
                 });
             }
@@ -180,7 +220,39 @@ public sealed class Plugin : IDalamudPlugin
             var brightness = settings.Brightness;
             if (ImGui.SliderFloat("Brightness", ref brightness, 0, 1, "%.2f"))
             { configuration.Brightness = brightness; Changed(); }
-            if (settings.Effect != LightingEffect.Solid)
+            if (settings.Effect == LightingEffect.SfxLoudness)
+            {
+                var sensitivity = settings.SfxSensitivity;
+                if (ImGui.SliderFloat("SFX sensitivity", ref sensitivity, 1, 32, "%.1fx"))
+                { configuration.SfxSensitivity = sensitivity; Changed(); }
+                var release = settings.SfxReleaseSeconds;
+                if (ImGui.SliderFloat("SFX fade (seconds)", ref release, 0.05f, 1, "%.2f"))
+                { configuration.SfxReleaseSeconds = release; Changed(); }
+                if (ImGui.CollapsingHeader("Advanced SFX settings"))
+                {
+                    var automatic = settings.SfxAutomaticGate;
+                    if (ImGui.Checkbox("Automatic noise gate", ref automatic))
+                    { configuration.SfxAutomaticGate = automatic; Changed(); }
+                    if (settings.SfxAutomaticGate)
+                        ImGui.TextDisabled("Follows sensitivity to suppress faint light flicker.");
+                    else
+                    {
+                        var gate = settings.SfxNoiseGate;
+                        if (ImGui.SliderFloat("SFX noise gate", ref gate, 0, 0.05f, "%.3f"))
+                        { configuration.SfxNoiseGate = gate; Changed(); }
+                    }
+                    ImGui.TextDisabled("The gate affects lighting only; game audio is unchanged.");
+                }
+                var capture = Volatile.Read(ref audioCapture);
+                ImGui.ProgressBar(foreground ? Volatile.Read(ref sfxLevel) : 0, new Vector2(0, 0), "SFX level");
+                ImGui.TextDisabled("Combat SFX from all players; white indicators stay independent.");
+                if (audioError != null) ImGui.TextWrapped($"SFX capture unavailable: {audioError}");
+                else if (capture?.Faulted == true) ImGui.TextWrapped("SFX capture stopped after an inspection error. Reload the plugin to retry.");
+                else if (capture != null && !capture.LayoutSupported) ImGui.TextWrapped("Waiting for a supported game audio mixer. SFX lighting is paused.");
+                else ImGui.TextDisabled(capture == null ? "Preparing SFX capture…" :
+                    !foreground || !settings.Enabled ? "SFX capture paused." : "SFX capture ready — use a combat skill to test.");
+            }
+            else if (settings.Effect != LightingEffect.Solid)
             {
                 var cycle = settings.CycleSeconds;
                 if (ImGui.SliderFloat("Lightbar cycle (seconds)", ref cycle, 1, 60, "%.1f"))
@@ -222,6 +294,12 @@ public sealed class Plugin : IDalamudPlugin
                 ImGui.TextUnformatted($"Foreground reports: {guard.ForegroundReports}");
                 ImGui.TextUnformatted($"Background reports guarded: {guard.BackgroundReports}");
                 ImGui.TextUnformatted($"Inspection errors: {guard.Errors}");
+                var capture = Volatile.Read(ref audioCapture);
+                if (capture != null)
+                {
+                    ImGui.TextUnformatted($"SFX blocks: {capture.MatchedBlocks}; other voices skipped: {capture.RejectedVoices}");
+                    ImGui.TextUnformatted($"SFX RMS: {Volatile.Read(ref sfxRms):F4}; light level: {Volatile.Read(ref sfxLevel):P0}");
+                }
                 var error = Volatile.Read(ref lastError);
                 if (error != null) ImGui.TextWrapped($"Last output error: {error}");
             }
@@ -240,6 +318,12 @@ public sealed class Plugin : IDalamudPlugin
         Volatile.Write(ref settings, Volatile.Read(ref settings) with { Enabled = false });
         stop.Cancel();
         worker.GetAwaiter().GetResult();
+        // Join even an unfinished setup so a late hook cannot survive plugin unload.
+        if (audioInitialization != null)
+        {
+            try { audioInitialization.GetAwaiter().GetResult().Dispose(); }
+            catch { /* Initialization errors were reported in Update; no hook was published. */ }
+        }
         guard.Dispose();
         stop.Dispose();
         if (!double.IsPositiveInfinity(saveAt)) Save();

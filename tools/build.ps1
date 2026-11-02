@@ -93,7 +93,7 @@ if ($Probe) {
     if ($LASTEXITCODE -ne 0) { throw 'Read-only HID probe failed.' }
 }
 Copy-Item (Join-Path $projectRoot 'src\DualSenseLighting\DualSenseLighting.json') $pluginOutput -Force
-foreach ($file in @('LICENSE.txt', 'LICENSE-HidLibrary.txt', 'THIRD-PARTY-NOTICES.txt')) {
+foreach ($file in @('LICENSE.txt', 'LICENSE-HidLibrary.txt', 'LICENSE-FFXIVClientStructs.txt', 'THIRD-PARTY-NOTICES.txt')) {
     Copy-Item (Join-Path $projectRoot $file) $pluginOutput -Force
 }
 New-Item -ItemType Directory -Force -Path $publishOutput | Out-Null

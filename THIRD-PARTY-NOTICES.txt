@@ -31,3 +31,22 @@ Changes made in this project, 2026-11-02:
 The earlier local Steam Lighting Guard prototype was reused for the narrow
 Dalamud WriteFile/HidD_SetOutputReport interception approach. It is not shipped
 as a separate dependency and must be disabled before loading this replacement.
+
+FFXIVClientStructs audio bindings
+================================
+Upstream: https://github.com/aers/FFXIVClientStructs
+Revision: b69073ae2d789527fc1b9a78aa7aa590e0f299dc
+License: MIT; see LICENSE-FFXIVClientStructs.txt.
+Copyright (c) 2021-2023 aers.
+
+src/DualSenseLighting/Core/GameAudioLayout.cs adapts minimal read-only fields from:
+FFXIVClientStructs/SQEX/Sd/Driver/Core/CoreSourceVoice.cs
+FFXIVClientStructs/SQEX/CDev/Engine/Sd/Driver/Sead/VoiceSead.cs
+FFXIVClientStructs/SQEX/CDev/Engine/Sd/Driver/SoundTrack.cs
+FFXIVClientStructs/SQEX/CDev/Engine/Sd/Driver/RootSound.cs
+
+src/DualSenseLighting/Windows/SfxAudioCapture.cs adapts the source-render and
+CoreSystem global signatures from that revision. The callback-vtable signature
+and source-layout checks were verified against the local game executable.
+These bindings observe source audio for RGB loudness only. No upstream audio
+setters, routing changes, sample replacement or haptic generation are included.

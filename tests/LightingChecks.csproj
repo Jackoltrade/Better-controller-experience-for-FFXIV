@@ -4,6 +4,7 @@
     <AssemblyName>LightingChecks</AssemblyName>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
     <EmbeddedResource Include="../src/DualSenseLighting/Assets/dualsense-preview.svg" LogicalName="DualSenseLighting.Assets.dualsense-preview.svg" />

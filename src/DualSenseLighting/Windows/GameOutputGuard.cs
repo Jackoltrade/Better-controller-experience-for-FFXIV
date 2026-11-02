@@ -15,6 +15,7 @@ internal sealed class GameOutputGuard : IDisposable
     private readonly Hook<SetOutputDelegate> setOutput;
     private readonly Func<LightingSettings> settings;
     private readonly Func<double> seconds;
+    private readonly Func<float> sfxLevel;
     private long foregroundReports, backgroundReports, errors;
 
     public long ForegroundReports => Interlocked.Read(ref foregroundReports);
@@ -28,10 +29,11 @@ internal sealed class GameOutputGuard : IDisposable
     [return: MarshalAs(UnmanagedType.U1)]
     private delegate bool SetOutputDelegate(nint file, nint buffer, uint length);
 
-    public GameOutputGuard(IGameInteropProvider interop, Func<LightingSettings> settings, Func<double> seconds)
+    public GameOutputGuard(IGameInteropProvider interop, Func<LightingSettings> settings, Func<double> seconds, Func<float> sfxLevel)
     {
         this.settings = settings;
         this.seconds = seconds;
+        this.sfxLevel = sfxLevel;
         writeFile = interop.HookFromSymbol<WriteFileDelegate>("kernel32.dll", "WriteFile", WriteFile);
         Hook<SetOutputDelegate>? output = null;
         try
@@ -52,7 +54,7 @@ internal sealed class GameOutputGuard : IDisposable
         if (!Native.TryGetDualSenseCaps(file, out _)) return;
         var snapshot = settings();
         var action = DualSenseReport.Apply(new Span<byte>((void*)buffer, (int)length),
-            Native.IsCurrentProcessForeground(), snapshot.Enabled, LightingEffects.Render(snapshot, seconds()));
+            Native.IsCurrentProcessForeground(), snapshot.Enabled, LightingEffects.Render(snapshot, seconds(), sfxLevel()));
         if (action == ReportAction.CustomLighting) Interlocked.Increment(ref foregroundReports);
         if (action == ReportAction.BackgroundGuard) Interlocked.Increment(ref backgroundReports);
     }
