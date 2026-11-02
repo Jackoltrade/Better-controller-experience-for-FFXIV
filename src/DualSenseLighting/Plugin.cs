@@ -14,7 +14,7 @@ using DualSenseLighting.Core;
 using DualSenseLighting.Windows;
 using DualSenseLighting.Ui;
 
-[assembly: System.Reflection.AssemblyVersion("0.3.1.0")]
+[assembly: System.Reflection.AssemblyVersion("0.3.2.0")]
 
 namespace DualSenseLighting;
 
@@ -177,11 +177,19 @@ public sealed class Plugin : IDalamudPlugin
                 var cycle = settings.PlayerCycleSeconds;
                 if (ImGui.SliderFloat("Indicator cycle (seconds)", ref cycle, 1, 12, "%.1f"))
                 { configuration.PlayerCycleSeconds = cycle; Changed(); }
-                ImGui.TextDisabled("Animation stays within the selected indicator positions.");
+                ImGui.TextDisabled(settings.PlayerAnimation switch
+                {
+                    PlayerIndicatorAnimation.Bounce => "Count sets how many lights move together across the strip.",
+                    PlayerIndicatorAnimation.Sparkle => "Count sets how many lights flash at once across the strip.",
+                    PlayerIndicatorAnimation.Heartbeat => "Count sets how many lights pulse together.",
+                    _ => "Animation stays within the selected indicator positions.",
+                });
             }
             if (player == 0) ImGui.TextDisabled("Choose an indicator count to light the strip.");
-            else if (player == 1 && settings.PlayerAnimation is PlayerIndicatorAnimation.Chase or PlayerIndicatorAnimation.Bounce)
+            else if (player == 1 && settings.PlayerAnimation == PlayerIndicatorAnimation.Chase)
                 ImGui.TextDisabled("Choose two or more indicators to see movement.");
+            else if (player == 5 && settings.PlayerAnimation == PlayerIndicatorAnimation.Bounce)
+                ImGui.TextDisabled("Choose fewer than five lights to see the group bounce.");
             ImGui.Separator();
             ImGui.TextWrapped("Custom lighting runs only while FFXIV is active. On leaving, its lights turn off once and controller handles close so any other lighting app can take over. Background protection is always active. Native haptics, speaker and trigger effects pass through.");
             ImGui.TextDisabled("Changes are saved automatically.");

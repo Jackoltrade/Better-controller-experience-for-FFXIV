@@ -33,24 +33,26 @@ addressed LEDs is not available through this protocol.
 
 The **Player indicators** controls set the number of white lights, an animation,
 and its cycle length (1–12 seconds). This runs independently of the RGB lightbar.
-The count chooses the set of available positions. Every animation stays inside
-that set. For example, a four-indicator selection uses the two outer and two inner
-positions; the excluded center LED never turns on during its animations.
+For Chase, Blink and Loading, the count chooses the available positions. For
+example, choosing four excludes the center LED from those effects. Bounce and
+Sparkle use the count as the number lit at once and can travel across the full
+five-position strip. Heartbeat pulses the configured number together in the
+standard centered/symmetric layout.
 
 | Animation | Behavior |
 | --- | --- |
 | Steady | Holds the existing centered/symmetric player layout |
 | Chase | Moves one light across the selected positions and wraps around |
-| Bounce | Moves one light back and forth within the selected positions |
+| Bounce | Moves a group of the configured size back and forth across the full strip |
 | Blink | Flashes the selected player layout on and off |
-| Heartbeat | Two short pulses followed by a rest |
-| Sparkle | Flashes a light in varied selected positions |
+| Heartbeat | Pulses the configured number together twice, then rests |
+| Sparkle | Flashes the configured number at varied positions across the full strip |
 | Loading | Fills the selected positions from left to right, then restarts |
 
-With only one position selected, Chase and Bounce stay on that position. Select
-at least two for visible travel, or use a pulse effect for one indicator. Five
-selected indicators let the traveling effects use the full strip. Indicators
-retain their fixed white color and on/off behavior.
+Chase needs at least two selected positions for visible travel. Bounce moves even
+with a count of one, but stays fully lit with five because the group fills the
+strip. Indicators retain their fixed white color and on/off behavior. The settings
+window explains the count's meaning for the currently selected animation.
 
 The live preview follows the same patterns and clock as the hardware. Animation
 state returns after focus changes or reconnecting; the automatic lights-off release and
@@ -173,8 +175,8 @@ write timeouts, cancellation, Steam preference validation and account/controller
 matching, one-time handoffs, and foreground return during a profile read.
 Preview checks cover embedded artwork, aspect ratio and mask alignment, player
 positions and bitmasks, animation phase/color agreement, and paused/disabled states.
-Indicator-animation checks cover every effect and count, cycle boundaries, exclusion
-of LEDs outside the selected set, the LED-only immediate-update flag, independent
+Indicator-animation checks cover every effect and count, cycle boundaries, effect-specific
+count/range behavior, the LED-only immediate-update flag, independent
 output with solid RGB, and animation resume/reconnect/release behavior.
 
 ### In-game verification

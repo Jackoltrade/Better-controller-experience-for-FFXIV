@@ -157,19 +157,25 @@ internal static class Program
                     var time = i / 80.0;
                     var frame = LightingEffects.Render(settings, time);
                     var lit = PlayerIndicatorEffects.Count(frame.PlayerLights);
-                    Assert(frame.PlayerLights <= 31 && lit <= count && (frame.PlayerLights & ~mask) == 0, "Animation lit an indicator outside the selected pool");
+                    Assert(frame.PlayerLights <= 31 && lit <= count, "Animation exceeded the configured count or physical strip");
+                    if (animation is PlayerIndicatorAnimation.Steady or PlayerIndicatorAnimation.Chase or PlayerIndicatorAnimation.Blink or PlayerIndicatorAnimation.Loading)
+                        Assert((frame.PlayerLights & ~mask) == 0, "Selected-position animation left its selected pool");
                     Assert(frame.Red == settings.Red && frame.Green == settings.Green && frame.Blue == settings.Blue, "Player animation altered the RGB effect");
                     Assert(ControllerPreviewGeometry.Frame(settings, true, time) == frame, "Player preview differs from the hardware frame");
                     Assert(LightingEffects.Render(settings, time + 2).PlayerLights == frame.PlayerLights, $"Player animation does not repeat: {animation}, count {count}, time {time}");
                     Assert(frame.PlayerLightsImmediate == (animation != PlayerIndicatorAnimation.Steady), "Animated update/fade mode incorrect");
                     if (animation == PlayerIndicatorAnimation.Steady) Assert(lit == count, "Steady layout changed the selected count");
-                    if (animation is PlayerIndicatorAnimation.Chase or PlayerIndicatorAnimation.Bounce)
+                    if (animation == PlayerIndicatorAnimation.Chase)
                         Assert(lit == Math.Min(count, 1), "Traveling effect did not move a single light within the pool");
+                    if (animation == PlayerIndicatorAnimation.Bounce) Assert(lit == count, "Bounce did not move the configured number together");
+                    if (animation is PlayerIndicatorAnimation.Heartbeat or PlayerIndicatorAnimation.Sparkle)
+                        Assert(lit == 0 || lit == count, "Pulse/sparkle did not light the configured number at once");
                     if (count == 0) Assert(frame.PlayerLights == 0, "Off count produced a lit indicator");
                     seen.Add(frame.PlayerLights);
                 }
                 if (count > 0 && animation != PlayerIndicatorAnimation.Steady &&
-                    !(count == 1 && animation is PlayerIndicatorAnimation.Chase or PlayerIndicatorAnimation.Bounce))
+                    !(count == 1 && animation == PlayerIndicatorAnimation.Chase) &&
+                    !(count == 5 && animation == PlayerIndicatorAnimation.Bounce))
                     Assert(seen.Count > 1, "Animation never changed");
             }
         }
@@ -179,8 +185,13 @@ internal static class Program
         Assert(Render(2, PlayerIndicatorAnimation.Chase, 0) == 2 && Render(2, PlayerIndicatorAnimation.Chase, 1.7) == 8, "Chase left the selected inner pair");
         byte[] fourChase = [1, 2, 8, 16];
         for (var i = 0; i < fourChase.Length; i++) Assert(Render(4, PlayerIndicatorAnimation.Chase, i * 0.5) == fourChase[i], "Four-light chase used the excluded center LED");
-        byte[] bounce = [1, 2, 8, 16, 8, 2];
-        for (var i = 0; i < bounce.Length; i++) Assert(Render(4, PlayerIndicatorAnimation.Bounce, i / 3.0) == bounce[i], "Bounce direction or selected pool incorrect");
+        byte[] bounce = [1, 2, 4, 8, 16, 8, 4, 2];
+        for (var i = 0; i < bounce.Length; i++) Assert(Render(1, PlayerIndicatorAnimation.Bounce, i * 0.25) == bounce[i], "Bounce no longer travels across the full strip");
+        Assert(Render(4, PlayerIndicatorAnimation.Bounce, 0) == 15 && Render(4, PlayerIndicatorAnimation.Bounce, 1) == 30, "Four-light bounce did not move four lights together");
+        Assert(Render(5, PlayerIndicatorAnimation.Bounce, 0) == 31 && Render(5, PlayerIndicatorAnimation.Bounce, 1) == 31, "Full-strip bounce should stay fully lit");
+        var sparklePositions = new HashSet<byte>();
+        for (var i = 0; i < 8; i++) sparklePositions.Add(Render(1, PlayerIndicatorAnimation.Sparkle, i * 0.25));
+        Assert(sparklePositions.Count > 1 && sparklePositions.Any(mask => mask != 4), "Single-light sparkle was incorrectly restricted to the center");
         Assert(Render(3, PlayerIndicatorAnimation.Blink, 0.2) == 21 && Render(3, PlayerIndicatorAnimation.Blink, 1.2) == 0, "Blink pattern incorrect");
         Assert(Render(2, PlayerIndicatorAnimation.Heartbeat, 0.1) == 10 && Render(2, PlayerIndicatorAnimation.Heartbeat, 0.54) == 10 &&
             Render(2, PlayerIndicatorAnimation.Heartbeat, 0.3) == 0 && Render(2, PlayerIndicatorAnimation.Heartbeat, 1.2) == 0, "Heartbeat is not two distinct pulses");

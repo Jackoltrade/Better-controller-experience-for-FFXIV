@@ -31,11 +31,11 @@ public static class PlayerIndicatorEffects
             case PlayerIndicatorAnimation.Chase:
                 return SelectedBit(selectedMask, Step(phase, count));
             case PlayerIndicatorAnimation.Bounce:
-                var travel = count - 1;
-                if (travel == 0) return selectedMask;
+                var travel = 5 - count;
+                if (travel == 0) return 31;
                 var step = Step(phase, travel * 2);
                 var position = step <= travel ? step : travel * 2 - step;
-                return SelectedBit(selectedMask, position);
+                return (byte)(((1 << count) - 1) << position);
             case PlayerIndicatorAnimation.Blink:
                 return phase < 0.5 ? selectedMask : (byte)0;
             case PlayerIndicatorAnimation.Heartbeat:
@@ -44,8 +44,9 @@ public static class PlayerIndicatorEffects
                 var beat = phase * SparkleOrders.Length;
                 if (beat % 1 >= 0.65) return 0;
                 var order = SparkleOrders[Step(phase, SparkleOrders.Length)];
-                foreach (var bit in order) if ((selectedMask & bit) != 0) return bit;
-                return 0;
+                byte sparkle = 0;
+                for (var i = 0; i < count; i++) sparkle |= order[i];
+                return sparkle;
             case PlayerIndicatorAnimation.Loading:
                 var filled = Step(phase, count + 1);
                 byte loading = 0;
