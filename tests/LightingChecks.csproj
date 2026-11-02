@@ -9,5 +9,6 @@
     <Compile Include="../src/DualSenseLighting/Core/*.cs" Link="Core/%(Filename)%(Extension)" />
     <Compile Include="../src/DualSenseLighting/Windows/Native.cs" Link="Windows/Native.cs" />
     <Compile Include="../src/DualSenseLighting/Windows/HidDevices.cs" Link="Windows/HidDevices.cs" />
+    <Compile Include="../src/DualSenseLighting/Windows/SteamInstallation.cs" Link="Windows/SteamInstallation.cs" />
   </ItemGroup>
 </Project>

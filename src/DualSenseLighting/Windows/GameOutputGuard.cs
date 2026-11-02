@@ -46,6 +46,7 @@ internal sealed class GameOutputGuard : IDisposable
 
     private unsafe void Filter(nint file, nint buffer, uint length)
     {
+        if (OwnedLightingHandles.Contains(file)) return;
         if (buffer == 0 || !DualSenseReport.IsSupportedLength((int)length) || Marshal.ReadByte(buffer) != 2) return;
         // Revalidate handles rather than caching identities across a disconnect/handle reuse.
         if (!Native.TryGetDualSenseCaps(file, out _)) return;

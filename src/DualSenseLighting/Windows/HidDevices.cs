@@ -58,16 +58,37 @@ internal sealed class HidDevices : ILightingDevices
         try
         {
             if (!Native.TryGetDualSenseCaps(handle.DangerousGetHandle(), out var caps)) { handle.Dispose(); return null; }
-            return new HidDevice(new FileStream(handle, FileAccess.Write, 1, true), caps.OutputReportLength);
+            var serial = Native.GetControllerSerial(handle.DangerousGetHandle());
+            return new HidDevice(new FileStream(handle, FileAccess.Write, 1, true), caps.OutputReportLength, serial);
         }
         catch { handle.Dispose(); throw; }
     }
 
-    private sealed class HidDevice(FileStream stream, int reportLength) : ILightingDevice
+    private sealed class HidDevice : ILightingDevice
     {
-        public int ReportLength => reportLength;
+        private readonly FileStream stream;
+        private readonly nint handle;
+        private int disposed;
+        public int ReportLength { get; }
+        public string? Serial { get; }
+
+        internal HidDevice(FileStream stream, int reportLength, string? serial)
+        {
+            this.stream = stream;
+            ReportLength = reportLength;
+            Serial = serial;
+            handle = stream.SafeFileHandle.DangerousGetHandle();
+            OwnedLightingHandles.Add(handle);
+        }
+
         public async Task WriteAsync(byte[] report, CancellationToken cancellationToken) =>
             await stream.WriteAsync(report.AsMemory(), cancellationToken).ConfigureAwait(false);
-        public void Dispose() => stream.Dispose();
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref disposed, 1) != 0) return;
+            // Remove before closing to avoid matching a handle subsequently reused by the game.
+            OwnedLightingHandles.Remove(handle);
+            stream.Dispose();
+        }
     }
 }

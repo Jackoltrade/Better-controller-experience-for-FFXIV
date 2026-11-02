@@ -39,6 +39,12 @@ internal static class Native
     internal static extern bool HidD_GetAttributes(nint handle, ref HidAttributes attributes);
     [DllImport("hid.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.U1)]
+    private static extern bool HidD_GetFeature(nint handle, [In, Out] byte[] report, uint length);
+    [DllImport("hid.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    private static extern bool HidD_GetSerialNumberString(nint handle, [Out] byte[] serial, uint length);
+    [DllImport("hid.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.U1)]
     private static extern bool HidD_GetPreparsedData(nint handle, out nint data);
     [DllImport("hid.dll")]
     [return: MarshalAs(UnmanagedType.U1)]
@@ -80,5 +86,22 @@ internal static class Native
                 Core.DualSenseReport.IsSupportedLength(caps.OutputReportLength);
         }
         finally { HidD_FreePreparsedData(data); }
+    }
+
+    internal static string? GetControllerSerial(nint handle)
+    {
+        // Pairing feature 0x09 stores the six-byte controller MAC, least significant byte first.
+        var feature = new byte[64];
+        feature[0] = 0x09;
+        if (HidD_GetFeature(handle, feature, (uint)feature.Length))
+        {
+            var serial = string.Concat(feature[6].ToString("x2"), feature[5].ToString("x2"), feature[4].ToString("x2"),
+                feature[3].ToString("x2"), feature[2].ToString("x2"), feature[1].ToString("x2"));
+            var normalized = Core.SteamLightingProfiles.NormalizeSerial(serial);
+            if (normalized != null) return normalized;
+        }
+        var buffer = new byte[256];
+        return HidD_GetSerialNumberString(handle, buffer, (uint)buffer.Length)
+            ? Core.SteamLightingProfiles.NormalizeSerial(System.Text.Encoding.Unicode.GetString(buffer).TrimEnd('\0')) : null;
     }
 }

@@ -28,8 +28,16 @@ for output, kind, sources in [("Plugin", "library", "PluginSources"), ("Checks",
 subprocess.run([dotnet, plan["Checks"]], check=True)
 if "--probe" in sys.argv:
     subprocess.run([dotnet, plan["Checks"], "--probe"], check=True)
-output = ROOT / "artifacts/plugin"
+output = Path(wsl_path(plan["Plugin"])).parent
 shutil.copy2(ROOT / "src/DualSenseLighting/DualSenseLighting.json", output)
 for name in ["LICENSE.txt", "LICENSE-HidLibrary.txt", "THIRD-PARTY-NOTICES.txt"]:
     shutil.copy2(ROOT / name, output)
-print(f"Plugin ready: {output / 'DualSenseLighting.dll'}")
+publish = ROOT / "artifacts/plugin"
+publish.mkdir(parents=True, exist_ok=True)
+# Publish only after the staged build and checks succeed: the dev plugin may be live.
+for source in output.iterdir():
+    if source.is_file():
+        temporary = publish / (source.name + ".new")
+        shutil.copy2(source, temporary)
+        temporary.replace(publish / source.name)
+print(f"Plugin ready: {publish / 'DualSenseLighting.dll'}")

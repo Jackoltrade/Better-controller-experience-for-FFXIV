@@ -7,7 +7,8 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
-$pluginOutput = Join-Path $projectRoot 'artifacts\plugin'
+$pluginOutput = Join-Path $projectRoot 'artifacts\build\plugin'
+$publishOutput = Join-Path $projectRoot 'artifacts\plugin'
 $checksOutput = Join-Path $projectRoot 'artifacts\checks'
 $toolOutput = Join-Path $projectRoot 'artifacts\tools'
 foreach ($directory in @($pluginOutput, $checksOutput, $toolOutput)) {
@@ -67,6 +68,7 @@ if ($sdks | Where-Object { $_ -match '^10\.' }) {
     $checkSources = @(Get-ChildItem (Join-Path $projectRoot 'src\DualSenseLighting\Core') -Filter *.cs | ForEach-Object FullName)
     $checkSources += Join-Path $projectRoot 'src\DualSenseLighting\Windows\Native.cs'
     $checkSources += Join-Path $projectRoot 'src\DualSenseLighting\Windows\HidDevices.cs'
+    $checkSources += Join-Path $projectRoot 'src\DualSenseLighting\Windows\SteamInstallation.cs'
     $checkSources += Join-Path $projectRoot 'tests\Program.cs'
     if ($PrepareOffline) {
         $plan = [ordered]@{
@@ -94,4 +96,6 @@ Copy-Item (Join-Path $projectRoot 'src\DualSenseLighting\DualSenseLighting.json'
 foreach ($file in @('LICENSE.txt', 'LICENSE-HidLibrary.txt', 'THIRD-PARTY-NOTICES.txt')) {
     Copy-Item (Join-Path $projectRoot $file) $pluginOutput -Force
 }
-Write-Output "Plugin ready: $(Join-Path $pluginOutput 'DualSenseLighting.dll')"
+New-Item -ItemType Directory -Force -Path $publishOutput | Out-Null
+Copy-Item (Join-Path $pluginOutput '*') $publishOutput -Force
+Write-Output "Plugin ready: $(Join-Path $publishOutput 'DualSenseLighting.dll')"

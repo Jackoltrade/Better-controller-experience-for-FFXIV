@@ -23,6 +23,7 @@ internal static class Program
         if (args.Contains("--probe")) { Probe(); return; }
         CheckReports();
         CheckEffects();
+        CheckSteamProfiles();
         await CheckOwnership();
         await CheckSolidRefresh();
         await CheckFocusRace();
@@ -31,6 +32,9 @@ internal static class Program
         await CheckScanBackoff();
         await CheckWriteTimeout();
         await CheckCancellation();
+        await CheckSteamHandoff();
+        await CheckHandoffRegainFocus();
+        await CheckHandoffFailure();
         Console.WriteLine($"Passed {checks:N0} lighting checks: native report preservation, background guard, effects, focus transitions, reconnect and cancellation.");
     }
 
@@ -133,6 +137,99 @@ internal static class Program
         Assert(session.DeviceCount == 0 && session.WriteCount == 3, "Disabling did not stop output");
     }
 
+    private static string SteamText(byte red = 149, byte green = 255, byte blue = 0) =>
+        $"\"color_red\" \"{red}\"\n\"color_green\" \"{green}\"\n\"color_blue\" \"{blue}\"\n" +
+        "\"guide_brightness\" \"1\"\n\"color_saturation\" \"1\"\n\"player_slot_led\" \"0\"";
+
+    private static void CheckSteamProfiles()
+    {
+        Assert(SteamLightingProfiles.Parse(SteamText(), 1) == new LightingFrame(149, 255, 0, 0), "Steam saved RGB mismatch");
+        var desaturated = SteamText().Replace("\"color_saturation\" \"1\"", "\"color_saturation\" \"0\"")
+            .Replace("\"guide_brightness\" \"1\"", "\"guide_brightness\" \"0.5\"");
+        Assert(SteamLightingProfiles.Parse(desaturated, 1) == new LightingFrame(128, 128, 128, 0), "Steam saturation/brightness ignored");
+        var multiple = SteamText().Replace("\"player_slot_led\" \"0\"", "\"player_slot_led\" \"1\"");
+        Assert(SteamLightingProfiles.Parse(multiple, 1).PlayerLights == 0 && SteamLightingProfiles.Parse(multiple, 2).PlayerLights == 4, "Steam multi-controller player indicator mismatch");
+        Assert(SteamLightingProfiles.Parse(SteamText().Replace("\"player_slot_led\" \"0\"", "\"player_slot_led\" \"2\""), 1).PlayerLights == 4, "Steam always-on player indicator mismatch");
+        foreach (var invalid in new[] {
+            SteamText().Replace("\"color_red\" \"149\"", "\"color_red\" \"256\""),
+            SteamText().Replace("\"guide_brightness\" \"1\"", "\"guide_brightness\" \"NaN\""),
+            SteamText().Replace("\"color_saturation\" \"1\"", "\"color_saturation\" \"-1\""),
+            SteamText().Replace("\"player_slot_led\" \"0\"", "\"player_slot_led\" \"1.5\""),
+            "\"color_red\" \"149\"" })
+        {
+            try { SteamLightingProfiles.Parse(invalid, 1); Assert(false, "Invalid Steam profile accepted"); }
+            catch (InvalidDataException) { checks++; }
+        }
+        var root = Path.Combine(Path.GetTempPath(), "DualSenseLightingChecks-" + Guid.NewGuid().ToString("N"));
+        string Profile(string account) => Path.Combine(root, "steamapps", "common", "Steam Controller Configs", account, "config", "preferences_DS4cb99b39727d.vdf");
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(Profile("1"))!);
+            File.WriteAllText(Profile("1"), SteamText());
+            var profiles = new SteamLightingProfiles(root, () => null);
+            Assert(profiles.Read("4C:B9:9B:39:72:7D", 1) == new LightingFrame(149, 255, 0, 0), "Did not match controller serial");
+            File.WriteAllText(Profile("1"), SteamText(0, 30, 255));
+            Assert(profiles.Read("4cb99b39727d", 1) == new LightingFrame(0, 30, 255, 0), "Restored stale Steam settings");
+            Directory.CreateDirectory(Path.GetDirectoryName(Profile("2"))!);
+            File.WriteAllText(Profile("2"), SteamText(200, 0, 20));
+            Assert(new SteamLightingProfiles(root, () => "2").Read("4cb99b39727d", 1) == new LightingFrame(200, 0, 20, 0), "Steam active-account selection failed");
+            try { profiles.Read("4cb99b39727d", 1); Assert(false, "Ambiguous Steam account accepted"); }
+            catch (InvalidDataException) { checks++; }
+            try { profiles.Read("000000000000", 1); Assert(false, "Unknown controller identity accepted"); }
+            catch (InvalidDataException) { checks++; }
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    private static async Task CheckSteamHandoff()
+    {
+        var foreground = true;
+        var devices = new FakeDevices(() => foreground);
+        var profileReads = 0;
+        using var session = new LightingSession(devices, () => foreground, _ => throw new Exception("Unexpected handoff error"),
+            (device, count) => { profileReads++; ((FakeDevice)device).AllowBackground = true; return new LightingFrame(149, 255, 0, 0); });
+        await session.TickAsync(LightingSettings.Default with { Effect = LightingEffect.Rainbow }, 0, default);
+        Assert(devices.Opened[0].Reports.Last()[45] == 255, "Rainbow was not red before Alt-Tab");
+        foreground = false;
+        await session.TickAsync(LightingSettings.Default, 0.1, default);
+        var restore = devices.Opened[0].Reports.Last();
+        Assert(session.HandoffCount == 1 && restore[44] == 0 && restore[45] == 149 && restore[46] == 255 && restore[47] == 0, "Alt-Tab froze the last rainbow frame instead of restoring Steam");
+        Assert(restore[1] == 0 && restore[2] == 0x14 && restore.Skip(3).Take(36).All(b => b == 0), "Steam handoff enabled native haptic/audio/trigger changes");
+        for (var i = 1; i <= 100; i++) await session.TickAsync(LightingSettings.Default, i, default);
+        Assert(session.HandoffCount == 1 && profileReads == 1 && devices.Opened[0].Reports.Count == 2 && devices.Opened.All(d => d.Disposed), "Steam handoff kept writing in the background");
+        foreground = true;
+        await session.TickAsync(LightingSettings.Default, 101, default);
+        Assert(session.WriteCount == 2 && devices.Opened.Last().Reports.Last()[45] == 119, "FFXIV lighting did not resume after handoff");
+        await session.TickAsync(LightingSettings.Default with { Enabled = false }, 102, default);
+        Assert(session.HandoffCount == 2 && session.DeviceCount == 0, "Disabling custom lighting did not hand back to Steam");
+    }
+
+    private static async Task CheckHandoffRegainFocus()
+    {
+        var foreground = true;
+        var devices = new FakeDevices(() => foreground);
+        using var session = new LightingSession(devices, () => foreground, _ => { }, (_, _) =>
+        { foreground = true; return new LightingFrame(149, 255, 0, 0); });
+        await session.TickAsync(LightingSettings.Default, 0, default);
+        foreground = false;
+        await session.TickAsync(LightingSettings.Default, 0.1, default);
+        Assert(session.HandoffCount == 0 && devices.Opened.Single().Reports.Count == 1, "Slow Steam profile read restored over regained foreground");
+        await session.TickAsync(LightingSettings.Default, 0.2, default);
+        Assert(session.WriteCount == 2, "Foreground did not recover after a skipped restore");
+    }
+
+    private static async Task CheckHandoffFailure()
+    {
+        var foreground = true;
+        var devices = new FakeDevices(() => foreground);
+        var errors = 0;
+        using var session = new LightingSession(devices, () => foreground, _ => errors++, (_, _) => throw new InvalidDataException("No Steam profile"));
+        await session.TickAsync(LightingSettings.Default, 0, default);
+        foreground = false;
+        for (var i = 1; i <= 20; i++) await session.TickAsync(LightingSettings.Default, i, default);
+        Assert(errors == 1 && session.HandoffCount == 0 && devices.Opened.Single().Disposed, "Failed restore kept a handle or retried over another app");
+    }
+
     private static async Task CheckFocusRace()
     {
         var foreground = true;
@@ -218,6 +315,7 @@ internal static class Program
     private static void Probe()
     {
         var devices = new HidDevices();
+        var profiles = new SteamLightingProfiles(SteamInstallation.GetRoot(), SteamInstallation.GetActiveAccount);
         var count = 0;
         foreach (var path in devices.GetPaths())
         {
@@ -225,6 +323,7 @@ internal static class Program
             if (device == null) continue;
             count++;
             Console.WriteLine($"USB DualSense interface {count}: output report length {device.ReportLength}; shared handle opened and closed, zero reports written.");
+            Console.WriteLine($"Matched Steam handoff: {profiles.Read(device.Serial, 1)} (read only).");
         }
         Console.WriteLine($"Read-only HID probe complete: {count} supported USB controller(s).");
     }
@@ -254,13 +353,16 @@ internal static class Program
     private sealed class FakeDevice(Func<bool> foreground) : ILightingDevice
     {
         public int ReportLength => 63;
-        public bool Disposed, Fail, Stall;
+        public string? Serial => "4cb99b39727d";
+        public bool Disposed, Fail, Stall, AllowBackground;
+        public readonly List<byte[]> Reports = [];
         public Action? OnWrite;
         public async Task WriteAsync(byte[] report, CancellationToken cancellationToken)
         {
-            Assert(foreground() && !Disposed, "Wrote while background or disposed");
+            Assert((foreground() || AllowBackground) && !Disposed, "Wrote while background or disposed");
             if (Fail) throw new IOException("Controller unplugged");
             if (Stall) await Task.Delay(Timeout.Infinite, cancellationToken);
+            Reports.Add((byte[])report.Clone());
             OnWrite?.Invoke();
         }
         public void Dispose() => Disposed = true;

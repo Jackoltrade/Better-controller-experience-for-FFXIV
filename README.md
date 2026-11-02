@@ -36,18 +36,30 @@ again before each write. It uses shared, asynchronous HID handles and never read
 controller input. Animation updates are capped at approximately 30 per second;
 an unchanged solid color is refreshed once per second while foreground.
 
-When FFXIV loses focus, the worker closes its handles and stops creating lighting
-updates. A narrow guard inside FFXIV removes lightbar, player-indicator, brightness
+When FFXIV loses focus, the worker restores the controller's saved Steam lighting
+once, then closes its handles and stops creating lighting updates. The default-on
+**Restore Steam lighting when leaving FFXIV** option includes RGB, saturation,
+brightness and player indicators. The profile is matched to the controller's serial
+and Steam's active account, and read again on each handoff so current saved settings
+are used. If no valid profile is available, the error is shown in Diagnostics and
+the handles are closed without repeated background writes.
+
+A narrow guard inside FFXIV removes lightbar, player-indicator, brightness
 and boot-pulse validity bits from the game's outgoing USB reports. Other fields,
 including haptic, audio, trigger and microphone controls, pass through. The guard
 checks the actual HID vendor/product, gamepad usage and report layout before
-modifying a buffer. It does not hook Steam or other processes.
+modifying a buffer. Only the plugin's own shared output handles bypass this guard,
+allowing the one-time Steam handoff. It does not hook Steam or other processes.
 
-The controller retains its last displayed color until another app sends a lighting
-update. This plugin does not force Steam's saved color on focus loss. Returning
-to FFXIV reapplies the selected effect. Turning custom lighting off restores native
-game lighting in the foreground; the background guard remains enabled while the
-plugin is loaded. Unloading removes the guard as well.
+Returning to FFXIV reapplies the selected effect. Disabling custom lighting or
+unloading also attempts a Steam handoff for controllers whose lighting the session
+changed. The background guard remains enabled until the plugin is unloaded.
+
+This handoff reads Steam's saved configuration; it does not inspect arbitrary
+applications' LED settings. Other apps can freely change the LEDs after the handoff.
+Turn the restore option off if a different lighting application should handle the
+transition itself. With restoration off, the last color remains until that app sends
+an update.
 
 ### Load the local build
 
@@ -81,7 +93,7 @@ From this WSL workspace, where Windows tools need to be launched directly:
 python3 tools/build-wsl.py --probe
 ```
 
-Both build paths compile the plugin, run regression checks, and place the DLL,
+Both build paths compile into a staging directory, run regression checks, and publish the DLL,
 manifest and license notices in `artifacts/plugin/`. `-Probe`/`--probe` opens and
 closes shared controller handles to inspect their capabilities; it sends no
 controller output. Standard SDK commands are also supported:
@@ -94,7 +106,8 @@ dotnet run --project .\tests\LightingChecks.csproj -c Release
 Regression checks cover report preservation across every validity-byte value,
 foreground/background transitions, disabling, reconnects, animation behavior,
 focus changes during discovery and between controllers, discovery retry backoff,
-write timeouts, and cancellation.
+write timeouts, cancellation, Steam preference validation and account/controller
+matching, one-time handoffs, and foreground return during a profile read.
 
 ### In-game verification
 
@@ -105,11 +118,18 @@ Before treating compatibility as verified on a particular setup, check:
 | --- | --- |
 | Select a solid color and player indicator | LEDs follow the selection while FFXIV is active |
 | Select rainbow or breathing | Animation stays steady while playing |
-| Alt-Tab to Steam and change controller lighting | Animation pauses; FFXIV's guard does not replace Steam's updates |
+| Alt-Tab while rainbow is red | Saved Steam lighting returns instead of freezing red |
+| Change Steam lighting while FFXIV remains in the background | FFXIV's guard does not replace Steam's updates |
 | Return to FFXIV | The saved game effect resumes |
 | Unplug/replug while FFXIV is active | Saved lighting returns within approximately one second |
 | Trigger native controller sound and haptics | Native effects remain functional with custom lighting |
 | Unload/reload the plugin | Handles close; settings persist across the reload |
+
+On 2026-11-02, the user confirmed live custom lighting works and version 0.1.1
+restores Steam lighting on Alt-Tab and resumes the custom effect on returning to
+FFXIV. The latest read-only probe matched the connected controller to RGB
+149/255/0 with player indicators off. Native report preservation is covered by
+automated checks; native haptic/speaker behavior still needs its own live check.
 
 If output fails, the UI's Diagnostics section shows the most recent error and
 foreground/background report counters. Device access is retried without exclusive

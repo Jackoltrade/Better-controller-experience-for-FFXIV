@@ -13,7 +13,7 @@ using Dalamud.Plugin.Services;
 using DualSenseLighting.Core;
 using DualSenseLighting.Windows;
 
-[assembly: System.Reflection.AssemblyVersion("0.1.0.0")]
+[assembly: System.Reflection.AssemblyVersion("0.1.1.0")]
 
 namespace DualSenseLighting;
 
@@ -32,6 +32,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly GameOutputGuard guard;
     private readonly Task worker;
     private LightingSettings settings;
+    private volatile bool restoreSteamLighting;
     private bool windowOpen;
     private double saveAt = double.PositiveInfinity;
     private string? lastError;
@@ -48,7 +49,10 @@ public sealed class Plugin : IDalamudPlugin
             throw new InvalidOperationException("Disable the older Steam Lighting Guard before loading DualSense Lighting.");
         configuration = pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
         settings = configuration.Snapshot();
-        session = new LightingSession(new HidDevices(), Native.IsCurrentProcessForeground, ReportError);
+        restoreSteamLighting = configuration.RestoreSteamLighting;
+        var steam = new SteamLightingProfiles(SteamInstallation.GetRoot(), SteamInstallation.GetActiveAccount);
+        session = new LightingSession(new HidDevices(), Native.IsCurrentProcessForeground, ReportError,
+            (device, count) => restoreSteamLighting ? steam.Read(device.Serial, count) : null);
         guard = new GameOutputGuard(interop, () => Volatile.Read(ref settings), () => clock.Elapsed.TotalSeconds);
         try
         {
@@ -86,7 +90,7 @@ public sealed class Plugin : IDalamudPlugin
         }
         catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
         catch (Exception error) { ReportError(error); }
-        finally { session.Dispose(); }
+        finally { await session.ReleaseAsync(true, CancellationToken.None).ConfigureAwait(false); }
     }
 
     private void ReportError(Exception error)
@@ -112,6 +116,7 @@ public sealed class Plugin : IDalamudPlugin
     private void Changed()
     {
         Volatile.Write(ref settings, configuration.Snapshot());
+        restoreSteamLighting = configuration.RestoreSteamLighting;
         saveAt = clock.Elapsed.TotalSeconds + 0.5;
     }
 
@@ -135,6 +140,9 @@ public sealed class Plugin : IDalamudPlugin
             ImGui.Separator();
             var enabled = configuration.Enabled;
             if (ImGui.Checkbox("Enable custom lighting", ref enabled)) { configuration.Enabled = enabled; Changed(); }
+            var restore = configuration.RestoreSteamLighting;
+            if (ImGui.Checkbox("Restore Steam lighting when leaving FFXIV", ref restore))
+            { configuration.RestoreSteamLighting = restore; Changed(); }
             var effect = (int)settings.Effect;
             if (ImGui.Combo("Effect", ref effect, "Solid\0Rainbow\0Breathing\0"))
             { configuration.Effect = (LightingEffect)effect; Changed(); }
@@ -163,11 +171,12 @@ public sealed class Plugin : IDalamudPlugin
             if (ImGui.Combo("Player indicator", ref player, "Off\0One light\0Two lights\0Three lights\0Four lights\0Five lights\0"))
             { configuration.PlayerLights = PlayerMasks[player]; Changed(); }
             ImGui.Separator();
-            ImGui.TextWrapped("Lighting runs only while FFXIV is active. In the background, other apps can change the LEDs. Native haptics, speaker and trigger effects pass through.");
+            ImGui.TextWrapped("Custom effects run while FFXIV is active. On leaving, saved Steam lighting is restored once if enabled, then other apps control the LEDs. Native haptics, speaker and trigger effects pass through.");
             ImGui.TextDisabled("Changes are saved automatically.");
             if (ImGui.CollapsingHeader("Diagnostics"))
             {
                 ImGui.TextUnformatted($"Lighting writes: {session.WriteCount}");
+                ImGui.TextUnformatted($"Steam handoffs: {session.HandoffCount}");
                 ImGui.TextUnformatted($"Foreground reports: {guard.ForegroundReports}");
                 ImGui.TextUnformatted($"Background reports guarded: {guard.BackgroundReports}");
                 ImGui.TextUnformatted($"Inspection errors: {guard.Errors}");
@@ -186,6 +195,7 @@ public sealed class Plugin : IDalamudPlugin
         pluginInterface.UiBuilder.OpenConfigUi -= Open;
         pluginInterface.UiBuilder.OpenMainUi -= Open;
         commands.RemoveHandler(Command);
+        Volatile.Write(ref settings, Volatile.Read(ref settings) with { Enabled = false });
         stop.Cancel();
         worker.GetAwaiter().GetResult();
         guard.Dispose();

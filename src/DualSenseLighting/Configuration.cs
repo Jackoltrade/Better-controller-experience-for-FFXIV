@@ -9,6 +9,7 @@ public sealed class Configuration : IPluginConfiguration
 {
     public int Version { get; set; } = 1;
     public bool Enabled { get; set; } = true;
+    public bool RestoreSteamLighting { get; set; } = true;
     public LightingEffect Effect { get; set; }
     public byte Red { get; set; } = 119;
     public byte Green { get; set; } = 255;
