@@ -14,7 +14,7 @@ using DualSenseLighting.Core;
 using DualSenseLighting.Windows;
 using DualSenseLighting.Ui;
 
-[assembly: System.Reflection.AssemblyVersion("0.2.2.0")]
+[assembly: System.Reflection.AssemblyVersion("0.2.3.0")]
 
 namespace DualSenseLighting;
 

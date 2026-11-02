@@ -33,6 +33,7 @@ addressed LEDs is not available through this protocol.
 
 The top of `/ds5light` shows a centered touchpad close-up with a white touchpad,
 tapered RGB lightpipes and five white player indicators along the lower rim.
+The D-pad and action-button details are omitted to keep the preview focused on lighting.
 Color, brightness, rainbow and breathing use the same effect engine and clock as
 the hardware output. Player indicators follow the actual five-bit masks, including
 the centered single light, inner pair, outer pair plus center, and four-light layout.
