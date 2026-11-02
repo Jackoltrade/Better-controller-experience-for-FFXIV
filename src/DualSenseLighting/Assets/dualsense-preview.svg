@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="680" viewBox="0 0 1440 680" role="img" aria-labelledby="title description">
+  <title id="title">White DualSense touchpad and authentic lighting layout</title>
+  <desc id="description">Vector redraw calibrated to the supplied 1800 by 1800 reference crop. Tapered side light-pipe ribbons, and five white player indicator emitters set into the bottom rim. Indicator positions are deliberately non-uniform: outer, inner, center, inner, outer. Speaker holes are below this crop.</desc>
+  <defs>
+    <linearGradient id="frame" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#444a52"/><stop offset="0.55" stop-color="#30343a"/><stop offset="1" stop-color="#20242a"/>
+    </linearGradient>
+    <linearGradient id="shell" x1="0" y1="0" x2="0.5" y2="1">
+      <stop offset="0" stop-color="#ffffff"/><stop offset="0.6" stop-color="#f2f4f7"/><stop offset="1" stop-color="#e0e4ea"/>
+    </linearGradient>
+    <linearGradient id="touchpad" x1="0" y1="0" x2="0.1" y2="1">
+      <stop offset="0" stop-color="#ffffff"/><stop offset="0.42" stop-color="#f4f5f7"/><stop offset="1" stop-color="#e7eaee"/>
+    </linearGradient>
+    <linearGradient id="button" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#e3e7ed"/>
+    </linearGradient>
+    <linearGradient id="led-light" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#239fff" stop-opacity="0"/>
+      <stop offset="0.15" stop-color="#239fff" stop-opacity="0.9"/>
+      <stop offset="0.62" stop-color="#239fff" stop-opacity="0.95"/>
+      <stop offset="0.84" stop-color="#239fff" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#239fff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="led-glow" x="-0.5" y="-0.1" width="2" height="1.2" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="3"/></filter>
+    <path id="emitter-left" d="M 174 69 C 151 79 135 105 139 140 L 221 500 C 232 552 257 590 300 611 L 320 614 C 279 591 263 563 254 522 L 168 140 C 163 108 163 85 174 69 Z"/>
+    <g id="shell-left">
+      <path d="M -80 55 C -6 20 73 22 111 61 C 139 90 137 115 137 140 L 217 500 C 229 548 192 602 143 655 L 121 690 H -80 Z" fill="url(#shell)" stroke="#d4d9df" stroke-width="1.5"/>
+      <path d="M -30 58 C 28 33 61 31 89 44" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+      <g transform="rotate(-12 66 220)">
+        <rect x="29" y="145" width="74" height="140" rx="36" fill="#c0c6cf"/>
+        <rect x="33" y="147" width="66" height="132" rx="32" fill="url(#button)" stroke="#d8dde4" stroke-width="1.7"/>
+      </g>
+    </g>
+    <clipPath id="crop"><rect width="1440" height="680" rx="16"/></clipPath>
+  </defs>
+  <g clip-path="url(#crop)">
+    <path d="M -30 82 C 148 -2 1292 -2 1470 82 V 700 H -30 Z" fill="url(#frame)"/>
+    <path d="M 133 67 Q 720 -18 1307 67" fill="none" stroke="#cbd1d8" stroke-width="12"/>
+    <use href="#shell-left"/>
+    <g transform="translate(1440 0) scale(-1 1)"><use href="#shell-left"/></g>
+    <path d="M 54 112 L 47 93 M 67 107 L 66 86 M 80 111 L 91 94" fill="none" stroke="#c7ced7" stroke-width="3" stroke-linecap="round"/>
+    <path d="M 1361 95 H 1398 M 1361 105 H 1398 M 1361 115 H 1398" fill="none" stroke="#c7ced7" stroke-width="3" stroke-linecap="round"/>
+    <path d="M -27 424 L 30 426 Q 49 426 48 448 L 46 490 Q 46 502 32 513 L 10 533 Q 4 538 -6 530 L -30 510 Z" fill="#b4bdc8"/>
+    <path d="M -27 435 L 28 437 Q 38 438 37 449 L 35 487 Q 34 493 24 503 L 8 518 L -27 495 Z" fill="url(#button)" stroke="#d8dfe8" stroke-width="2"/>
+    <path d="M 24 566 Q 35 551 62 548 L 84 546 Q 107 545 110 568 L 113 605 Q 115 628 91 629 L 63 630 Q 48 629 39 618 L 10 590 Q 5 582 13 574 Z" fill="#b8c1cc"/>
+    <path d="M 29 571 Q 38 561 62 560 L 83 558 Q 94 557 96 570 L 100 603 Q 101 614 88 616 L 63 617 Q 55 617 48 609 L 22 587 Q 18 582 24 576 Z" fill="url(#button)" stroke="#d8dfe7" stroke-width="2"/>
+    <path d="M 66 574 L 81 587 L 66 599 Z" fill="#cbd2dc"/>
+    <circle cx="1470" cy="465" r="75" fill="url(#button)" stroke="#c0c7d0" stroke-width="5"/>
+    <circle cx="1380" cy="639" r="81" fill="url(#button)" stroke="#c0c7d0" stroke-width="5"/>
+    <rect x="1358" y="617" width="44" height="44" rx="2" fill="none" stroke="#cbd2dc" stroke-width="3"/>
+    <path d="M 202 63 Q 720 12 1238 63 Q 1298 61 1282 114 L 1200 505 C 1190 585 1152 610 1060 616 H 380 C 288 610 250 585 240 505 L 158 114 Q 142 61 202 63 Z" fill="#11151b" opacity="0.8"/>
+    <g id="unlit-diffusers" fill="#34404d" opacity="0.75"><use href="#emitter-left"/><use href="#emitter-left" transform="translate(1440 0) scale(-1 1)"/></g>
+    <g id="rgb-lightbars" fill="url(#led-light)">
+      <g filter="url(#led-glow)" opacity="0.28"><use href="#emitter-left"/><use href="#emitter-left" transform="translate(1440 0) scale(-1 1)"/></g>
+      <use id="lightbar-left" href="#emitter-left"/>
+      <use id="lightbar-right" href="#emitter-left" transform="translate(1440 0) scale(-1 1)"/>
+    </g>
+    <path id="white-touchpad" d="M 203 53 Q 720 6 1237 53 Q 1290 58 1276 105 L 1192 500 C 1182 574 1151 599 1058 605 H 382 C 289 599 258 574 248 500 L 164 105 Q 150 58 203 53 Z" fill="url(#touchpad)" stroke="#c6cdd6" stroke-width="1.7"/>
+    <path d="M 210 59 Q 720 14 1230 59" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round"/>
+    <path d="M 257 497 C 268 563 297 589 384 595 H 1056 C 1143 589 1172 563 1183 497" fill="none" stroke="#cbd1d9" stroke-width="1.5" opacity="0.65"/>
+    <g id="player-indicators" fill="#262b32">
+      <rect id="player-0" data-player-bit="0" x="430" y="623" width="24" height="4.5" rx="2.25"/>
+      <rect id="player-1" data-player-bit="1" x="615" y="623" width="24" height="4.5" rx="2.25"/>
+      <rect id="player-2" data-player-bit="2" x="708" y="623" width="24" height="4.5" rx="2.25"/>
+      <rect id="player-3" data-player-bit="3" x="801" y="623" width="24" height="4.5" rx="2.25"/>
+      <rect id="player-4" data-player-bit="4" x="986" y="623" width="24" height="4.5" rx="2.25"/>
+    </g>
+  </g>
+</svg>

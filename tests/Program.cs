@@ -23,6 +23,7 @@ internal static class Program
         if (args.Contains("--probe")) { Probe(); return; }
         CheckReports();
         CheckEffects();
+        CheckControllerPreview();
         CheckSteamProfiles();
         await CheckOwnership();
         await CheckSolidRefresh();
@@ -135,6 +136,53 @@ internal static class Program
         Assert(session.DeviceCount == 1 && session.WriteCount == 3, "Focus return did not reapply lighting");
         await session.TickAsync(LightingSettings.Default with { Enabled = false }, 103, default);
         Assert(session.DeviceCount == 0 && session.WriteCount == 3, "Disabling did not stop output");
+    }
+
+    private static void CheckControllerPreview()
+    {
+        using var svg = typeof(Program).Assembly.GetManifestResourceStream(ControllerPreviewGeometry.SvgResource)
+            ?? throw new Exception("Missing embedded SVG artwork");
+        var geometry = ControllerPreviewGeometry.Load(svg);
+        Assert(geometry.Size.X / geometry.Size.Y is > 2 and < 2.2f, "Touchpad crop aspect ratio changed");
+        Assert(geometry.Indicators.Length == 5, "Not all five player LEDs are mapped");
+        var centers = geometry.Indicators.Select(i => i.Position.X + i.Size.X / 2).ToArray();
+        Assert(Math.Abs(centers[2] - geometry.Size.X / 2) < 0.01f, "Player 1 LED is not centered");
+        Assert(Math.Abs(centers[0] + centers[4] - geometry.Size.X) < 0.01f &&
+            Math.Abs(centers[1] + centers[3] - geometry.Size.X) < 0.01f, "Player LED positions are asymmetric");
+        Assert(centers[4] - centers[0] > geometry.Size.X / 3, "Player LEDs collapsed into an inaccurate central cluster");
+        foreach (var indicator in geometry.Indicators)
+        {
+            Assert(indicator.Position.X >= 0 && indicator.Position.Y >= 0 && indicator.Position.X + indicator.Size.X <= geometry.Size.X &&
+                indicator.Position.Y + indicator.Size.Y <= geometry.Size.Y, "Player LED lies outside the drawing");
+        }
+        foreach (var mask in new byte[] { 0, 4, 10, 21, 27, 31 })
+        {
+            var frame = new LightingFrame(0, 0, 0, mask);
+            Assert(geometry.Indicators.Count(i => ControllerPreviewGeometry.IsPlayerLit(frame, i.Bit)) == System.Numerics.BitOperations.PopCount(mask), "Preview player count differs from the hardware mask");
+        }
+        var one = new LightingFrame(0, 0, 0, 4);
+        Assert(ControllerPreviewGeometry.IsPlayerLit(one, 2) && !ControllerPreviewGeometry.IsPlayerLit(one, 0), "Player 1 lights the wrong position");
+        foreach (var effect in Enum.GetValues<LightingEffect>())
+        for (var i = 0; i < 90; i++)
+        {
+            var settings = LightingSettings.Default with { Effect = effect, Brightness = 0.35f, PlayerLights = 21 };
+            var time = i * 0.137;
+            Assert(ControllerPreviewGeometry.Frame(settings, true, time) == LightingEffects.Render(settings, time), "Preview colors or animation phase diverged from hardware rendering");
+        }
+        Assert(ControllerPreviewGeometry.Frame(LightingSettings.Default, false, 1) == default, "Custom preview animates in the background");
+        Assert(ControllerPreviewGeometry.Frame(LightingSettings.Default with { Enabled = false }, true, 1) == default, "Disabled lighting is shown as active");
+        Assert(ControllerPreviewGeometry.Frame(LightingSettings.Default with { Brightness = 0, PlayerLights = 4 }, true, 1).PlayerLights == 4, "RGB brightness incorrectly dims the white player LEDs");
+        foreach (var resource in new[] { ControllerPreviewGeometry.PngResource, ControllerPreviewGeometry.LightbarResource })
+        {
+            using var texture = typeof(Program).Assembly.GetManifestResourceStream(resource)
+                ?? throw new Exception("Missing embedded preview texture: " + resource);
+            var header = new byte[24];
+            texture.ReadExactly(header);
+            Assert(header.Take(8).SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }), "Preview resource is not a PNG");
+            var width = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(header.AsSpan(16, 4));
+            var height = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(header.AsSpan(20, 4));
+            Assert(width == (uint)geometry.Size.X && height == (uint)geometry.Size.Y, "Preview body, lightbar mask and SVG coordinates have different sizes");
+        }
     }
 
     private static string SteamText(byte red = 149, byte green = 255, byte blue = 0) =>

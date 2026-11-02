@@ -29,6 +29,44 @@ apply to all supported USB controllers connected to this game process. The
 controller exposes one lightbar RGB color; a spatial wave with independently
 addressed LEDs is not available through this protocol.
 
+### Live controller preview
+
+The top of `/ds5light` shows a centered touchpad close-up with a white touchpad,
+tapered RGB lightpipes and five white player indicators along the lower rim.
+Color, brightness, rainbow and breathing use the same effect engine and clock as
+the hardware output. Player indicators follow the actual five-bit masks, including
+the centered single light, inner pair, outer pair plus center, and four-light layout.
+Their centers are deliberately not five equally spaced positions. The white marks
+are widened for readability at the settings window's normal size.
+
+The preview pauses in the background and shows the custom lights off when disabled.
+It previews the configured effect; it does not read the controller's current LEDs.
+
+Editable artwork: `src/DualSenseLighting/Assets/dualsense-preview.svg`. This is a
+standalone vector file with no embedded photograph. The original supplied reference
+is retained as `preview.jpg`. The redraw uses its 1800-pixel source proportions and
+the requested touchpad crop. Layout was cross-checked against Sony's
+[controller part names](https://controller.dl.playstation.net/controller/lang/en/DS_partnames.html),
+[DualSense introduction and product photos](https://blog.playstation.com/2020/04/07/introducing-dualsense-the-new-wireless-game-controller-for-playstation-5/),
+and [hands-on player-indicator photos](https://x.com/Alejandroid1979/status/1312738751311949825).
+The proportions are inferred from photographs, rather than a mechanical CAD model.
+
+The cached body texture and tapered lightbar alpha mask are exported from that
+single SVG and embedded in the DLL. The player positions are also read from the
+SVG. All three share identical dimensions, so UI scaling does not stretch the
+artwork or misalign the lights. Dalamud's shared texture service handles display;
+the plugin adds no image-rendering runtime library.
+
+To regenerate artwork from WSL using the system's librsvg and Cairo:
+
+```bash
+python3 tools/render-preview.py --sample --player-mask 0x1b
+python3 tools/build-wsl.py
+```
+
+The sample exports to `artifacts/preview/`. The renderer is a development tool;
+ordinary builds use the checked-in PNG exports.
+
 ### Focus and compatibility
 
 The worker checks the foreground window's process before acquiring devices and
@@ -108,6 +146,8 @@ foreground/background transitions, disabling, reconnects, animation behavior,
 focus changes during discovery and between controllers, discovery retry backoff,
 write timeouts, cancellation, Steam preference validation and account/controller
 matching, one-time handoffs, and foreground return during a profile read.
+Preview checks cover embedded artwork, aspect ratio and mask alignment, player
+positions and bitmasks, animation phase/color agreement, and paused/disabled states.
 
 ### In-game verification
 
@@ -130,6 +170,9 @@ restores Steam lighting on Alt-Tab and resumes the custom effect on returning to
 FFXIV. The latest read-only probe matched the connected controller to RGB
 149/255/0 with player indicators off. Native report preservation is covered by
 automated checks; native haptic/speaker behavior still needs its own live check.
+The user also confirmed the revised version 0.2.1 touchpad close-up and player
+layout look correct; version 0.2.2 widens the white indicator marks by 60% while
+preserving their centers and height.
 
 If output fails, the UI's Diagnostics section shows the most recent error and
 foreground/background report counters. Device access is retried without exclusive

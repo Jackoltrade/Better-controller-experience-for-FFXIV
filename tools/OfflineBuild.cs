@@ -68,7 +68,23 @@ public static class OfflineBuild
         using (var stream = File.Create(args[0]))
         {
             var emit = compilationType.GetMethods().First(m => m.Name == "Emit" && m.GetParameters()[0].ParameterType == typeof(Stream) && m.GetParameters().Skip(1).All(p => p.IsOptional));
-            var result = emit.Invoke(compilation, Arguments(emit.GetParameters(), stream));
+            var resourceType = core.GetType("Microsoft.CodeAnalysis.ResourceDescription");
+            var resourceFiles = args.Skip(4).SelectMany(path => new[] { Path.GetDirectoryName(path), Path.GetDirectoryName(Path.GetDirectoryName(path)) })
+                .Where(path => path != null).Select(path => Path.Combine(path, "Assets"))
+                .Where(Directory.Exists).Distinct(StringComparer.OrdinalIgnoreCase)
+                .SelectMany(path => Directory.GetFiles(path, "dualsense-preview*")).ToArray();
+            var resources = Array.CreateInstance(resourceType, resourceFiles.Length);
+            for (int i = 0; i < resourceFiles.Length; i++) {
+                string resourcePath = resourceFiles[i];
+                resources.SetValue(Activator.CreateInstance(resourceType, new object[] {
+                    "DualSenseLighting.Assets." + Path.GetFileName(resourcePath),
+                    new Func<Stream>(() => File.OpenRead(resourcePath)), true
+                }), i);
+            }
+            var emitArguments = Arguments(emit.GetParameters(), stream);
+            var resourceParameter = Array.FindIndex(emit.GetParameters(), p => p.Name == "manifestResources");
+            emitArguments[resourceParameter] = resources;
+            var result = emit.Invoke(compilation, emitArguments);
             foreach (var diagnostic in (IEnumerable)result.GetType().GetProperty("Diagnostics").GetValue(result)) Console.WriteLine(diagnostic);
             bool success = (bool)result.GetType().GetProperty("Success").GetValue(result);
             Console.WriteLine(success ? "Build succeeded: " + args[0] : "Build failed");

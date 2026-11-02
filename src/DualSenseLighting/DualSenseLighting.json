@@ -2,7 +2,7 @@
   "Author": "Local",
   "Name": "DualSense Lighting",
   "InternalName": "DualSenseLighting",
-  "AssemblyVersion": "0.1.1.0",
+  "AssemblyVersion": "0.2.2.0",
   "Description": "Custom USB DualSense lighting while FFXIV is active. Solid, rainbow and breathing effects, brightness and player indicators. Background game lighting is guarded so other apps can control it. Native haptics, speaker and triggers pass through.",
   "Punchline": "Custom DualSense lighting with protection for other apps.",
   "ApplicableVersion": "any",

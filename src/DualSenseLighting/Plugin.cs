@@ -12,8 +12,9 @@ using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 using DualSenseLighting.Core;
 using DualSenseLighting.Windows;
+using DualSenseLighting.Ui;
 
-[assembly: System.Reflection.AssemblyVersion("0.1.1.0")]
+[assembly: System.Reflection.AssemblyVersion("0.2.2.0")]
 
 namespace DualSenseLighting;
 
@@ -31,6 +32,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly LightingSession session;
     private readonly GameOutputGuard guard;
     private readonly Task worker;
+    private readonly ControllerPreview preview;
     private LightingSettings settings;
     private volatile bool restoreSteamLighting;
     private bool windowOpen;
@@ -39,7 +41,7 @@ public sealed class Plugin : IDalamudPlugin
     private bool reportedGuardError;
 
     public Plugin(IDalamudPluginInterface pluginInterface, ICommandManager commands,
-        IFramework framework, IGameInteropProvider interop, IPluginLog log)
+        IFramework framework, IGameInteropProvider interop, IPluginLog log, ITextureProvider textures)
     {
         this.pluginInterface = pluginInterface;
         this.commands = commands;
@@ -49,6 +51,7 @@ public sealed class Plugin : IDalamudPlugin
             throw new InvalidOperationException("Disable the older Steam Lighting Guard before loading DualSense Lighting.");
         configuration = pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
         settings = configuration.Snapshot();
+        preview = new ControllerPreview(textures);
         restoreSteamLighting = configuration.RestoreSteamLighting;
         var steam = new SteamLightingProfiles(SteamInstallation.GetRoot(), SteamInstallation.GetActiveAccount);
         session = new LightingSession(new HidDevices(), Native.IsCurrentProcessForeground, ReportError,
@@ -135,6 +138,7 @@ public sealed class Plugin : IDalamudPlugin
         try
         {
             var foreground = Native.IsCurrentProcessForeground();
+            preview.Draw(Volatile.Read(ref settings), foreground, clock.Elapsed.TotalSeconds);
             ImGui.TextUnformatted(foreground ? "FFXIV active" : "Background protected — custom output paused");
             ImGui.TextUnformatted($"Connected USB controllers: {session.DeviceCount}");
             ImGui.Separator();
