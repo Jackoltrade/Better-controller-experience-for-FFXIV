@@ -11,7 +11,6 @@ namespace DualSenseLighting.Core;
 public interface ILightingDevice : IDisposable
 {
     int ReportLength { get; }
-    string? Serial { get; }
     Task WriteAsync(byte[] report, CancellationToken cancellationToken);
 }
 
@@ -27,28 +26,26 @@ public sealed class LightingSession : IDisposable
     private readonly ILightingDevices devices;
     private readonly Func<bool> isForeground;
     private readonly Action<Exception> onError;
-    private readonly Func<ILightingDevice, int, LightingFrame?>? backgroundLighting;
     private readonly Dictionary<string, ILightingDevice> open = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, (LightingFrame Frame, double Seconds)> sent = new(StringComparer.OrdinalIgnoreCase);
     private double nextScan;
     private int deviceCount;
     private long writeCount;
-    private long handoffCount;
+    private long releaseCount;
 
     public int DeviceCount => Volatile.Read(ref deviceCount);
     public long WriteCount => Interlocked.Read(ref writeCount);
-    public long HandoffCount => Interlocked.Read(ref handoffCount);
+    public long ReleaseCount => Interlocked.Read(ref releaseCount);
 
-    public LightingSession(ILightingDevices devices, Func<bool> isForeground, Action<Exception> onError,
-        Func<ILightingDevice, int, LightingFrame?>? backgroundLighting = null)
+    public LightingSession(ILightingDevices devices, Func<bool> isForeground, Action<Exception> onError)
     {
         this.devices = devices;
         this.isForeground = isForeground;
         this.onError = onError;
-        this.backgroundLighting = backgroundLighting;
     }
 
-    public async Task TickAsync(LightingSettings settings, double seconds, CancellationToken cancellationToken, float sfxLevel = 0)
+    public async Task TickAsync(LightingSettings settings, double seconds, CancellationToken cancellationToken, float sfxLevel = 0,
+        LimitBreakState? limitBreak = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (!settings.Enabled || !isForeground())
@@ -64,7 +61,7 @@ public sealed class LightingSession : IDisposable
             catch (Exception error) { Dispose(); nextScan = seconds + 1; onError(error); return; }
         }
 
-        var frame = LightingEffects.Render(settings, seconds, sfxLevel);
+        var frame = LightingEffects.Render(settings, seconds, sfxLevel, limitBreak);
         foreach (var path in open.Keys.ToArray())
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -110,29 +107,23 @@ public sealed class LightingSession : IDisposable
     {
         try
         {
-            if (backgroundLighting == null) return;
-            var count = open.Count;
             foreach (var path in open.Keys.ToArray())
             {
-                // Only restore controllers for which this session actually sent custom lighting.
+                // Clear only controllers whose lighting this session changed.
                 if (!sent.ContainsKey(path)) continue;
                 if (!allowForeground && isForeground()) break;
                 try
                 {
-                    var frame = backgroundLighting(open[path], count);
-                    if (frame == null) continue;
-                    // Reading a saved profile may take time: don't restore over a regained foreground.
-                    if (!allowForeground && isForeground()) break;
                     using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                     deadline.CancelAfter(500);
-                    await open[path].WriteAsync(DualSenseReport.Create(open[path].ReportLength, frame.Value), deadline.Token).ConfigureAwait(false);
-                    Interlocked.Increment(ref handoffCount);
+                    await open[path].WriteAsync(DualSenseReport.Create(open[path].ReportLength, new LightingFrame(0, 0, 0, 0)), deadline.Token).ConfigureAwait(false);
+                    Interlocked.Increment(ref releaseCount);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
                 catch (Exception error) { onError(error); }
             }
         }
-        finally { Dispose(); } // No polling/retries or retained handles after this one-time handoff.
+        finally { Dispose(); } // No polling/retries or retained handles after release.
     }
 
     public void Dispose()

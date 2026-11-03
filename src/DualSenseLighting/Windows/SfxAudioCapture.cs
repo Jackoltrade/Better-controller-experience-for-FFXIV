@@ -2,6 +2,9 @@
 // Native signatures/layout adapted from FFXIVClientStructs; see THIRD-PARTY-NOTICES.txt.
 #nullable enable
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Threading;
 using Dalamud.Hooking;
@@ -10,28 +13,171 @@ using DualSenseLighting.Core;
 
 namespace DualSenseLighting.Windows;
 
-/// <summary>Observes native source-voice output without changing playback, routing or samples.</summary>
+/// <summary>Observes source PCM and optionally adds a separate feed to native vibration processing.</summary>
 internal sealed unsafe class SfxAudioCapture : IDisposable
 {
     private const string RenderSignature = "48 8B C4 48 89 58 18 55 56 57 41 54 41 55 41 56 41 57 48 8D A8 D8 F9 FF FF";
     private const string CallbackSignature = "48 8D 4F 50 48 8D 05 ?? ?? ?? ?? 48 89 5F 18 8D 53 60 48 89 47 08";
+    private const string AnimationSignature = "4C 8B DC 56 48 81 EC ?? ?? ?? ?? F3 0F 10 89";
+    private const string AcquireSignature = "E8 ?? ?? ?? ?? 48 8B D8 48 85 C0 0F 84 ?? ?? ?? ?? 44 0F B6 74 24";
+    private const string ResolveSignature = "48 89 5C 24 20 57 48 83 EC 20 48 8D 99 78 01 00 00 48 89 6C 24 30 48 89 74 24 38 8B F2";
     private readonly Hook<RenderDelegate> render;
+    private Hook<SubmixRenderDelegate>? confirmationRender;
+    private int* sampleRate;
+    private Hook<AnimationSoundDelegate>? animation;
+    private Hook<AcquireSoundDelegate>? acquire;
+    private Hook<ResolveSoundDelegate>? resolve;
+    private Hook<CharacterSoundDelegate>? characterSound;
+    private Hook<ClipUpdateDelegate>? clipUpdate;
+    private Hook<GetTimelineDelegate>? getTimeline;
+    private GameAudioLayout.PlayerSoundOwnership? ownership;
+    private readonly nint moduleStart, moduleEnd;
     private readonly nint callbackVTable;
     private readonly int* frames;
     private readonly int* channels;
     private readonly int* spatialAudio;
+    private GameHapticCamera? hapticCamera;
     private long matchedBlocks, rejectedVoices;
-    private int faulted, disposed;
+    private int faulted, playerFaulted, disposed;
+    private int sourceScope = (int)SfxSource.PlayerOnly;
+    private int localObjectIndex = -1;
+    private long ownAnimations, otherAnimations, unknownAnimations, ownedReservations, playbackLinks;
+    private int tracing;
+    public string? ConfirmationError { get; private set; }
+    private readonly long[] traceRoots = new long[512], traceTimes = new long[512], tracePeaks = new long[512];
+    // Playback allocates SoundData synchronously inside this actor-aware callback;
+    // the actual resource/PCM can finish loading later on another thread.
+    [ThreadStatic] private static GameAudioLayout.PlayerIdentity? soundCaster;
+    [ThreadStatic] private static byte soundOrigin;
+    [ThreadStatic] private static nint sourceActor, sourceDraw;
+    [ThreadStatic] private static nint activeSoundClip;
+    [ThreadStatic] private static int sourceTimelineOwnerIndex;
 
     public SfxLoudness Loudness { get; } = new();
     public long MatchedBlocks => Interlocked.Read(ref matchedBlocks);
     public long RejectedVoices => Interlocked.Read(ref rejectedVoices);
     public bool Faulted => Volatile.Read(ref faulted) != 0;
     public bool LayoutSupported => GameAudioLayout.SampleCount(*frames, *channels, *spatialAudio, 0) != 0;
+    public bool PlayerFilterSupported => ownership != null && Volatile.Read(ref playerFaulted) == 0;
+    public long OwnAnimations => Interlocked.Read(ref ownAnimations);
+    public long OtherAnimations => Interlocked.Read(ref otherAnimations);
+    public long UnknownAnimations => Interlocked.Read(ref unknownAnimations);
+    public long OwnedReservations => Interlocked.Read(ref ownedReservations);
+    public long PlaybackLinks => Interlocked.Read(ref playbackLinks);
+    public string? PlayerFilterError { get; private set; }
+    public NativeHapticOutput? Haptics { get; }
+    public string? HapticsError { get; }
+    public string? SpatialError { get; private set; }
+    public nint PlayerAddress => ownership?.Player.Actor ?? 0;
+    public readonly record struct VoiceObservation(int SoundId, byte Bus, byte Flags, bool Owned, float Rms,
+        HapticRoute HapticRoute, bool Biased);
+    public void SetTracing(bool value) => Volatile.Write(ref tracing, value ? 1 : 0);
+    public GameAudioLayout.SoundReservation[] Reservations() => ownership?.Snapshot() ?? Array.Empty<GameAudioLayout.SoundReservation>();
+
+    public VoiceObservation[] Voices()
+    {
+        var result = new List<VoiceObservation>();
+        var cutoff = Stopwatch.GetTimestamp() - Stopwatch.Frequency / 10;
+        for (var slot = 0; slot < traceRoots.Length; slot++)
+        {
+            var metadata = Volatile.Read(ref traceRoots[slot]);
+            if (metadata == 0 || Volatile.Read(ref traceTimes[slot]) < cutoff) continue;
+            var id = (int)metadata;
+            var peak = Interlocked.Exchange(ref tracePeaks[slot], (long)((ulong)(uint)id << 32));
+            var rms = (int)(peak >> 32) == id ? BitConverter.UInt32BitsToSingle((uint)peak) : 0;
+            result.Add(new VoiceObservation(id, (byte)(metadata >> 32), (byte)(metadata >> 40), (metadata & (1L << 48)) != 0,
+                rms, (HapticRoute)((metadata >> 49) & 255), (metadata & (1L << 57)) != 0));
+        }
+        return result.ToArray();
+    }
+
+    private void TraceVoice(int id, byte bus, byte flags, bool owned, ReadOnlySpan<float> samples,
+        NativeHapticOutput.Frame haptic)
+    {
+        if (id <= 0) return;
+        var slot = id & 511;
+        var bits = BitConverter.SingleToUInt32Bits(SfxLoudness.MeasureRms(samples));
+        var before = Volatile.Read(ref tracePeaks[slot]);
+        for (var attempt = 0; attempt < 4; attempt++)
+        {
+            if ((int)(before >> 32) == id && (uint)before >= bits) break;
+            var after = (long)(((ulong)(uint)id << 32) | bits);
+            var actual = Interlocked.CompareExchange(ref tracePeaks[slot], after, before);
+            if (actual == before) break;
+            before = actual;
+        }
+        Volatile.Write(ref traceRoots[slot], (long)(uint)id | ((long)bus << 32) | ((long)flags << 40) |
+            (owned ? 1L << 48 : 0) | ((long)haptic.Route << 49) | (haptic.Biased ? 1L << 57 : 0));
+        Volatile.Write(ref traceTimes[slot], Stopwatch.GetTimestamp());
+    }
+
+    public void SetPlayer(nint actor, uint entityId, nint drawObject, Vector3? characterPosition, bool mounted = false)
+    {
+        Haptics?.SetFootstepContext(actor != 0, mounted);
+        if (ownership == null) return;
+        try
+        {
+            Haptics?.SetListener(actor != 0 && characterPosition.HasValue && Haptics.WantsSpatial
+                ? hapticCamera?.ReadListener(characterPosition.Value) : null);
+        }
+        catch { SpatialError = "Spatial listener is unavailable; using original combat haptics."; Haptics?.SetListener(null); }
+        Volatile.Write(ref localObjectIndex, actor == 0 ? -1 : *(ushort*)(actor + 0x8C));
+        // Only traverse the known local model, on the framework thread. A listener's
+        // arbitrary member is never dereferenced as a draw object.
+        Span<nint> models = stackalloc nint[32];
+        var count = drawObject == 0 ? 0 : 1;
+        if (count != 0) models[0] = drawObject;
+        for (var parent = 0; parent < count && count < models.Length; parent++)
+        {
+            var child = *(nint*)(models[parent] + 0x30);
+            for (var siblings = 0; child != 0 && siblings < 32 && count < models.Length; siblings++)
+            {
+                if (models[..count].Contains(child)) break;
+                if (*(nint*)(child + 0x18) != models[parent]) break;
+                var table = *(nint*)child;
+                if (table >= moduleStart && table <= moduleEnd - 24)
+                {
+                    var getType = *(nint*)(table + 16);
+                    // CharacterBase (3) includes weapon models. VFX attached to us
+                    // can belong to another actor and must not grant ownership.
+                    if (getType >= moduleStart && getType < moduleEnd &&
+                        ((delegate* unmanaged<nint, int>)getType)(child) == 3) models[count++] = child;
+                }
+                child = *(nint*)(child + 0x28);
+            }
+        }
+        if (ownership?.SetPlayer(actor, entityId, drawObject, models[..count]) == true)
+        { Loudness.SetActive(false); Haptics?.ResetImpactCue(); }
+    }
+
+    public bool SetSource(SfxSource source)
+    {
+        if (Volatile.Read(ref sourceScope) == (int)source) return false;
+        // Invalidate observations classified with the old source, including callbacks
+        // still inside original playback. The worker re-enables capture afterwards.
+        Loudness.SetActive(false);
+        Volatile.Write(ref sourceScope, (int)source);
+        return true;
+    }
 
     // The validated executable returns zero in EAX; retain the original return value as well as its arguments.
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
     private delegate int RenderDelegate(GameAudioLayout.SourceVoice* voice, float* scratch);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    private delegate int SubmixRenderDelegate(nint submix);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    private delegate nint AnimationSoundDelegate(nint node, nint unused, float timeOffset);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    private delegate GameAudioLayout.SoundData* AcquireSoundDelegate(nint manager);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    private delegate nint ResolveSoundDelegate(nint layout, int reservationId);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    private delegate nint CharacterSoundDelegate(nint container, int soundNumber, int unknown2, nint target,
+        ulong autoRelease, int weaponIndex, int volumeCategory, ulong unknown7);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    private delegate void ClipUpdateDelegate(nint clip);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    private delegate nint GetTimelineDelegate(nint clip);
 
     public SfxAudioCapture(IGameInteropProvider interop, ISigScanner scanner)
     {
@@ -50,6 +196,8 @@ internal sealed unsafe class SfxAudioCapture : IDisposable
                 throw new NotSupportedException("SFX mixer address validation failed.");
             return address;
         }
+        moduleStart = scanner.Module.BaseAddress;
+        moduleEnd = moduleStart + scanner.Module.ModuleMemorySize;
         var function = Unique(RenderSignature);
         var end = scanner.Module.BaseAddress + scanner.Module.ModuleMemorySize;
         if (function > end - 0x2000) throw new NotSupportedException("SFX mixer function is outside its module.");
@@ -67,24 +215,369 @@ internal sealed unsafe class SfxAudioCapture : IDisposable
         frames = (int*)Relative("48 63 1D ?? ?? ?? ?? E8 ?? ?? ?? ??", 3, 7);
         channels = (int*)Relative("89 15 ?? ?? ?? ?? 0F 11 05 ?? ?? ?? ??", 2, 6);
         spatialAudio = (int*)Relative("39 05 ?? ?? ?? ?? 48 89 5C 24 40", 2, 6);
-        render = interop.HookFromAddress<RenderDelegate>(function, Render);
-        try { render.Enable(); }
-        catch { render.Dispose(); throw; }
+        try
+        {
+            var animationFunction = Unique(AnimationSignature);
+            var acquireFunction = Relative(AcquireSignature, 1, 5);
+            var resolveFunction = Unique(ResolveSignature);
+            var characterFunction = Relative("E8 ?? ?? ?? ?? EB 6A 0F BE 83 ?? ?? ?? ??", 1, 5);
+            var clipFunction = Unique("40 53 55 56 57 48 81 EC ?? ?? ?? ?? 48 8B F9");
+            var timelineFunction = Unique("40 53 48 83 EC 20 48 8B 41 38 48 8B D9 48 85 C0 75 49");
+            if (animationFunction > end - 0x260 || acquireFunction > end - 0x70 || resolveFunction > end - 0x100)
+                throw new NotSupportedException("SFX caster callback is outside its module.");
+            var animationBody = new ReadOnlySpan<byte>((void*)animationFunction, 0x260);
+            var acquireBody = new ReadOnlySpan<byte>((void*)acquireFunction, 0x70);
+            var resolveBody = new ReadOnlySpan<byte>((void*)resolveFunction, 0x100);
+            if (animationBody.IndexOf(new byte[] { 0xf3, 0x0f, 0x10, 0x89, 0x54, 2, 0, 0 }) < 0 ||
+                animationBody.IndexOf(new byte[] { 0x48, 0x8b, 0x81, 0xf8, 1, 0, 0 }) < 0 ||
+                animationBody.IndexOf(new byte[] { 0x0f, 0xb7, 0x90, 0xa8, 4, 0, 0 }) < 0 ||
+                animationBody.IndexOf(new byte[] { 0x66, 0xc1, 0xea, 0x0d }) < 0 ||
+                animationBody.IndexOf(new byte[] { 0x48, 0x8b, 0x98, 0x70, 2, 0, 0 }) < 0 ||
+                animationBody.IndexOf(new byte[] { 0xff, 0x50, 8 }) < 0 ||
+                acquireBody.IndexOf(new byte[] { 0x48, 0x8b, 0xbe, 0x28, 2, 0, 0 }) < 0 ||
+                acquireBody.IndexOf(new byte[] { 0xc6, 0x47, 0x24, 1 }) < 0 ||
+                resolveBody.IndexOf(new byte[] { 0x39, 0x77, 0x38 }) < 0)
+                throw new NotSupportedException("SFX caster/slot layout is unsupported.");
+            if (characterFunction > end - 0x580 || new ReadOnlySpan<byte>((void*)characterFunction, 0x580)
+                .IndexOf(new byte[] { 0x48, 0x8b, 0x49, 8, 0x48, 0x8b, 1 }) < 0)
+                throw new NotSupportedException("Character sound owner layout is unsupported.");
+            // The sound-clip updater calls this lazy timeline resolver before any
+            // sound emission. Observe that existing call so first-use clips work too.
+            if (clipFunction > end - 0x400 || timelineFunction > end - 0x60 ||
+                *(byte*)(clipFunction + 15) != 0xE8 || clipFunction + 20 + *(int*)(clipFunction + 16) != timelineFunction ||
+                new ReadOnlySpan<byte>((void*)timelineFunction, 0x60).IndexOf(new byte[] { 0x48, 0x89, 0x43, 0x38 }) < 0)
+                throw new NotSupportedException("Sound timeline ownership layout is unsupported.");
+            // A layout entry forwards position through its controller at +8;
+            // the validated SoundController ID getter reads +8 again (entry+0x10).
+            // Multiple positional setter variants share this exact field access.
+            // It is a layout check, not a hook target that needs a unique match.
+            if (scanner.ScanAllText("48 8D 4F 08 0F 10 03 0F 11 40 20 48 8B 97 68 01 00 00 48 83 C2 20").Length == 0)
+                throw new NotSupportedException("SFX positional controller layout is unsupported.");
+            Unique("8B 49 08 83 F9 01 7C 09 E8 ?? ?? ?? ?? 85 C0 75 03 8B 43 08");
+            // RootSound vfunc 63 is the SoundController's full, playback-specific ID.
+            Unique("8B 41 0C C3 CC CC CC CC CC CC CC CC CC CC CC CC 0F B6 81 88 02 00 00 C3");
+            var manager = Marshal.ReadIntPtr(Relative("48 89 35 ?? ?? ?? ?? 48 83 C4 20", 3, 7));
+            var pool = manager == 0 ? 0 : Marshal.ReadIntPtr(manager + 0x220);
+            if (pool == 0 || ((nuint)pool & 7) != 0) throw new NotSupportedException("SFX sound pool is unavailable.");
+            ownership = new GameAudioLayout.PlayerSoundOwnership((GameAudioLayout.SoundData*)pool);
+            acquire = interop.HookFromAddress<AcquireSoundDelegate>(acquireFunction, AcquireSound);
+            resolve = interop.HookFromAddress<ResolveSoundDelegate>(resolveFunction, ResolveSound);
+            characterSound = interop.HookFromAddress<CharacterSoundDelegate>(characterFunction, CharacterSound);
+            getTimeline = interop.HookFromAddress<GetTimelineDelegate>(timelineFunction, GetTimeline);
+            clipUpdate = interop.HookFromAddress<ClipUpdateDelegate>(clipFunction, ClipUpdate);
+            animation = interop.HookFromAddress<AnimationSoundDelegate>(animationFunction, AnimationSound);
+            acquire.Enable();
+            resolve.Enable();
+            characterSound.Enable();
+            getTimeline.Enable();
+            clipUpdate.Enable();
+            animation.Enable();
+        }
+        catch (Exception error)
+        {
+            animation?.Dispose(); animation = null;
+            acquire?.Dispose(); acquire = null;
+            resolve?.Dispose(); resolve = null;
+            characterSound?.Dispose(); characterSound = null;
+            clipUpdate?.Dispose(); clipUpdate = null;
+            getTimeline?.Dispose(); getTimeline = null;
+            ownership = null; // The existing All combat option remains usable.
+            PlayerFilterError = error.Message;
+        }
+        try
+        {
+            var instances = Relative("48 83 EC 28 48 63 D1 48 8D 0D ?? ?? ?? ??", 10, 14);
+            var mix = Unique("48 8B C4 53 55 56 48 81 EC 80 00 00 00 80 B9 3C 01 00 00 00 48 8B DA");
+            if (instances > end - 15 * 8 || body.IndexOf(new byte[] { 0x48, 0x8d, 0x9f, 0x48, 9, 0, 0 }) < 0 ||
+                body.IndexOf(new byte[] { 0x41, 0xff, 0x51, 0x78 }) < 0)
+                throw new NotSupportedException("Native vibration routing layout is unsupported.");
+            Haptics = new NativeHapticOutput((nint*)instances, mix, moduleStart, moduleEnd);
+        }
+        catch (Exception error) { HapticsError = error.Message; }
+        if (Haptics != null)
+        {
+            try
+            {
+                // Validated against the native mix pass: this function runs once
+                // per submix, after source voices and before effects/sends.
+                var submixRender = Unique("48 89 5C 24 20 56 57 41 55 41 56 41 57 48 83 EC 70 0F B7 81 22 01 00 00");
+                if (submixRender > end - 0x480 ||
+                    new ReadOnlySpan<byte>((void*)submixRender, 0x40).IndexOf(new byte[] { 0x66, 0x89, 0x81, 0x24, 0x01, 0, 0 }) < 0)
+                    throw new NotSupportedException("Confirmation vibration mixer layout is unsupported.");
+                sampleRate = (int*)Relative("44 89 0D ?? ?? ?? ?? 44 89 25 ?? ?? ?? ??", 3, 7);
+                // Keep this extra detour disabled except during the short cue.
+                confirmationRender = interop.HookFromAddress<SubmixRenderDelegate>(submixRender, RenderConfirmation);
+            }
+            catch (Exception error) { ConfirmationError = error.Message; }
+            try
+            {
+                var control = Relative("4C 8D 35 ?? ?? ?? ?? 48 8B 09", 3, 7);
+                var getCamera = Relative("E8 ?? ?? ?? ?? 45 32 FF 40 32 FF", 1, 5);
+                var matrixBuilder = Unique("48 8B C4 53 48 81 EC F0 00 00 00 F3 0F 10 05 ?? ?? ?? ?? 48 8B D9");
+                var playSound = Relative("E8 ?? ?? ?? ?? 83 FB ?? 41 BF", 1, 5);
+                if (control > end - 0x190 || getCamera > end - 0x30 || playSound > end - 0x300 ||
+                    new ReadOnlySpan<byte>((void*)playSound, 0x300).IndexOf(new byte[] { 0xf3, 0x0f, 0x11, 0x7b, 0x68 }) < 0 ||
+                    new ReadOnlySpan<byte>((void*)playSound, 0x300).IndexOf(new byte[] { 0x88, 0x83, 0xb9, 0, 0, 0 }) < 0 ||
+                    !new ReadOnlySpan<byte>((void*)getCamera, 8).SequenceEqual(
+                    new byte[] { 0xf3, 0x0f, 0x10, 0x89, 0x80, 1, 0, 0 }))
+                    throw new NotSupportedException("Camera or positional sound layout is unsupported.");
+                hapticCamera = new GameHapticCamera(control, getCamera);
+                Haptics.SetSpatialMatrices(GameHapticCamera.StereoMatrix(matrixBuilder, 8), GameHapticCamera.StereoMatrix(matrixBuilder, 16));
+            }
+            catch (Exception error) { SpatialError = error.Message; }
+        }
+        Hook<RenderDelegate>? newRender = null;
+        try
+        {
+            newRender = interop.HookFromAddress<RenderDelegate>(function, Render);
+            render = newRender;
+            render.Enable();
+        }
+        catch
+        {
+            confirmationRender?.Dispose();
+            newRender?.Dispose(); animation?.Dispose(); acquire?.Dispose(); resolve?.Dispose(); characterSound?.Dispose();
+            clipUpdate?.Dispose(); getTimeline?.Dispose(); throw;
+        }
+    }
+
+    public void UpdateEnableCue(bool request)
+    {
+        var haptics = Haptics;
+        if (confirmationRender == null || haptics == null) return;
+        try
+        {
+            if (request && ConfirmationError == null) haptics.RequestEnableCue();
+            if (ConfirmationError == null && haptics.HasEnableCue)
+            {
+                if (!confirmationRender.IsEnabled) confirmationRender.Enable();
+            }
+            else
+            {
+                haptics.CancelEnableCue();
+                if (confirmationRender.IsEnabled) confirmationRender.Disable();
+            }
+        }
+        catch (Exception error) { haptics.CancelEnableCue(); ConfirmationError = error.Message; }
+    }
+
+    private int RenderConfirmation(nint submix)
+    {
+        if (Haptics?.HasEnableCue == true && Volatile.Read(ref disposed) == 0)
+        {
+            try
+            {
+                if (submix != 0 && new ReadOnlySpan<byte>((void*)(submix + 0x13E), 10).SequenceEqual("Vibration\0"u8))
+                    Haptics.MixEnableCue(submix, Native.IsCurrentProcessForeground(), !Faulted &&
+                        GameAudioLayout.SampleCount(*frames, *channels, *spatialAudio, 0) > 0 && *sampleRate == HapticEnableCue.SampleRate);
+            }
+            catch { Haptics.CancelEnableCue(); ConfirmationError = "Confirmation vibration stopped."; }
+        }
+        return confirmationRender!.Original(submix);
+    }
+
+    private nint AnimationSound(nint node, nint unused, float timeOffset)
+    {
+        var previous = soundCaster;
+        var previousOrigin = soundOrigin; var previousActor = sourceActor; var previousDraw = sourceDraw;
+        soundCaster = null; // Unknown/nested callbacks must not inherit an outer actor.
+        soundOrigin = 1; sourceActor = 0; sourceDraw = 0;
+        try
+        {
+            if (PlayerFilterSupported && !Faulted && Volatile.Read(ref disposed) == 0 && node != 0)
+            {
+                try
+                {
+                    var time = *(float*)(node + 0x254);
+                    var intermediate = *(nint*)(node + 0x1F8);
+                    if (time >= 0 && intermediate != 0 && (*(ushort*)(intermediate + 0x4A8) & 0x2000) != 0)
+                    {
+                        var listener = *(nint*)(intermediate + 0x270);
+                        var table = listener == 0 ? 0 : *(nint*)listener;
+                        var caster = (nint)0;
+                        var drawObject = (nint)0;
+                        if (table >= moduleStart && table <= moduleEnd - 16)
+                        {
+                            var function = *(nint*)(table + 8);
+                            if (function >= moduleStart && function < moduleEnd)
+                            {
+                                caster = ((delegate* unmanaged<nint, nint>)function)(listener);
+                                if (caster == 0) drawObject = *(nint*)(listener + 8);
+                            }
+                        }
+                        var player = ownership!.Player;
+                        sourceActor = caster; sourceDraw = drawObject;
+                        if (player.Owns(caster, drawObject))
+                        {
+                            soundCaster = player;
+                            Interlocked.Increment(ref ownAnimations);
+                        }
+                        else if (caster != 0 || drawObject != 0) Interlocked.Increment(ref otherAnimations);
+                        else Interlocked.Increment(ref unknownAnimations);
+                    }
+                }
+                catch { FaultPlayerFilter(); }
+            }
+            // Preserve playback, all native parameters and the native return value.
+            return animation!.Original(node, unused, timeOffset);
+        }
+        finally { soundCaster = previous; soundOrigin = previousOrigin; sourceActor = previousActor; sourceDraw = previousDraw; }
+    }
+
+    private nint CharacterSound(nint container, int soundNumber, int unknown2, nint target, ulong autoRelease,
+        int weaponIndex, int volumeCategory, ulong unknown7)
+    {
+        var previous = soundCaster;
+        var previousOrigin = soundOrigin; var previousActor = sourceActor; var previousDraw = sourceDraw;
+        soundCaster = null; soundOrigin = 2; sourceActor = 0; sourceDraw = 0;
+        try
+        {
+            if (container != 0 && PlayerFilterSupported && Volatile.Read(ref disposed) == 0)
+            {
+                try
+                {
+                    sourceActor = *(nint*)(container + 8);
+                    var player = ownership!.Player;
+                    if (player.Owns(sourceActor, 0)) soundCaster = player;
+                }
+                catch { FaultPlayerFilter(); }
+            }
+            return characterSound!.Original(container, soundNumber, unknown2, target, autoRelease, weaponIndex, volumeCategory, unknown7);
+        }
+        finally { soundCaster = previous; soundOrigin = previousOrigin; sourceActor = previousActor; sourceDraw = previousDraw; }
+    }
+
+    private GameAudioLayout.SoundData* AcquireSound(nint manager)
+    {
+        var sound = acquire!.Original(manager);
+        try
+        {
+            ownership?.Acquired(sound, soundCaster, soundOrigin, sourceActor, sourceDraw,
+                activeSoundClip == 0 ? -1 : sourceTimelineOwnerIndex);
+            if (sound != null && soundCaster != null) Interlocked.Increment(ref ownedReservations);
+        }
+        catch { FaultPlayerFilter(); }
+        return sound;
+    }
+
+    private void ClipUpdate(nint clip)
+    {
+        var previous = soundCaster;
+        var previousClip = activeSoundClip;
+        var previousIndex = sourceTimelineOwnerIndex;
+        var previousOrigin = soundOrigin; var previousActor = sourceActor; var previousDraw = sourceDraw;
+        soundCaster = null; soundOrigin = 3; sourceActor = 0; sourceDraw = 0; activeSoundClip = clip;
+        sourceTimelineOwnerIndex = -1;
+        try { clipUpdate!.Original(clip); }
+        finally
+        {
+            soundCaster = previous; activeSoundClip = previousClip;
+            sourceTimelineOwnerIndex = previousIndex;
+            soundOrigin = previousOrigin; sourceActor = previousActor; sourceDraw = previousDraw;
+        }
+    }
+
+    private nint GetTimeline(nint clip)
+    {
+        var timeline = getTimeline!.Original(clip);
+        if (clip != 0 && clip == activeSoundClip && PlayerFilterSupported && Volatile.Read(ref disposed) == 0)
+        {
+            try
+            {
+                soundCaster = null; sourceActor = 0;
+                sourceTimelineOwnerIndex = -1;
+                if (timeline != 0)
+                {
+                    var table = *(nint*)timeline;
+                    if (table >= moduleStart && table <= moduleEnd - 30 * 8)
+                    {
+                        // SchedulerTimeline.GetOwningGameObjectIndex is vfunc 29,
+                        // not the clip's target/victim index or a sound-volume group.
+                        var function = *(nint*)(table + 29 * 8);
+                        if (function >= moduleStart && function <= moduleEnd - 7 &&
+                            *(uint*)function == 0x018C818B && *(ushort*)(function + 4) == 0 && *(byte*)(function + 6) == 0xC3)
+                        {
+                            // Validate the concrete getter's field access before reading
+                            // it. Do not invoke an unfamiliar timeline virtual function.
+                            var ownerIndex = *(int*)(timeline + 0x18C);
+                            sourceTimelineOwnerIndex = ownerIndex;
+                            var player = ownership!.Player;
+                            if (player.Actor != 0 && ownerIndex >= 0 && ownerIndex == Volatile.Read(ref localObjectIndex))
+                            { soundCaster = player; sourceActor = player.Actor; }
+                        }
+                    }
+                }
+            }
+            catch { FaultPlayerFilter(); }
+        }
+        return timeline;
+    }
+
+    private void FaultPlayerFilter()
+    {
+        Interlocked.Exchange(ref playerFaulted, 1);
+        Loudness.SetActive(false);
+    }
+
+    private nint ResolveSound(nint layout, int reservationId)
+    {
+        // Observe the game's own locked lookup. Never traverse its mutable native
+        // lists or acquire an audio-engine lock from the mixer callback ourselves.
+        var entry = resolve!.Original(layout, reservationId);
+        if (entry != 0 && PlayerFilterSupported && Volatile.Read(ref disposed) == 0)
+        {
+            try
+            {
+                if (*(int*)(entry + 0x38) == reservationId &&
+                    ownership!.LinkPlayback(reservationId, *(int*)(entry + 0x10)))
+                    Interlocked.Increment(ref playbackLinks);
+            }
+            catch { FaultPlayerFilter(); }
+        }
+        return entry;
     }
 
     private int Render(GameAudioLayout.SourceVoice* voice, float* scratch)
     {
         var count = 0;
+        var traceCount = 0;
+        var traceId = 0;
+        byte traceBus = 0, traceFlags = 0;
+        var owned = false;
+        var hapticsActive = Haptics?.Active == true;
+        NativeHapticOutput.Frame hapticFrame = default;
+        var hapticCount = 0;
+        uint hapticFormat = 0;
         var generation = Loudness.Generation;
         // Classify while the game's callback/track links still describe this voice,
         // before the original can finish it and release its owner back into a pool.
-        if ((generation & 1) != 0 && !Faulted && Volatile.Read(ref disposed) == 0)
+        if (((generation & 1) != 0 || Volatile.Read(ref tracing) != 0 || hapticsActive) && !Faulted && Volatile.Read(ref disposed) == 0)
         {
             try
             {
-                if (scratch != null && GameAudioLayout.IsCombatVoice(voice, callbackVTable))
-                    count = GameAudioLayout.SampleCount(*frames, *channels, *spatialAudio, voice->OutputFormat);
-                else Interlocked.Increment(ref rejectedVoices);
+                var scope = (SfxSource)Volatile.Read(ref sourceScope);
+                var sound = scratch == null ? null : GameAudioLayout.SoundOfVoice(voice, callbackVTable);
+                if (sound != null)
+                {
+                    var samples = GameAudioLayout.SampleCount(*frames, *channels, *spatialAudio, voice->OutputFormat);
+                    var combat = GameAudioLayout.IsCombatSound(sound->BusId, sound->ExtendedFlags);
+                    var traceActive = Volatile.Read(ref tracing) != 0;
+                    // Stop trusting cached ownership immediately after an attribution
+                    // fault, even if footstep amplification keeps native routing active.
+                    owned = PlayerFilterSupported && (hapticsActive || traceActive || combat && scope == SfxSource.PlayerOnly) &&
+                        ownership?.Contains(sound->SoundId) == true;
+                    if ((generation & 1) != 0 && combat &&
+                        (scope == SfxSource.AllCombat || PlayerFilterSupported && owned)) count = samples;
+                    if (traceActive)
+                    { traceCount = samples; traceId = sound->SoundId; traceBus = sound->BusId; traceFlags = (byte)sound->ExtendedFlags; }
+                    if (hapticsActive && samples > 0 && (PlayerFilterSupported || Haptics!.FootstepsActive))
+                    {
+                        System.Numerics.Vector3? position = Haptics!.WantsSpatial && owned && ownership!.TryGetPosition(sound->SoundId, out var point) ? point : null;
+                        hapticFrame = Haptics.Prepare(voice, owned, sound->BusId, sound->ExtendedFlags, position, sound->SoundId);
+                        if (hapticFrame.Destination != 0) { hapticCount = samples; hapticFormat = voice->OutputFormat; }
+                    }
+                }
+                if (count == 0) Interlocked.Increment(ref rejectedVoices);
             }
             catch { Fault(); }
         }
@@ -92,6 +585,12 @@ internal sealed unsafe class SfxAudioCapture : IDisposable
         // Always call playback exactly once, with the original pointers. No analysis exception
         // may skip this call, and none of the audio samples or native parameters are written.
         var result = render.Original(voice, scratch);
+        if (result == 0 && hapticCount > 0) Haptics!.Mix(hapticFrame, scratch, hapticCount, hapticFormat);
+        if (traceCount > 0 && Volatile.Read(ref tracing) != 0)
+        {
+            try { TraceVoice(traceId, traceBus, traceFlags, owned, new ReadOnlySpan<float>(scratch, traceCount), hapticFrame); }
+            catch { Volatile.Write(ref tracing, 0); }
+        }
         if (count > 0 && Loudness.Active && !Faulted)
         {
             try
@@ -114,6 +613,15 @@ internal sealed unsafe class SfxAudioCapture : IDisposable
     {
         if (Interlocked.Exchange(ref disposed, 1) != 0) return;
         Loudness.SetActive(false);
+        Haptics?.Configure(new HapticSettings(), false, false);
+        confirmationRender?.Dispose();
+        Volatile.Write(ref tracing, 0);
+        animation?.Dispose();
+        acquire?.Dispose();
+        resolve?.Dispose();
+        characterSound?.Dispose();
+        clipUpdate?.Dispose();
+        getTimeline?.Dispose();
         render.Dispose();
     }
 }

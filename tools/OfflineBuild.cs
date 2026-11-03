@@ -49,6 +49,8 @@ public static class OfflineBuild
         var paths = new HashSet<string>(((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")).Split(Path.PathSeparator).Where(p => p.StartsWith(runtimePath, StringComparison.OrdinalIgnoreCase)), StringComparer.OrdinalIgnoreCase);
         if (args[1] == "library") {
             paths.Add(Path.Combine(Dalamud, "Dalamud.dll"));
+            paths.Add(Path.Combine(Dalamud, "Lumina.dll"));
+            paths.Add(Path.Combine(Dalamud, "Lumina.Excel.dll"));
             paths.Add(Path.Combine(Dalamud, "Dalamud.Bindings.ImGui.dll"));
         }
         var references = Array.CreateInstance(referenceType, paths.Count);
@@ -62,6 +64,12 @@ public static class OfflineBuild
         var ctor = optionsType.GetConstructors().First(c => c.GetParameters()[0].ParameterType == outputKindType);
         var options = ctor.Invoke(Arguments(ctor.GetParameters(), outputKind));
         options = optionsType.GetMethod("WithAllowUnsafe", new[] { typeof(bool) }).Invoke(options, new object[] { true });
+        var optimizationType = core.GetType("Microsoft.CodeAnalysis.OptimizationLevel");
+        options = optionsType.GetMethod("WithOptimizationLevel", new[] { optimizationType })
+            .Invoke(options, new object[] { Enum.Parse(optimizationType, "Release") });
+        var platformType = core.GetType("Microsoft.CodeAnalysis.Platform");
+        options = optionsType.GetMethod("WithPlatform", new[] { platformType })
+            .Invoke(options, new object[] { Enum.Parse(platformType, "X64") });
         var compilationType = csharp.GetType("Microsoft.CodeAnalysis.CSharp.CSharpCompilation");
         var create = compilationType.GetMethods().First(m => m.Name == "Create" && m.GetParameters().Length == 4);
         var compilation = create.Invoke(null, new[] { (object)Path.GetFileNameWithoutExtension(args[0]), trees, references, options });

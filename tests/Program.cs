@@ -2,8 +2,11 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Numerics;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using DualSenseLighting.Core;
@@ -21,15 +24,25 @@ internal static class Program
     public static async Task Main(string[] args)
     {
         if (args.Contains("--probe")) { Probe(); return; }
+        if (args.Contains("--benchmark")) { PerformanceChecks.Run(); return; }
         CheckReports();
         CheckEffects();
         CheckRgbAnimations();
         CheckSfxLoudness();
         CheckSfxColors();
         CheckSfxAudioLayout();
+        CheckHaptics();
+        HapticEnableCueChecks.Run(Assert);
+        FootstepHapticChecks.Run(Assert);
+        CheckSpatialHaptics();
+        CheckImpactBias();
+        CheckNativeStereoMatrices();
         CheckPlayerAnimations();
+        LimitBreakChecks.Run(Assert);
+        UiTextChecks.Run(Assert);
+        PluginInfoChecks.Run(Assert);
+        PluginCommandChecks.Run(Assert);
         CheckControllerPreview();
-        CheckSteamProfiles();
         await CheckOwnership();
         await CheckSolidRefresh();
         await CheckFocusRace();
@@ -38,14 +51,45 @@ internal static class Program
         await CheckScanBackoff();
         await CheckWriteTimeout();
         await CheckCancellation();
-        await CheckSteamHandoff();
         await CheckGlobalRelease();
-        await CheckHandoffRegainFocus();
-        await CheckHandoffFailure();
+        await CheckReleaseRegainFocus();
+        await CheckReleaseFailure();
         await CheckAnimatedIndicatorSession();
+        await CheckLimitBreakSession();
         await CheckAnimatedRgbSessions();
         await CheckSfxSession();
-        Console.WriteLine($"Passed {checks:N0} lighting checks: native report preservation, background guard, effects, focus transitions, reconnect and cancellation.");
+        Console.WriteLine($"Passed {checks:N0} controller and UI checks: native report preservation, haptic routing, background guard, effects, focus transitions, reconnect, cancellation and localization.");
+    }
+
+    private static async Task CheckLimitBreakSession()
+    {
+        var foreground = true;
+        var devices = new FakeDevices(() => foreground);
+        devices.OnOpen = () => devices.Opened.Last().AllowBackground = true;
+        using var session = new LightingSession(devices, () => foreground, _ => throw new Exception("Unexpected LB output failure"));
+        var settings = LightingSettings.Default with { PlayerMode = PlayerIndicatorMode.LimitBreak };
+        LimitBreakState State(double time, ushort units = 10000) => new(true, 1, units, 10000, time);
+        await session.TickAsync(settings, 0.25, default, 0, State(0.25));
+        var lit = devices.Opened.Last().Reports.Last();
+        await session.TickAsync(settings, 1.25, default, 0, State(1.25));
+        var dark = devices.Opened.Last().Reports.Last();
+        Assert(lit[43] == 0 && dark[43] == 0 && lit[44] == (27 | 0x20) && dark[44] == 0x20,
+            "Full-charge LB blink did not send immediate on/off frames at full brightness");
+        foreground = false;
+        await session.TickAsync(settings, 1.3, default, 0, State(1.3));
+        await session.TickAsync(settings, 1.4, default, 0, State(1.4));
+        Assert(session.ReleaseCount == 1 && devices.Opened.Last().Disposed && devices.Opened.Last().Reports.Last().Skip(43).Take(5).All(b => b == 0),
+            "LB mode did not turn off once and release on focus loss");
+        foreground = true;
+        await session.TickAsync(settings, 2.25, default, 0, State(2.25));
+        Assert((devices.Opened.Last().Reports.Last()[44] & 31) == 27 && devices.Opened.Last().Reports.Last()[43] == 0,
+            "LB mode did not resume current charge after focus return");
+        devices.Paths = []; await session.TickAsync(settings, 3.25, default, 0, State(3.25));
+        devices.Paths = ["controller"]; await session.TickAsync(settings, 4.25, default, 0, State(4.25));
+        Assert((devices.Opened.Last().Reports.Last()[44] & 31) == 27, "LB mode did not recover after reconnect");
+        await session.TickAsync(settings with { PlayerMode = PlayerIndicatorMode.Animation, PlayerLights = 10 }, 4.35, default);
+        Assert(devices.Opened.Last().Reports.Last()[44] == 10 && devices.Opened.Last().Reports.Last()[43] == 0,
+            "Returning from LB mode did not restore manual LEDs/full brightness");
     }
 
     private static void CheckReports()
@@ -197,8 +241,7 @@ internal static class Program
             var foreground = true;
             var devices = new FakeDevices(() => foreground);
             devices.OnOpen = () => devices.Opened.Last().AllowBackground = true;
-            using var session = new LightingSession(devices, () => foreground, _ => throw new Exception($"Unexpected {effect} failure"),
-                (_, _) => new LightingFrame(0, 0, 0, 0));
+            using var session = new LightingSession(devices, () => foreground, _ => throw new Exception($"Unexpected {effect} failure"));
             var settings = LightingSettings.Default with { Effect = effect, CycleSeconds = 2, PlayerLights = 10 };
             void Matches(double time)
             {
@@ -215,10 +258,10 @@ internal static class Program
             Assert(session.WriteCount == 2, $"RGB effect did not animate without indicator animation: {effect}");
             foreground = false;
             await session.TickAsync(settings, 0.5, default);
-            Assert(session.HandoffCount == 1 && session.DeviceCount == 0 && devices.Opened.Last().Disposed &&
+            Assert(session.ReleaseCount == 1 && session.DeviceCount == 0 && devices.Opened.Last().Disposed &&
                 devices.Opened.Last().Reports.Last().Skip(44).Take(4).All(b => b == 0), $"RGB effect did not turn off and release on focus loss: {effect}");
             await session.TickAsync(settings, 1.5, default);
-            Assert(session.WriteCount == 2 && session.HandoffCount == 1, $"RGB effect continued writing in background: {effect}");
+            Assert(session.WriteCount == 2 && session.ReleaseCount == 1, $"RGB effect continued writing in background: {effect}");
             foreground = true;
             await session.TickAsync(settings, 2, default);
             Matches(2);
@@ -292,8 +335,10 @@ internal static class Program
             Assert(envelope.Update(1, invalid, settings, true) == 0, "Invalid audio clock caused a flash");
         envelope.Update(1, 20, settings, true);
         Assert(envelope.Update(1, 19, settings, true) == 0, "Clock reset retained an old envelope");
-        var normalized = (settings with { SfxSensitivity = float.NaN, SfxNoiseGate = -1, SfxReleaseSeconds = float.PositiveInfinity }).Normalize();
-        Assert(normalized.SfxSensitivity == 8 && normalized.SfxNoiseGate == 0 && normalized.SfxReleaseSeconds == 0.18f,
+        var normalized = (settings with { SfxSensitivity = float.NaN, SfxNoiseGate = -1, SfxReleaseSeconds = float.PositiveInfinity,
+            AudioSource = (SfxSource)99 }).Normalize();
+        Assert(normalized.SfxSensitivity == 8 && normalized.SfxNoiseGate == 0 && normalized.SfxReleaseSeconds == 0.18f &&
+            normalized.AudioSource == SfxSource.PlayerOnly && LightingSettings.Default.AudioSource == SfxSource.PlayerOnly,
             "Invalid SFX controls were not normalized");
         foreach (var sensitivity in new[] { 1f, 8f, 32f })
         {
@@ -409,6 +454,77 @@ internal static class Program
         owner.CallbackVTable = vtable; owner.Source = &source; owner.Track = &track;
         track.Voice = &owner; track.Owner = &sound; sound.BusId = 2;
         Assert(GameAudioLayout.IsCombatVoice(&source, vtable), "A combat voice was rejected");
+        var pool = stackalloc GameAudioLayout.SoundData[GameAudioLayout.PlayerSoundOwnership.Capacity];
+        new Span<GameAudioLayout.SoundData>(pool, GameAudioLayout.PlayerSoundOwnership.Capacity).Clear();
+        var ownership = new GameAudioLayout.PlayerSoundOwnership(pool);
+        ownership.SetPlayer(0x1110, 100, 0x2220);
+        var player = ownership.Player;
+        Assert(player.Owns(0x1110, 0) && player.Owns(0, 0x2220) &&
+            !player.Owns(0, 0) && !player.Owns(0x3330, 0x2220), "A listener's target/draw pointer was mistaken for its caster");
+        sound.SoundId = 123;
+        pool[3].IsActive = 1; pool[3].SoundId = 123;
+        sound.ExtendedFlags = 0x10; sound.PlayerCategory = 0;
+        Assert(!GameAudioLayout.IsCombatVoice(&source, vtable, SfxSource.PlayerOnly, ownership) &&
+            GameAudioLayout.IsCombatVoice(&source, vtable), "A teammate's category-zero hit leaked into player-only capture");
+        ownership.Acquired(pool + 3, player);
+        sound.ExtendedFlags = 0; sound.PlayerCategory = 3;
+        Assert(GameAudioLayout.IsCombatVoice(&source, vtable, SfxSource.PlayerOnly, ownership),
+            "A confirmed local caster was lost because of its volume category/flags");
+        Assert(!ownership.SetPlayer(0x1110, 100, 0x2220, new nint[] { 0x2220, 0x4440, 0x5550 }) &&
+            ReferenceEquals(ownership.Player, player) && player.Owns(0, 0x4440) && player.Owns(0, 0x5550),
+            "A local weapon/attachment model could not identify its actor");
+        Assert(!player.Owns(0x3330, 0x4440), "Another caster inherited ownership through our model");
+        ownership.SetPlayer(0x1110, 100, 0x2220, new nint[] { 0x2220, 0x5550 });
+        Assert(!player.Owns(0, 0x4440) && ownership.Contains(123),
+            "A weapon-model refresh either retained a removed model or discarded an already attributed sound");
+        ownership.Acquired(pool + 3, null);
+        Assert(!ownership.Contains(123), "A pooled sound reservation inherited the previous player's ownership");
+        pool[3].SoundId = -1;
+        ownership.Acquired(pool + 3, player);
+        Assert(!ownership.Contains(-1) && !ownership.Contains(123), "An unloaded sound matched stale PCM");
+        pool[3].SoundId = 456; sound.SoundId = 456;
+        Assert(GameAudioLayout.IsCombatVoice(&source, vtable, SfxSource.PlayerOnly, ownership),
+            "An asynchronously loaded player sound never became eligible");
+        pool[3].IsActive = 0;
+        Assert(!ownership.Contains(456), "A released sound triggered player-only RGB");
+        pool[3].IsActive = 1;
+        ownership.SetPlayer(0, 0, 0);
+        Assert(!ownership.Contains(456), "Logout retained the old player's active sounds");
+        ownership.SetPlayer(0x1110, 101, 0x2220);
+        ownership.Acquired(pool + 3, player);
+        Assert(!ownership.Contains(456), "An old callback attributed sounds to a newly logged-in actor at the same address");
+        ownership.Acquired(pool + 3, ownership.Player);
+        // Native positional playback uses a negative layout handle at SoundData+0x40
+        // and a separate positive mixer ID in the layout entry's embedded controller.
+        pool[3].SoundId = unchecked((int)0x804C3998);
+        sound.SoundId = 492241941;
+        ownership.LinkPlayback(pool[3].SoundId, sound.SoundId);
+        Assert(GameAudioLayout.IsCombatVoice(&source, vtable, SfxSource.PlayerOnly, ownership),
+            "A positional player's logical handle did not match its audible playback ID");
+        Assert(!ownership.Contains(sound.SoundId + 1), "Another playback was accepted for the same positional asset");
+        ownership.Acquired(pool + 3, null);
+        ownership.LinkPlayback(pool[3].SoundId, sound.SoundId);
+        Assert(!ownership.Contains(sound.SoundId), "A positional playback link survived pool reuse by another actor");
+        ownership.Acquired(pool + 3, ownership.Player);
+        pool[3].SoundId++;
+        Assert(!ownership.Contains(sound.SoundId), "A new reservation inherited an old logical-to-playback mapping");
+        ownership.LinkPlayback(pool[3].SoundId, sound.SoundId);
+        ownership.SetPlayer(0, 0, 0);
+        Assert(!ownership.Contains(sound.SoundId), "A positional playback link survived logout");
+        ownership.SetPlayer(0x1110, 101, 0x2220);
+        ownership.Acquired(pool + 3, ownership.Player);
+        pool[3].SoundId = 456; sound.SoundId = 456;
+        sound.ExtendedFlags = 0x14;
+        Assert(!GameAudioLayout.IsCombatVoice(&source, vtable, SfxSource.PlayerOnly, ownership), "A player's vibration-only sound triggered RGB");
+        // Neither pool observations nor player classification may allocate on audio threads.
+        var allocated = GC.GetAllocatedBytesForCurrentThread();
+        for (var i = 0; i < 1000; i++)
+        {
+            ownership.Acquired(pool + 3, ownership.Player);
+            ownership.Contains(456);
+        }
+        Assert(GC.GetAllocatedBytesForCurrentThread() == allocated, "SFX source classification allocated on the audio thread");
+        sound.ExtendedFlags = 0;
         source.Volume = 0;
         Assert(!GameAudioLayout.IsCombatVoice(&source, vtable), "A muted voice exposed stale mixer scratch samples");
         source.PreviousVolume = 1;
@@ -428,6 +544,489 @@ internal static class Program
         Assert(!GameAudioLayout.IsCombatVoice(&source, vtable), "An inactive voice triggered RGB");
     }
 
+    private static int hapticMixCalls;
+    private static nint hapticDestination;
+    private static float hapticGain;
+    private static uint hapticFrames, hapticFormat;
+    private static float hapticLeftSample, hapticRightSample;
+
+    [UnmanagedCallersOnly]
+    private static unsafe void CaptureHapticMix(nint destination, float* samples, uint frames, float gain, uint format)
+    {
+        hapticMixCalls++;
+        hapticDestination = destination; hapticGain = gain;
+        hapticFrames = frames; hapticFormat = format;
+        hapticLeftSample = samples[0]; hapticRightSample = samples[1];
+    }
+
+    private static unsafe void CheckHaptics()
+    {
+        var enabled = new HapticSettings(true);
+        Assert(!new HapticSettings().Enabled && enabled.Strength == 0.25f, "Added haptics must be opt-in at a moderate strength");
+        Assert((enabled with { Strength = float.NaN }).Normalize().Strength == 0.25f &&
+            (enabled with { Strength = 2 }).Normalize().Strength == 1 &&
+            (enabled with { Strength = -1 }).Normalize().Strength == 0, "Haptic strength normalization failed");
+        Assert(enabled.AdditionalGain(true, 2, 0, false) == 0.25f &&
+            enabled.AdditionalGain(true, 10, 0, false) == 0.25f, "Own combat/weapon sounds cannot reach haptics");
+        foreach (var bus in new byte[] { 0, 1, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13 })
+            Assert(enabled.AdditionalGain(true, bus, 0, false) == 0, "Unrelated sound bus added haptics");
+        Assert(enabled.AdditionalGain(false, 2, 0, false) == 0 &&
+            enabled.AdditionalGain(true, 2, 0, true) == 0 &&
+            new HapticSettings().AdditionalGain(true, 2, 0, false) == 0,
+            "Foreign, disabled or already-routed sounds added haptics");
+        foreach (var flag in new uint[] { 2, 4, 8, 6, 10, 12, 14 })
+            Assert(enabled.AdditionalGain(true, 2, flag, false) == 0, "Native vibration was doubled");
+
+        // A fake native graph exercises the real output path without touching a controller.
+        var table = stackalloc nint[16];
+        new Span<nint>(table, 16).Clear();
+        var mix = (nint)(delegate* unmanaged<nint, float*, uint, float, uint, void>)&CaptureHapticMix;
+        table[15] = mix;
+        var destination = stackalloc byte[0x160];
+        var replacement = stackalloc byte[0x160];
+        new Span<byte>(destination, 0x160).Clear(); new Span<byte>(replacement, 0x160).Clear();
+        *(nint*)destination = *(nint*)replacement = (nint)table;
+        *(int*)(destination + 0xE0) = *(int*)(replacement + 0xE0) = 1;
+        "Vibration\0"u8.CopyTo(new Span<byte>(destination + 0x13E, 10));
+        "Vibration\0"u8.CopyTo(new Span<byte>(replacement + 0x13E, 10));
+        var graph = stackalloc nint[15];
+        new Span<nint>(graph, 15).Clear(); graph[9] = (nint)destination;
+        var output = new NativeHapticOutput(graph, mix, (nint)table, (nint)table + 16 * 8);
+        GameAudioLayout.SourceVoice voice = default; voice.SendCount = 1;
+        var sends = (GameAudioLayout.VoiceSend*)((byte*)&voice + 0x940);
+        sends[0].Destination = 0x123456; sends[0].Gain = 0.7f;
+        var beforeVoice = new ReadOnlySpan<byte>(&voice, sizeof(GameAudioLayout.SourceVoice)).ToArray();
+        var pcm = new float[4096]; Array.Fill(pcm, 0.1f);
+        var beforePcm = (float[])pcm.Clone();
+        hapticMixCalls = 0;
+        Assert(!output.Active && output.Prepare(&voice, true, 2, 0).Destination == 0, "Haptics started before opt-in");
+        output.Configure(enabled, true, true);
+        var frame = output.Prepare(&voice, true, 2, 0);
+        fixed (float* samples = pcm)
+        {
+            output.Mix(frame, samples, 2048, 0);
+            Assert(hapticMixCalls == 1 && hapticDestination == (nint)destination && hapticGain == 0.25f &&
+                hapticFrames == 256 && hapticFormat == 0 && output.Available, "Native vibration mixer arguments changed");
+            output.Configure(enabled, false, true);
+            output.Mix(frame, samples, 2048, 0);
+            output.Configure(enabled, true, true);
+            output.Mix(frame, samples, 2048, 0);
+            Assert(hapticMixCalls == 1, "An in-flight block survived focus loss and return");
+            output.Configure(enabled, true, false);
+            Assert(!output.Active, "Haptics ran without player attribution");
+            output.Configure(enabled, true, true);
+            Assert(output.Prepare(&voice, false, 2, 0).Destination == 0, "A teammate's sound reached the mixer");
+            sends[0].Destination = (nint)destination;
+            Assert(output.Prepare(&voice, true, 2, 0).Destination == 0 && output.PreservedNativeBlocks == 1,
+                "An existing vibration send was doubled");
+            sends[0].Destination = 0x123456;
+            Assert(output.Prepare(&voice, true, 2, 8).Destination == 0 && output.PreservedNativeBlocks == 2,
+                "A native vibration flag was doubled");
+            frame = output.Prepare(&voice, true, 10, 0);
+            pcm[10] = float.NaN;
+            output.Mix(frame, samples, 4096, 1);
+            Assert(hapticMixCalls == 1, "Nonfinite PCM entered vibration processing");
+            pcm[10] = 0.1f;
+            output.Mix(frame, samples, 4096, 1);
+            Assert(hapticMixCalls == 2 && hapticFormat == 1, "Ambisonic samples lost their native format");
+            // The next block must follow a newly created graph, rather than a stale device pointer.
+            graph[9] = (nint)replacement;
+            output.Mix(output.Prepare(&voice, true, 2, 0), samples, 2048, 0);
+            Assert(hapticMixCalls == 3 && hapticDestination == (nint)replacement, "Haptic output kept a stale graph after reconnect");
+            graph[9] = 0;
+            Assert(output.Prepare(&voice, true, 2, 0).Destination == 0 && !output.Available,
+                "Missing vibration processing fell back to another audio output");
+            graph[9] = (nint)replacement; table[15] = 0;
+            Assert(output.Prepare(&voice, true, 2, 0).Destination == 0, "Unvalidated mixer method was accepted");
+            table[15] = mix;
+            var spatialSettings = enabled with { Spatial = true, DistanceFalloff = false };
+            var bed = new float[16]; bed[0] = bed[9] = 1;
+            var ambisonic = new float[32]; ambisonic[0] = ambisonic[17] = 1;
+            output.SetSpatialMatrices(bed, ambisonic);
+            output.Configure(spatialSettings, true, true);
+            output.SetListener(new HapticListenerPose(new Vector3(100, 5, 200), Vector3.UnitX, Stopwatch.GetTimestamp()));
+            var spatialFrame = output.Prepare(&voice, true, 2, 0, new Vector3(110, 5, 200));
+            output.Mix(spatialFrame, samples, 2048, 0);
+            Assert(hapticMixCalls == 4 && hapticLeftSample == 0 && MathF.Abs(hapticRightSample - 0.1f) < 0.00001f &&
+                output.SpatialBlocks == 1 && output.LastSpatial.Pan == 1 && output.LastSpatial.Distance == 10,
+                "Character-centered spatial audio failed to reach its native haptic channel and preview");
+            output.Mix(output.Prepare(&voice, true, 2, 0, new Vector3(90, 5, 200)), samples, 4096, 1);
+            Assert(hapticMixCalls == 5 && MathF.Abs(hapticLeftSample - 0.1f) < 0.00001f && hapticRightSample == 0 &&
+                hapticFormat == 0, "Ambisonic audio did not use the validated stereo decoder and left haptic channel");
+            output.Mix(output.Prepare(&voice, true, 2, 0), samples, 2048, 0);
+            Assert(hapticMixCalls == 6 && hapticLeftSample == 0.1f && hapticRightSample == 0.1f && output.UnpositionedBlocks == 1,
+                "Unpositioned sounds did not preserve original haptic routing");
+            output.Configure(spatialSettings with { ImpactBias = 0.5f }, true, true);
+            output.Mix(spatialFrame, samples, 2048, 0);
+            Assert(hapticMixCalls == 6 && !output.LastSpatial.Valid, "Spatial settings changed without invalidating an in-flight block and preview");
+            var previousOrigin = output.Prepare(&voice, true, 2, 0, new Vector3(110, 5, 200));
+            output.Configure(spatialSettings with { ImpactBias = 0.5f, DistanceOrigin = HapticDistanceOrigin.Camera }, true, true);
+            output.Mix(previousOrigin, samples, 2048, 0);
+            Assert(hapticMixCalls == 6, "Switching distance origin allowed an old in-flight block through");
+            var strict = enabled with { Spatial = true };
+            output.Configure(strict, true, true);
+            output.SetListener(new HapticListenerPose(Vector3.Zero, Vector3.UnitX, Stopwatch.GetTimestamp()));
+            var cutoff = output.Prepare(&voice, true, 2, 0, new Vector3(25, 0, 0), 55);
+            Assert(cutoff.Route == HapticRoute.DistanceCutoff && cutoff.Destination == 0 && output.CutoffBlocks == 1,
+                "The 25-yalm cutoff still reached native vibration mixing");
+            var unknown = output.Prepare(&voice, true, 2, 0);
+            Assert(unknown.Route == HapticRoute.MissingPosition && unknown.Destination == 0,
+                "Unknown source position bypassed distance fade through original routing");
+            output.SetListener(null);
+            Assert(output.Prepare(&voice, true, 2, 0, Vector3.UnitX).Route == HapticRoute.MissingListener,
+                "A missing listener bypassed distance fade");
+            sends[0].Destination = (nint)replacement;
+            Assert(output.Prepare(&voice, true, 2, 0).Route == HapticRoute.Native,
+                "An existing native vibration route was mistaken for missing-position plugin output");
+            sends[0].Destination = 0x123456;
+            output.SetListener(new HapticListenerPose(Vector3.Zero, Vector3.UnitX, Stopwatch.GetTimestamp()));
+            Assert(output.Prepare(&voice, true, 2, 0, new Vector3(float.NaN, 0, 0)).Route == HapticRoute.MissingPosition,
+                "Invalid position coordinates bypassed the cutoff");
+            output.Mix(cutoff, samples, 2048, 0); output.Mix(unknown, samples, 2048, 0);
+            Assert(hapticMixCalls == 6, "Suppressed haptics still called the native mixer");
+            output.Mix(output.Prepare(&voice, true, 2, 0, new Vector3(3, 0, 0), 123), samples, 2048, 0);
+            output.Configure(strict, true, true); // The worker publishes its observed impact cue.
+            Assert(output.ImpactCue?.SoundId == 123, "A verified audible own impact did not become a guidance cue");
+            var cast = output.Prepare(&voice, true, 2, 0, Vector3.Zero, 124);
+            Assert(cast.Biased && cast.Spatial.Distance == 0 && cast.Spatial.Pan == 0.25f,
+                "Player-origin sound did not gently follow the impact, or its distance was moved");
+            output.Mix(cast, samples, 2048, 0);
+            Assert(hapticMixCalls == 8 && output.BiasedBlocks == 1 && MathF.Abs(hapticLeftSample - 0.075f) < 0.00001f &&
+                hapticRightSample == 0.1f, "Gentle impact bias did not reach the real haptic buffer");
+            output.ResetImpactCue();
+            output.Mix(cast, samples, 2048, 0);
+            Assert(hapticMixCalls == 8 && !output.ImpactCue.HasValue &&
+                !output.Prepare(&voice, true, 2, 0, Vector3.Zero, 124).Biased,
+                "An actor/focus reset retained impact guidance or an old in-flight block");
+            var fullBias = strict with { ImpactBias = 1 };
+            output.Configure(fullBias, true, true);
+            output.SetListener(new HapticListenerPose(Vector3.Zero, Vector3.UnitX, Stopwatch.GetTimestamp()));
+            output.Mix(output.Prepare(&voice, true, 2, 0, new Vector3(3, 0, 0), 125), samples, 2048, 0);
+            output.Configure(fullBias, true, true);
+            var castFull = output.Prepare(&voice, true, 2, 0, Vector3.Zero, 126);
+            output.Mix(castFull, samples, 2048, 0);
+            Assert(castFull.Spatial.Pan == 1 && hapticMixCalls == 10 && hapticLeftSample == 0 && hapticRightSample == 0.1f,
+                "Configured 100% impact bias did not reach the native output buffer");
+            frame = output.Prepare(&voice, true, 2, 0);
+            output.Configure(enabled with { Enabled = false }, true, true);
+            output.Mix(frame, samples, 2048, 0);
+            Assert(hapticMixCalls == 10, "Disable allowed pending haptics to reach the mixer");
+        }
+        Assert(pcm.SequenceEqual(beforePcm) && beforeVoice.AsSpan().SequenceEqual(new ReadOnlySpan<byte>(&voice, sizeof(GameAudioLayout.SourceVoice))),
+            "Added haptics changed audible PCM or the original native sends");
+    }
+
+    private static unsafe void CheckSpatialHaptics()
+    {
+        var now = Stopwatch.GetTimestamp();
+        var settings = new HapticSettings(true, Spatial: true);
+        var listener = HapticListenerPose.FromCamera(Vector3.Zero, Vector3.Zero, Matrix4x4.Identity, now)!;
+        Assert(listener != null && !new HapticSettings().Spatial, "Spatial haptics changed the existing default");
+        var automatic = (settings with { NearDistance = 5, FarDistance = 40 }).Normalize();
+        Assert(automatic.AutomaticDistance && automatic.NearDistance == 3 && automatic.FarDistance == 25,
+            "Existing saved distances did not adopt the new recommendation");
+        Assert(automatic.DistanceOrigin == HapticDistanceOrigin.Character &&
+            (automatic with { DistanceOrigin = (HapticDistanceOrigin)99 }).Normalize().DistanceOrigin == HapticDistanceOrigin.Character,
+            "Character distance is not the default or invalid origins were retained");
+        var manual = (settings with { AutomaticDistance = false, NearDistance = 5, FarDistance = 40 }).Normalize();
+        Assert(manual.NearDistance == 5 && manual.FarDistance == 40 &&
+            (manual with { AutomaticDistance = true }).Normalize().FarDistance == 25,
+            "Manual distances or restoring the recommendation failed");
+        var malformed = (settings with { AutomaticDistance = false, NearDistance = 200, FarDistance = 1, ImpactBias = float.NaN }).Normalize();
+        Assert(malformed.NearDistance == 99 && malformed.FarDistance == 100 && malformed.ImpactBias == 0.25f,
+            "Spatial range normalization allowed an invalid denominator");
+        Assert((settings with { AutomaticDistance = false, NearDistance = float.NaN, FarDistance = float.NaN }).Normalize().NearDistance == 3,
+            "Nonfinite spatial range was retained");
+        var right = HapticSpatializer.Evaluate(settings, listener, new Vector3(3, 0, 0), now);
+        var left = HapticSpatializer.Evaluate(settings, listener, new Vector3(-3, 0, 0), now);
+        Assert(right.Valid && right.Left == 0 && right.Right == 1 && left.Left == 1 && left.Right == 0,
+            "Camera left/right mapping is reversed or incomplete");
+        var center = HapticSpatializer.Evaluate(settings, listener, Vector3.Zero, now);
+        Assert(center.Left == 1 && center.Right == 1 && center.Pan == 0 && center.Distance == 0, "Coincident source/character was not balanced");
+        var rear = HapticSpatializer.Evaluate(settings, listener, new Vector3(0, 0, 5), now);
+        var front = HapticSpatializer.Evaluate(settings, listener, new Vector3(0, 0, -5), now);
+        Assert(rear.Left == rear.Right && front.Left == front.Right, "Front/rear sounds introduced an arbitrary side bias");
+        var meleeSource = new Vector3(0.4f, 1.8f, 1.4f);
+        var meleeRight = HapticSpatializer.Evaluate(settings, listener, meleeSource, now);
+        var originalMeleePan = meleeSource.X / meleeSource.Length();
+        Assert(meleeRight.Pan > 0.9f && meleeRight.Pan > originalMeleePan * 5 && meleeRight.Left < 0.1f && meleeRight.Right == 1,
+            "Melee haptics still diluted lateral contrast with sound height or amplified the favored grip");
+        var floorMelee = HapticSpatializer.Evaluate(settings, listener, new Vector3(0.4f, 0, 1.4f), now);
+        Assert(MathF.Abs(meleeRight.Pan - floorMelee.Pan) < 0.00001f,
+            "Changing an emitter's height changed its horizontal bearing");
+        var meleeLeft = HapticSpatializer.Evaluate(settings, listener, new Vector3(-0.4f, 1.8f, 1.4f), now);
+        Assert(MathF.Abs(meleeLeft.Pan + meleeRight.Pan) < 0.00001f && meleeLeft.Left == meleeRight.Right && meleeLeft.Right == meleeRight.Left,
+            "Stronger melee separation was not symmetric between grips");
+        var farAngle = HapticSpatializer.Evaluate(settings, listener, new Vector3(4, 0, 14), now);
+        Assert(meleeRight.Pan > farAngle.Pan && MathF.Abs(farAngle.Pan - 4 / MathF.Sqrt(212)) < 0.00001f,
+            "Melee emphasis did not blend back to regular separation at range");
+        Assert(HapticSpatializer.Evaluate(settings with { FollowImpact = false }, listener, meleeSource, now) == meleeRight,
+            "Disabling impact guidance changed the fixed direct-source separation");
+        foreach (var x in new[] { -0.04f, 0f, 0.04f })
+        {
+            var jitter = HapticSpatializer.Evaluate(settings, listener, new Vector3(x, 1.8f, 0), now);
+            Assert(jitter.Pan == 0 && jitter.Left == jitter.Right, "A centered emitter's tiny positional jitter invented a direction");
+        }
+        var precedingPan = 0f;
+        for (var d = 0f; d <= 7; d += 0.01f)
+        {
+            var continuous = HapticSpatializer.Evaluate(settings, listener, new Vector3(d * 0.3f, 1, d), now);
+            Assert(continuous.Valid && continuous.Pan >= 0 && continuous.Pan <= 1 &&
+                MathF.Abs(continuous.Pan - precedingPan) < 0.1f,
+                "Melee emphasis or its center/range transition produced an abrupt change");
+            precedingPan = continuous.Pan;
+        }
+        var fixedSound = new Vector3(5, 0, -5);
+        var yawView = Matrix4x4.CreateLookAt(Vector3.Zero, Vector3.UnitX, Vector3.UnitY);
+        var turned = HapticListenerPose.FromCamera(Vector3.Zero, Vector3.Zero, yawView, now)!;
+        Assert(HapticSpatializer.Evaluate(settings, listener, fixedSound, now).Pan > 0 &&
+            HapticSpatializer.Evaluate(settings, turned, fixedSound, now).Pan < 0,
+            "Rotating the camera did not move a fixed world sound between grips");
+        var previousGain = 1f;
+        for (var distance = 0f; distance <= 60; distance += 0.25f)
+        {
+            var result = HapticSpatializer.Evaluate(settings, listener, new Vector3(0, 0, -distance), now);
+            Assert(result.Valid && result.Left == result.Right && result.Left >= 0 && result.Left <= previousGain,
+                "Character distance fade is not bounded and monotonic");
+            if (distance <= 3) Assert(result.Left == 1, "Near sound lost full gain");
+            if (distance >= 25) Assert(result.Left == 0, "Far sound did not fade out");
+            previousGain = result.Left;
+        }
+        var ranged = HapticSpatializer.Evaluate(automatic, listener, new Vector3(0, 0, -24), now);
+        Assert(ranged.Left > 0 && ranged.Left < front.Left &&
+            HapticSpatializer.Evaluate(automatic, listener, new Vector3(0, 0, -25), now).Left == 0,
+            "The recommended fade removed feedback before its 25-yalm cutoff");
+        Assert(HapticSpatializer.Evaluate(manual, listener, new Vector3(0, 0, -30), now).Left > 0,
+            "A manual 40-yalm cutoff was overridden by the recommendation");
+        var zoomPosition = new Vector3(0, 0, 15);
+        var zoomView = Matrix4x4.CreateLookAt(zoomPosition, new Vector3(0, 0, -1), Vector3.UnitY);
+        zoomView.M44 = 0; // The game's validated scene camera uses this convention.
+        var zoomed = HapticListenerPose.FromCamera(Vector3.Zero, zoomPosition, zoomView, now);
+        Assert(zoomed != null && HapticSpatializer.Evaluate(settings, zoomed, new Vector3(0, 0, -5), now) == front,
+            "Camera zoom changed the source-to-character distance or grip balance");
+        // Offset both camera and character to distinguish source-to-character
+        // direction/distance from source-to-camera, including a camera beyond the sound.
+        var characterPosition = new Vector3(100, 5, 200);
+        var characterSound = characterPosition + new Vector3(3, 0, 0);
+        foreach (var cameraOffset in new[] { new Vector3(0, 3, 10), new Vector3(0, 3, 40), new Vector3(20, 8, -20) })
+        {
+            var cameraPosition = characterPosition + cameraOffset;
+            var view = Matrix4x4.CreateLookAt(cameraPosition, cameraPosition - Vector3.UnitZ, Vector3.UnitY);
+            var pose = HapticListenerPose.FromCamera(characterPosition, cameraPosition, view, now);
+            var result = HapticSpatializer.Evaluate(settings, pose, characterSound, now);
+            Assert(pose?.Origin == characterPosition && result.Distance == 3 && result.Pan == 1 && result.Left == 0 && result.Right == 1,
+                "Spatial origin followed the camera instead of the character");
+        }
+        var movedCharacter = HapticListenerPose.FromCamera(new Vector3(0, 0, -15), Vector3.Zero, Matrix4x4.Identity, now);
+        Assert(HapticSpatializer.Evaluate(settings, movedCharacter, new Vector3(0, 0, -25), now).Distance == 10 &&
+            HapticSpatializer.Evaluate(settings, movedCharacter, new Vector3(0, 0, -25), now).Left > ranged.Left,
+            "Moving the character closer did not strengthen feedback with the camera fixed");
+        var rotatedResult = HapticSpatializer.Evaluate(settings, turned, fixedSound, now);
+        var initialResult = HapticSpatializer.Evaluate(settings, listener, fixedSound, now);
+        Assert(rotatedResult.Distance == initialResult.Distance &&
+            MathF.Abs(rotatedResult.Left + rotatedResult.Right - initialResult.Left - initialResult.Right) < 0.00001f,
+            "Camera facing changed the distance fade while rotating grip balance");
+        var cameraSettings = settings with { DistanceOrigin = HapticDistanceOrigin.Camera };
+        foreach (var cameraDistance in new[] { 0f, 10f, 20f, 40f })
+        {
+            var cameraPosition = new Vector3(0, 0, cameraDistance);
+            var view = Matrix4x4.CreateLookAt(cameraPosition, cameraPosition - Vector3.UnitZ, Vector3.UnitY);
+            var pose = HapticListenerPose.FromCamera(Vector3.Zero, cameraPosition, view, now);
+            var range = HapticSpatializer.DistanceRange(cameraSettings, pose);
+            Assert(range.Near == cameraDistance + 3 && range.Far == cameraDistance + 25,
+                "Camera recommendation did not account for camera-to-character offset");
+            var cameraRanged = HapticSpatializer.Evaluate(cameraSettings, pose, new Vector3(0, 0, -24), now);
+            Assert(cameraRanged.Distance == cameraDistance + 24 && MathF.Abs(cameraRanged.Left - ranged.Left) < 0.00001f,
+                "Camera zoom prematurely attenuated a frontal skill inside the cutoff");
+            Assert(HapticSpatializer.Evaluate(cameraSettings, pose, new Vector3(0, 0, -25), now).Left == 0,
+                "Recommended camera cutoff did not follow camera zoom");
+            // The camera recommendation must keep all nearby effects strong and
+            // retain effects within the 25-yalm cutoff around the character.
+            for (var angle = 0f; angle < MathF.Tau; angle += MathF.Tau / 24)
+            {
+                var direction = new Vector3(MathF.Cos(angle), 0, MathF.Sin(angle));
+                var melee = HapticSpatializer.Evaluate(cameraSettings, pose, direction * 3, now);
+                var atRange = HapticSpatializer.Evaluate(cameraSettings, pose, direction * 24, now);
+                Assert(MathF.Abs(Math.Max(melee.Left, melee.Right) - 1) < 0.00001f && Math.Max(atRange.Left, atRange.Right) > 0,
+                    "Camera recommendation lost the character's melee/ranged combat envelope");
+                var charResult = HapticSpatializer.Evaluate(settings, pose, direction * 24, now);
+                Assert(MathF.Abs(atRange.Pan - charResult.Pan) < 0.00001f,
+                    "Selecting camera distance changed the character-centered direction origin");
+            }
+        }
+        var cameraManual = (manual with { DistanceOrigin = HapticDistanceOrigin.Camera }).Normalize();
+        var fixedManualRange = HapticSpatializer.DistanceRange(cameraManual, zoomed);
+        Assert(fixedManualRange.Near == 5 && fixedManualRange.Far == 40,
+            "Camera compensation overwrote absolute manual limits");
+        Assert(HapticSpatializer.Evaluate(cameraSettings, zoomed, new Vector3(0, 0, -20), now).Left >
+            HapticSpatializer.Evaluate(cameraManual, zoomed, new Vector3(0, 0, -20), now).Left,
+            "Manual camera fade and zoom-aware recommendation were not independent");
+        Assert(HapticListenerPose.FromCamera(Vector3.Zero, Vector3.One, Matrix4x4.Identity, now) == null &&
+            HapticListenerPose.FromCamera(Vector3.Zero, Vector3.Zero, default, now) == null &&
+            HapticListenerPose.FromCamera(new Vector3(float.NaN, 0, 0), Vector3.Zero, Matrix4x4.Identity, now) == null,
+            "A mismatched/invalid camera matrix was accepted");
+        Assert(!HapticSpatializer.Evaluate(settings, listener, Vector3.Zero, now + Stopwatch.Frequency).Valid &&
+            !HapticSpatializer.Evaluate(settings, listener, new Vector3(float.NaN, 0, 0), now).Valid &&
+            !HapticSpatializer.Evaluate(settings, null, Vector3.Zero, now).Valid, "Invalid or stale spatial input was accepted");
+        var neutral = HapticSpatializer.Evaluate(settings with { DistanceFalloff = false }, listener, new Vector3(0, 0, -100), now);
+        Assert(neutral.Left == 1 && neutral.Right == 1, "Disabling fade did not retain full gain for a centered distant source");
+        foreach (var channels in new[] { 8, 16 })
+        {
+            var pcm = new float[256 * channels]; var matrix = new float[2 * channels];
+            matrix[0] = matrix[channels + 1] = 1;
+            for (var i = 0; i < 256; i++) pcm[i * channels] = pcm[i * channels + 1] = MathF.Sin(i * 0.1f) * 0.2f;
+            var original = (float[])pcm.Clone(); var output = new float[2048];
+            Assert(HapticSpatializer.Render(pcm, matrix, output, right), "Supported native matrix failed spatial rendering");
+            for (var i = 0; i < 256; i++)
+            {
+                Assert(output[i * 8] == 0 && MathF.Abs(output[i * 8 + 1] - pcm[i * channels]) < 0.00001f,
+                    "Spatial rendering lost waveform timing or channel balance");
+                Assert(output.AsSpan(i * 8 + 2, 6).IndexOfAnyExcept(0f) < 0, "Spatial haptics leaked into other native channels");
+            }
+            Assert(pcm.SequenceEqual(original), "Spatial haptics modified audible source PCM");
+            pcm[0] = float.PositiveInfinity;
+            Assert(!HapticSpatializer.Render(pcm, matrix, output, right) && output.All(x => x == 0), "Invalid spatial PCM reached native processing");
+        }
+        var pool = stackalloc GameAudioLayout.SoundData[GameAudioLayout.PlayerSoundOwnership.Capacity];
+        new Span<GameAudioLayout.SoundData>(pool, GameAudioLayout.PlayerSoundOwnership.Capacity).Clear();
+        var ownership = new GameAudioLayout.PlayerSoundOwnership(pool);
+        ownership.SetPlayer(0x123, 42, 0x456);
+        pool[0].IsActive = 1; pool[0].SoundId = -20; pool[0].IsPositional = 1; pool[0].Position = new Vector3(12, 34, 56);
+        ownership.Acquired(pool, ownership.Player); ownership.LinkPlayback(-20, 77);
+        Assert(ownership.TryGetPosition(77, out var position) && position == new Vector3(12, 34, 56),
+            "Positional sound lost logical-to-playback ownership mapping");
+        pool[0].IsPositional = 0;
+        Assert(!ownership.TryGetPosition(77, out _), "A nonpositional sound invented spatial coordinates");
+        pool[0].IsPositional = 1; ownership.Acquired(pool, null);
+        Assert(!ownership.TryGetPosition(77, out _), "A reused foreign slot leaked its spatial coordinates");
+    }
+
+    private static void CheckImpactBias()
+    {
+        var now = Stopwatch.GetTimestamp();
+        var settings = new HapticSettings(true, Spatial: true);
+        var listener = new HapticListenerPose(Vector3.Zero, Vector3.UnitX, now);
+        var source = new Vector3(0, 1, 0);
+        var original = HapticSpatializer.Evaluate(settings, listener, source, now);
+        Assert(settings.ImpactBias == 0.25f &&
+            (settings with { ImpactBias = 0 }).Normalize().ImpactBias == 0.25f &&
+            (settings with { ImpactBias = 2 }).Normalize().ImpactBias == 1 &&
+            (settings with { ImpactBias = float.NaN }).Normalize().ImpactBias == 0.25f,
+            "Impact bias default/minimum/maximum normalization changed");
+        var legacy = System.Text.Json.JsonSerializer.Deserialize<HapticSettings>(
+            "{\"Enabled\":true,\"Spatial\":true,\"Directionality\":0}")!.Normalize();
+        var legacyRight = HapticSpatializer.Evaluate(legacy, listener, new Vector3(3, 0, 0), now);
+        Assert(legacy.ImpactBias == 0.25f && legacyRight.Pan == 1 && legacyRight.Left == 0 && legacyRight.Right == 1,
+            "Legacy separation settings affected the fixed full-separation behavior or lost default impact bias");
+        foreach (var amount in new[] { 0.25f, 0.5f, 0.75f, 1f })
+        {
+            var result = HapticSpatializer.BiasTowardImpact(settings with { ImpactBias = amount }, listener,
+                source, original, new Vector3(3, 0, 0));
+            Assert(result.Pan == amount && result.Left == 1 - amount && result.Right == 1 && result.Distance == original.Distance,
+                "Adjusting impact bias did not preserve direction endpoints, source distance and maximum gain");
+        }
+        var biased = HapticSpatializer.BiasTowardImpact(settings, listener, source, original, new Vector3(3, 0, 0));
+        Assert(biased.Pan == 0.25f && biased.Left == 0.75f && biased.Right == 1 && biased.Distance == original.Distance,
+            "Gentle impact following moved the cast source or did not apply its 25% bias");
+        var left = HapticSpatializer.BiasTowardImpact(settings, listener, source, original, new Vector3(-3, 0, 0));
+        Assert(left.Pan == -biased.Pan && left.Left == biased.Right && left.Right == biased.Left,
+            "Player-origin impact bias was not symmetric");
+        Assert(HapticSpatializer.BiasTowardImpact(settings with { FollowImpact = false }, listener, source, original, Vector3.UnitX) == original &&
+            HapticSpatializer.BiasTowardImpact(settings, listener, source, original, new Vector3(25, 0, 0)) == original,
+            "Disabled guidance or an inaudible far impact still biased a cast");
+        var directSource = Vector3.UnitX;
+        var direct = HapticSpatializer.Evaluate(settings, listener, directSource, now);
+        Assert(HapticSpatializer.BiasTowardImpact(settings, listener, directSource, direct, new Vector3(-3, 0, 0)) == direct,
+            "A real off-center source was steered away from its own position");
+        var tracker = new HapticImpactTracker(); var epoch = new object();
+        tracker.Observe(epoch, 1, new Vector3(3, 0, 0), 0.05f, now);
+        tracker.Observe(epoch, 2, new Vector3(-3, 0, 0), 0.2f, now);
+        tracker.Observe(epoch, 3, new Vector3(0, 0, 3), 0.1f, now);
+        Assert(tracker.TryTake(epoch, now, out var cue) && cue.SoundId == 2,
+            "Impact guidance did not select the strongest audible cue in the worker interval");
+        Assert(!tracker.TryTake(epoch, now, out _), "An impact cue was published twice without fresh audio");
+        tracker.Observe(epoch, 4, Vector3.UnitX, 0.01f, now);
+        Assert(tracker.TryTake(epoch, now, out cue) && cue.SoundId == 4, "A previous loud cue masked fresh quieter impacts");
+        tracker.Observe(epoch, 5, Vector3.UnitX, 0.2f, now);
+        Assert(!tracker.TryTake(new object(), now, out _), "Old actor/focus cue crossed an epoch boundary");
+        tracker.Observe(epoch, 6, Vector3.UnitX, 0.2f, now);
+        Assert(!tracker.TryTake(epoch, now + Stopwatch.Frequency / 5, out _), "Stale impact guidance remained active");
+        tracker.Observe(epoch, 7, Vector3.UnitX, float.NaN, now);
+        tracker.Observe(epoch, 8, new Vector3(float.NaN, 0, 0), 0.5f, now);
+        tracker.Observe(epoch, 9, Vector3.UnitX, 0.001f, now);
+        Assert(!tracker.TryTake(epoch, now, out _), "Invalid or inaudibly quiet audio created an impact cue");
+        tracker.Observe(epoch, 10, Vector3.UnitX, 0.2f, now); tracker.TryTake(epoch, now, out _);
+        var allocated = GC.GetAllocatedBytesForCurrentThread();
+        for (var i = 0; i < 1000; i++)
+        { tracker.Observe(epoch, 10, Vector3.UnitX, 0.2f, now); tracker.TryTake(epoch, now, out _); }
+        Assert(GC.GetAllocatedBytesForCurrentThread() == allocated, "Impact audio observations allocated managed memory");
+    }
+
+    private static void CheckNativeStereoMatrices()
+    {
+        // Captured from the installed game's real native 8 -> 2 builder. Each
+        // input has an eight-lane padded output row, including intentional crossfeed.
+        var native = new float[]
+        {
+            .89f,.11f,0,0,0,0,0,0,
+            .11f,.89f,0,0,0,0,0,0,
+            .58f,.58f,0,0,0,0,0,0,
+            .385f,.385f,0,0,0,0,0,0,
+            .92f,0,0,0,0,0,0,0,
+            0,.92f,0,0,0,0,0,0,
+            0,0,0,0,0,0,0,0,
+            0,0,0,0,0,0,0,0,
+        };
+        var expected = new float[] { .89f,.11f,.58f,.385f,.92f,0,0,0, .11f,.89f,.58f,.385f,0,.92f,0,0 };
+        var decoded = HapticStereoMatrix.FromNative(native, 8);
+        Assert(decoded.SequenceEqual(expected), "Padded native input rows or intentional crossfeed were decoded incorrectly");
+        var extended = new float[256];
+        extended[0] = .5f; extended[1] = .5f; extended[16] = .5f; extended[17] = -.5f;
+        var extendedDecoded = HapticStereoMatrix.FromNative(extended, 16);
+        Assert(extendedDecoded[0] == .5f && extendedDecoded[1] == .5f &&
+            extendedDecoded[16] == .5f && extendedDecoded[17] == -.5f &&
+            extendedDecoded.Where((_, i) => i is not (0 or 1 or 16 or 17)).All(x => x == 0),
+            "Native 16-channel row stride or signed coefficients were lost");
+        foreach (var channels in new[] { 8, 16 })
+        {
+            var matrix = channels == 8 ? decoded : extendedDecoded;
+            var samples = new float[256 * channels]; var output = new float[2048];
+            for (var input = 0; input < channels; input++)
+            {
+                Array.Clear(samples); samples[input] = 1;
+                Assert(HapticSpatializer.Render(samples, matrix, output, new HapticSpatialFrame(true, 0, 0, 1, 1)),
+                    "Native coefficient fixture failed spatial rendering");
+                var mono = (matrix[input] + matrix[channels + input]) * .5f;
+                Assert(output[0] == mono && output[1] == mono,
+                    "An input channel's native stereo contribution was dropped or transposed");
+            }
+        }
+        var rejected = false;
+        try { HapticStereoMatrix.FromNative(native.AsSpan(0, 16), 8); }
+        catch (NotSupportedException) { rejected = true; }
+        Assert(rejected, "A compact matrix was accepted as a padded native matrix");
+        native[0] = float.NaN; rejected = false;
+        try { HapticStereoMatrix.FromNative(native, 8); }
+        catch (NotSupportedException) { rejected = true; }
+        Assert(rejected, "Nonfinite native coefficients were accepted");
+        native[0] = .11f; native[1] = .89f; rejected = false;
+        try { HapticStereoMatrix.FromNative(native, 8); }
+        catch (NotSupportedException) { rejected = true; }
+        Assert(rejected, "Reversed native handedness was accepted");
+        // Replay the actual v0.9.5 trace's distinct cast and enemy-impact positions.
+        var now = Stopwatch.GetTimestamp();
+        var character = new Vector3(43.253796f, 504.92773f, 217.43387f);
+        var enemy = new Vector3(62.876038f, 504.92706f, 199.64899f);
+        var listener = new HapticListenerPose(character, new Vector3(.56606084f, 0, .8243635f), now);
+        var settings = new HapticSettings(true, Spatial: true);
+        var impact = HapticSpatializer.Evaluate(settings, listener, enemy, now);
+        var cast = HapticSpatializer.Evaluate(settings, listener, character, now);
+        Assert(MathF.Abs(impact.Distance - 26.4827f) < .001f && impact.Left == 0 && impact.Right == 0,
+            "The recorded enemy-impact position did not obey the 25-yalm cutoff");
+        Assert(cast.Distance == 0 && cast.Left == 1 && cast.Right == 1,
+            "The enemy cutoff incorrectly removed a separate cast sound located at the character");
+    }
+
     private static async Task CheckSfxSession()
     {
         foreach (var mode in new[] { LightingEffect.SfxLoudness, LightingEffect.SfxColorBlend })
@@ -439,8 +1038,7 @@ internal static class Program
         var foreground = true;
         var devices = new FakeDevices(() => foreground);
         devices.OnOpen = () => devices.Opened.Last().AllowBackground = true;
-        using var session = new LightingSession(devices, () => foreground, _ => throw new Exception("Unexpected SFX HID failure"),
-            (_, _) => new LightingFrame(0, 0, 0, 0));
+        using var session = new LightingSession(devices, () => foreground, _ => throw new Exception("Unexpected SFX HID failure"));
         var settings = LightingSettings.Default with { Effect = mode, PlayerLights = 10,
             Red = 255, Green = 0, Blue = 0, SecondaryRed = 0, SecondaryGreen = 0, SecondaryBlue = 255 };
         await session.TickAsync(settings, 0, default, 0);
@@ -455,7 +1053,7 @@ internal static class Program
         foreground = false;
         await session.TickAsync(settings, 0.066, default, 1);
         await session.TickAsync(settings, 0.1, default, 1);
-        Assert(session.HandoffCount == 1 && session.WriteCount == 2 && devices.Opened.All(d => d.Disposed) &&
+        Assert(session.ReleaseCount == 1 && session.WriteCount == 2 && devices.Opened.All(d => d.Disposed) &&
             devices.Opened.Last().Reports.Last().Skip(44).Take(4).All(b => b == 0), "SFX did not turn off once and release on focus loss");
         foreground = true;
         await session.TickAsync(settings, 1, default, 0);
@@ -471,7 +1069,7 @@ internal static class Program
         Assert(devices.Opened.Last().Reports.Last()[47] == (switched.Effect == LightingEffect.SfxColorBlend ? 128 : 0),
             "Switching between the separate SFX options did not change controller output");
         await session.TickAsync(settings with { Enabled = false }, 3.1, default, 1);
-        Assert(session.HandoffCount == 2 && session.DeviceCount == 0, "Disabling SFX did not perform lights-off release");
+        Assert(session.ReleaseCount == 2 && session.DeviceCount == 0, "Disabling SFX did not perform lights-off release");
         foreach (var device in devices.Opened)
         foreach (var sent in device.Reports)
             Assert(sent[1] == 0 && sent.Skip(3).Take(36).All(b => b == 0), "SFX session wrote native haptic or audio controls");
@@ -481,6 +1079,7 @@ internal static class Program
     {
         var foreground = true;
         var devices = new FakeDevices(() => foreground);
+        devices.OnOpen = () => devices.Opened.Last().AllowBackground = true;
         using var session = new LightingSession(devices, () => foreground, _ => throw new Exception("Unexpected output failure"));
         await session.TickAsync(LightingSettings.Default, 0, default);
         Assert(session.DeviceCount == 1 && session.WriteCount == 1, "Foreground did not acquire lighting");
@@ -580,8 +1179,8 @@ internal static class Program
     {
         var foreground = true;
         var devices = new FakeDevices(() => foreground);
-        using var session = new LightingSession(devices, () => foreground, _ => throw new Exception("Unexpected animation output failure"),
-            (device, _) => { ((FakeDevice)device).AllowBackground = true; return new LightingFrame(0, 0, 0, 0); });
+        devices.OnOpen = () => devices.Opened.Last().AllowBackground = true;
+        using var session = new LightingSession(devices, () => foreground, _ => throw new Exception("Unexpected animation output failure"));
         var settings = LightingSettings.Default with { PlayerLights = 27, PlayerAnimation = PlayerIndicatorAnimation.Chase, PlayerCycleSeconds = 2 };
         await session.TickAsync(settings, 0, default);
         await session.TickAsync(settings, 0.51, default);
@@ -589,9 +1188,9 @@ internal static class Program
         Assert(session.WriteCount == 3 && devices.Opened.Single().Reports.Select(r => r[44]).SequenceEqual(new byte[] { 33, 34, 40 }), "Indicator animation used the excluded center or failed with solid RGB");
         foreground = false;
         await session.TickAsync(settings, 1.1, default);
-        Assert(session.HandoffCount == 1 && devices.Opened.Single().Reports.Last().Skip(44).Take(4).All(b => b == 0) && devices.Opened.Single().Disposed, "Animated lighting did not turn off and release control");
+        Assert(session.ReleaseCount == 1 && devices.Opened.Single().Reports.Last().Skip(44).Take(4).All(b => b == 0) && devices.Opened.Single().Disposed, "Animated lighting did not turn off and release control");
         await session.TickAsync(settings, 1.5, default);
-        Assert(session.HandoffCount == 1 && session.WriteCount == 3, "Player animation kept writing in the background");
+        Assert(session.ReleaseCount == 1 && session.WriteCount == 3, "Player animation kept writing in the background");
         foreground = true;
         await session.TickAsync(settings, 2, default);
         Assert(session.WriteCount == 4 && devices.Opened.Last().Reports.Last()[44] == 33, "Player animation did not resume on focus return");
@@ -649,88 +1248,20 @@ internal static class Program
         }
     }
 
-    private static string SteamText(byte red = 149, byte green = 255, byte blue = 0) =>
-        $"\"color_red\" \"{red}\"\n\"color_green\" \"{green}\"\n\"color_blue\" \"{blue}\"\n" +
-        "\"guide_brightness\" \"1\"\n\"color_saturation\" \"1\"\n\"player_slot_led\" \"0\"";
-
-    private static void CheckSteamProfiles()
-    {
-        Assert(SteamLightingProfiles.Parse(SteamText(), 1) == new LightingFrame(149, 255, 0, 0), "Steam saved RGB mismatch");
-        var desaturated = SteamText().Replace("\"color_saturation\" \"1\"", "\"color_saturation\" \"0\"")
-            .Replace("\"guide_brightness\" \"1\"", "\"guide_brightness\" \"0.5\"");
-        Assert(SteamLightingProfiles.Parse(desaturated, 1) == new LightingFrame(128, 128, 128, 0), "Steam saturation/brightness ignored");
-        var multiple = SteamText().Replace("\"player_slot_led\" \"0\"", "\"player_slot_led\" \"1\"");
-        Assert(SteamLightingProfiles.Parse(multiple, 1).PlayerLights == 0 && SteamLightingProfiles.Parse(multiple, 2).PlayerLights == 4, "Steam multi-controller player indicator mismatch");
-        Assert(SteamLightingProfiles.Parse(SteamText().Replace("\"player_slot_led\" \"0\"", "\"player_slot_led\" \"2\""), 1).PlayerLights == 4, "Steam always-on player indicator mismatch");
-        foreach (var invalid in new[] {
-            SteamText().Replace("\"color_red\" \"149\"", "\"color_red\" \"256\""),
-            SteamText().Replace("\"guide_brightness\" \"1\"", "\"guide_brightness\" \"NaN\""),
-            SteamText().Replace("\"color_saturation\" \"1\"", "\"color_saturation\" \"-1\""),
-            SteamText().Replace("\"player_slot_led\" \"0\"", "\"player_slot_led\" \"1.5\""),
-            "\"color_red\" \"149\"" })
-        {
-            try { SteamLightingProfiles.Parse(invalid, 1); Assert(false, "Invalid Steam profile accepted"); }
-            catch (InvalidDataException) { checks++; }
-        }
-        var root = Path.Combine(Path.GetTempPath(), "DualSenseLightingChecks-" + Guid.NewGuid().ToString("N"));
-        string Profile(string account) => Path.Combine(root, "steamapps", "common", "Steam Controller Configs", account, "config", "preferences_DS4cb99b39727d.vdf");
-        try
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(Profile("1"))!);
-            File.WriteAllText(Profile("1"), SteamText());
-            var profiles = new SteamLightingProfiles(root, () => null);
-            Assert(profiles.Read("4C:B9:9B:39:72:7D", 1) == new LightingFrame(149, 255, 0, 0), "Did not match controller serial");
-            File.WriteAllText(Profile("1"), SteamText(0, 30, 255));
-            Assert(profiles.Read("4cb99b39727d", 1) == new LightingFrame(0, 30, 255, 0), "Restored stale Steam settings");
-            Directory.CreateDirectory(Path.GetDirectoryName(Profile("2"))!);
-            File.WriteAllText(Profile("2"), SteamText(200, 0, 20));
-            Assert(new SteamLightingProfiles(root, () => "2").Read("4cb99b39727d", 1) == new LightingFrame(200, 0, 20, 0), "Steam active-account selection failed");
-            try { profiles.Read("4cb99b39727d", 1); Assert(false, "Ambiguous Steam account accepted"); }
-            catch (InvalidDataException) { checks++; }
-            try { profiles.Read("000000000000", 1); Assert(false, "Unknown controller identity accepted"); }
-            catch (InvalidDataException) { checks++; }
-        }
-        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
-    }
-
-    private static async Task CheckSteamHandoff()
-    {
-        var foreground = true;
-        var devices = new FakeDevices(() => foreground);
-        var profileReads = 0;
-        using var session = new LightingSession(devices, () => foreground, _ => throw new Exception("Unexpected handoff error"),
-            (device, count) => { profileReads++; ((FakeDevice)device).AllowBackground = true; return new LightingFrame(149, 255, 0, 0); });
-        await session.TickAsync(LightingSettings.Default with { Effect = LightingEffect.Rainbow }, 0, default);
-        Assert(devices.Opened[0].Reports.Last()[45] == 255, "Rainbow was not red before Alt-Tab");
-        foreground = false;
-        await session.TickAsync(LightingSettings.Default, 0.1, default);
-        var restore = devices.Opened[0].Reports.Last();
-        Assert(session.HandoffCount == 1 && restore[44] == 0 && restore[45] == 149 && restore[46] == 255 && restore[47] == 0, "Alt-Tab froze the last rainbow frame instead of restoring Steam");
-        Assert(restore[1] == 0 && restore[2] == 0x14 && restore.Skip(3).Take(36).All(b => b == 0), "Steam handoff enabled native haptic/audio/trigger changes");
-        for (var i = 1; i <= 100; i++) await session.TickAsync(LightingSettings.Default, i, default);
-        Assert(session.HandoffCount == 1 && profileReads == 1 && devices.Opened[0].Reports.Count == 2 && devices.Opened.All(d => d.Disposed), "Steam handoff kept writing in the background");
-        foreground = true;
-        await session.TickAsync(LightingSettings.Default, 101, default);
-        Assert(session.WriteCount == 2 && devices.Opened.Last().Reports.Last()[45] == 119, "FFXIV lighting did not resume after handoff");
-        await session.TickAsync(LightingSettings.Default with { Enabled = false }, 102, default);
-        Assert(session.HandoffCount == 2 && session.DeviceCount == 0, "Disabling custom lighting did not hand back to Steam");
-    }
-
     private static async Task CheckGlobalRelease()
     {
         var foreground = true;
         var devices = new FakeDevices(() => foreground);
         devices.OnOpen = () => devices.Opened.Last().AllowBackground = true;
         using var session = new LightingSession(devices, () => foreground,
-            _ => throw new Exception("Unexpected global release error"),
-            (_, _) => new LightingFrame(0, 0, 0, 0));
+            _ => throw new Exception("Unexpected global release error"));
         var settings = LightingSettings.Default with { Effect = LightingEffect.Rainbow, PlayerLights = 31 };
         await session.TickAsync(settings, 0, default);
         foreground = false;
         await session.TickAsync(settings, 0.1, default);
         var device = devices.Opened.Single();
         var release = device.Reports.Last();
-        Assert(session.HandoffCount == 1 && device.Disposed && session.DeviceCount == 0,
+        Assert(session.ReleaseCount == 1 && device.Disposed && session.DeviceCount == 0,
             "Global release did not close the controller after focus loss");
         Assert(release[44] == 0 && release.Skip(45).Take(3).All(b => b == 0),
             "Global release left a custom RGB color or player indicator on");
@@ -741,46 +1272,58 @@ internal static class Program
         await session.TickAsync(settings, 51, default);
         devices.Paths = ["controller"];
         await session.TickAsync(settings, 52, default);
-        Assert(device.Reports.Count == 2 && devices.Opened.Count == 1 && session.HandoffCount == 1,
+        Assert(device.Reports.Count == 2 && devices.Opened.Count == 1 && session.ReleaseCount == 1,
             "Background updates or reconnect interfered with another lighting app");
         foreground = true;
         await session.TickAsync(settings, 56, default);
         Assert(session.WriteCount == 2 && devices.Opened.Last().Reports.Last()[45] == 255,
             "Returning to FFXIV did not resume the saved custom effect");
         await session.TickAsync(settings with { Enabled = false }, 57, default);
-        Assert(session.HandoffCount == 2 && devices.Opened.Last().Disposed,
+        Assert(session.ReleaseCount == 2 && devices.Opened.Last().Disposed,
             "Disabling lighting did not perform the same automatic release");
         await session.TickAsync(settings, 64, default);
         await session.ReleaseAsync(true, default);
         await session.ReleaseAsync(true, default);
-        Assert(session.HandoffCount == 3 && devices.Opened.Last().Disposed,
+        Assert(session.ReleaseCount == 3 && devices.Opened.Last().Disposed,
             "Unloading failed to release lighting once or repeated the release");
     }
 
-    private static async Task CheckHandoffRegainFocus()
+    private static async Task CheckReleaseRegainFocus()
     {
         var foreground = true;
+        var regainFocus = false;
+        bool IsForeground()
+        {
+            if (!regainFocus) return foreground;
+            regainFocus = false;
+            foreground = true;
+            return false; // Focus returns between the worker check and the release check.
+        }
         var devices = new FakeDevices(() => foreground);
-        using var session = new LightingSession(devices, () => foreground, _ => { }, (_, _) =>
-        { foreground = true; return new LightingFrame(149, 255, 0, 0); });
+        using var session = new LightingSession(devices, IsForeground, _ => throw new Exception("Unexpected focus release error"));
         await session.TickAsync(LightingSettings.Default, 0, default);
         foreground = false;
+        regainFocus = true;
         await session.TickAsync(LightingSettings.Default, 0.1, default);
-        Assert(session.HandoffCount == 0 && devices.Opened.Single().Reports.Count == 1, "Slow Steam profile read restored over regained foreground");
+        Assert(session.ReleaseCount == 0 && devices.Opened.Single().Reports.Count == 1 && devices.Opened.Single().Disposed,
+            "Release cleared lighting after FFXIV regained focus or kept a handle open");
         await session.TickAsync(LightingSettings.Default, 0.2, default);
-        Assert(session.WriteCount == 2, "Foreground did not recover after a skipped restore");
+        Assert(session.WriteCount == 2, "Foreground did not recover after a skipped release");
     }
 
-    private static async Task CheckHandoffFailure()
+    private static async Task CheckReleaseFailure()
     {
         var foreground = true;
         var devices = new FakeDevices(() => foreground);
+        devices.OnOpen = () => devices.Opened.Last().AllowBackground = true;
         var errors = 0;
-        using var session = new LightingSession(devices, () => foreground, _ => errors++, (_, _) => throw new InvalidDataException("No Steam profile"));
+        using var session = new LightingSession(devices, () => foreground, _ => errors++);
         await session.TickAsync(LightingSettings.Default, 0, default);
+        devices.Opened.Single().Fail = true;
         foreground = false;
         for (var i = 1; i <= 20; i++) await session.TickAsync(LightingSettings.Default, i, default);
-        Assert(errors == 1 && session.HandoffCount == 0 && devices.Opened.Single().Disposed, "Failed restore kept a handle or retried over another app");
+        Assert(errors == 1 && session.ReleaseCount == 0 && devices.Opened.Single().Disposed,
+            "Failed lights-off write kept a handle or retried over another app");
     }
 
     private static async Task CheckFocusRace()
@@ -807,10 +1350,16 @@ internal static class Program
     {
         var foreground = true;
         var devices = new FakeDevices(() => foreground) { Paths = ["first", "second"] };
-        devices.OnOpen = () => devices.Opened.Last().OnWrite = () => foreground = false;
+        devices.OnOpen = () =>
+        {
+            devices.Opened.Last().AllowBackground = true;
+            devices.Opened.Last().OnWrite = () => foreground = false;
+        };
         using var session = new LightingSession(devices, () => foreground, _ => { });
         await session.TickAsync(LightingSettings.Default, 0, default);
-        Assert(session.WriteCount == 1 && session.DeviceCount == 0 && devices.Opened.All(d => d.Disposed), "Focus lost between controllers still sent another write");
+        Assert(session.WriteCount == 1 && session.ReleaseCount == 1 && session.DeviceCount == 0 && devices.Opened.All(d => d.Disposed), "Focus lost between controllers still sent another custom write");
+        Assert(devices.Opened[0].Reports.Last().Skip(44).Take(4).All(b => b == 0) && devices.Opened[1].Reports.Count == 0,
+            "Release did not clear the changed controller or wrote to an untouched controller");
     }
 
     private static async Task CheckReconnectAndFailure()
@@ -868,7 +1417,6 @@ internal static class Program
     private static void Probe()
     {
         var devices = new HidDevices();
-        var profiles = new SteamLightingProfiles(SteamInstallation.GetRoot(), SteamInstallation.GetActiveAccount);
         var count = 0;
         foreach (var path in devices.GetPaths())
         {
@@ -876,7 +1424,6 @@ internal static class Program
             if (device == null) continue;
             count++;
             Console.WriteLine($"USB DualSense interface {count}: output report length {device.ReportLength}; shared handle opened and closed, zero reports written.");
-            Console.WriteLine($"Matched Steam handoff: {profiles.Read(device.Serial, 1)} (read only).");
         }
         Console.WriteLine($"Read-only HID probe complete: {count} supported USB controller(s).");
     }
@@ -906,7 +1453,6 @@ internal static class Program
     private sealed class FakeDevice(Func<bool> foreground) : ILightingDevice
     {
         public int ReportLength => 63;
-        public string? Serial => "4cb99b39727d";
         public bool Disposed, Fail, Stall, AllowBackground;
         public readonly List<byte[]> Reports = [];
         public Action? OnWrite;

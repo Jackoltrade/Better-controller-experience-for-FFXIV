@@ -13,16 +13,18 @@ internal sealed class ControllerPreview
 {
     private readonly ITextureProvider textures;
     private readonly ControllerPreviewGeometry geometry;
+    private readonly UiText text;
 
-    internal ControllerPreview(ITextureProvider textures)
+    internal ControllerPreview(ITextureProvider textures, UiText text)
     {
         this.textures = textures;
+        this.text = text;
         using var stream = typeof(ControllerPreview).Assembly.GetManifestResourceStream(ControllerPreviewGeometry.SvgResource)
             ?? throw new InvalidDataException("Controller preview artwork was not included in this build.");
         geometry = ControllerPreviewGeometry.Load(stream);
     }
 
-    internal void Draw(LightingSettings settings, bool foreground, double seconds, float sfxLevel = 0)
+    internal unsafe void Draw(LightingSettings settings, bool foreground, double seconds, float sfxLevel = 0, LimitBreakState? limitBreak = null)
     {
         var uiScale = ImGui.GetFontSize() / 17f;
         var width = 420 * uiScale;
@@ -31,7 +33,9 @@ internal sealed class ControllerPreview
         var available = Math.Max(width, ImGui.GetContentRegionAvail().X);
         ImGui.SetCursorPosX(startX + (available - width) / 2);
         var origin = ImGui.GetCursorScreenPos();
-        ImGui.GetWindowDrawList().AddRectFilled(origin, origin + size, Color(18, 22, 28), 10 * uiScale);
+        var background = *ImGui.GetStyleColorVec4(ImGuiCol.WindowBg);
+        background.W = 1;
+        ImGui.GetWindowDrawList().AddRectFilled(origin, origin + size, ImGui.GetColorU32(background));
 
         // Use Dalamud's shared texture cache; never retain or dispose the per-frame wrap.
         var shared = textures.GetFromManifestResource(typeof(ControllerPreview).Assembly, ControllerPreviewGeometry.PngResource);
@@ -42,7 +46,7 @@ internal sealed class ControllerPreview
         if (ready)
         {
             var scale = width / geometry.Size.X;
-            var frame = ControllerPreviewGeometry.Frame(settings, foreground, seconds, sfxLevel);
+            var frame = ControllerPreviewGeometry.Frame(settings, foreground, seconds, sfxLevel, limitBreak);
             var peak = Math.Max(frame.Red, Math.Max(frame.Green, frame.Blue));
             var lightbar = textures.GetFromManifestResource(typeof(ControllerPreview).Assembly, ControllerPreviewGeometry.LightbarResource);
             if (peak > 0 && lightbar.TryGetWrap(out var lightbarWrap, out _))
@@ -62,13 +66,32 @@ internal sealed class ControllerPreview
                 ImGui.GetWindowDrawList().AddRectFilled(minimum, maximum, Color(250, 252, 255), 2.25f * scale);
             }
         }
+        FadeEdges(origin, size, uiScale);
         ImGui.SetCursorPosX(startX);
-        var label = !ready ? "Loading preview…" : !settings.Enabled ? "Custom lighting off"
-            : foreground ? "Live preview" : "Custom preview paused — FFXIV is in the background";
+        var label = text.Get(!ready ? "Loading preview…" : !settings.Enabled ? "Custom lighting off"
+            : foreground ? "Live preview" : "Preview paused — FFXIV is in the background");
         ImGui.SetCursorPosX(startX + Math.Max(0, (available - ImGui.CalcTextSize(label).X) / 2));
         ImGui.TextDisabled(label);
         ImGui.SetCursorPosX(startX);
         ImGui.Spacing();
+    }
+
+    private static unsafe void FadeEdges(Vector2 origin, Vector2 size, float scale)
+    {
+        // Fade the complete preview after drawing its live LEDs, using the current
+        // window color so the edge blends with both dark and light themes.
+        var background = *ImGui.GetStyleColorVec4(ImGuiCol.WindowBg);
+        background.W = 1;
+        var outer = ImGui.GetColorU32(background);
+        background.W = 0;
+        var inner = ImGui.GetColorU32(background);
+        var horizontal = 12 * scale;
+        var vertical = 8 * scale;
+        var draw = ImGui.GetWindowDrawList();
+        draw.AddRectFilledMultiColor(origin, origin + new Vector2(horizontal, size.Y), outer, inner, inner, outer);
+        draw.AddRectFilledMultiColor(origin + new Vector2(size.X - horizontal, 0), origin + size, inner, outer, outer, inner);
+        draw.AddRectFilledMultiColor(origin, origin + new Vector2(size.X, vertical), outer, outer, inner, inner);
+        draw.AddRectFilledMultiColor(origin + new Vector2(0, size.Y - vertical), origin + size, inner, inner, outer, outer);
     }
 
     private static uint Color(byte red, byte green, byte blue, byte alpha = 255) =>

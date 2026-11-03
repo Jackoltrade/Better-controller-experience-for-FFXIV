@@ -34,8 +34,9 @@ public sealed record ControllerPreviewGeometry(Vector2 Size, PreviewIndicator[] 
         return new(size, indicators);
     }
 
-    public static LightingFrame Frame(LightingSettings settings, bool foreground, double seconds, float sfxLevel = 0) =>
-        settings.Enabled && foreground ? LightingEffects.Render(settings, seconds, sfxLevel) : default;
+    public static LightingFrame Frame(LightingSettings settings, bool foreground, double seconds, float sfxLevel = 0,
+        LimitBreakState? limitBreak = null) =>
+        settings.Enabled && foreground ? LightingEffects.Render(settings, seconds, sfxLevel, limitBreak) : default;
 
     public static bool IsPlayerLit(LightingFrame frame, int bit) => bit is >= 0 and < 5 && (frame.PlayerLights & (1 << bit)) != 0;
 }

@@ -58,8 +58,7 @@ internal sealed class HidDevices : ILightingDevices
         try
         {
             if (!Native.TryGetDualSenseCaps(handle.DangerousGetHandle(), out var caps)) { handle.Dispose(); return null; }
-            var serial = Native.GetControllerSerial(handle.DangerousGetHandle());
-            return new HidDevice(new FileStream(handle, FileAccess.Write, 1, true), caps.OutputReportLength, serial);
+            return new HidDevice(new FileStream(handle, FileAccess.Write, 1, true), caps.OutputReportLength);
         }
         catch { handle.Dispose(); throw; }
     }
@@ -70,13 +69,11 @@ internal sealed class HidDevices : ILightingDevices
         private readonly nint handle;
         private int disposed;
         public int ReportLength { get; }
-        public string? Serial { get; }
 
-        internal HidDevice(FileStream stream, int reportLength, string? serial)
+        internal HidDevice(FileStream stream, int reportLength)
         {
             this.stream = stream;
             ReportLength = reportLength;
-            Serial = serial;
             handle = stream.SafeFileHandle.DangerousGetHandle();
             OwnedLightingHandles.Add(handle);
         }

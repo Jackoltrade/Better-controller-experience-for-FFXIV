@@ -1,14 +1,20 @@
 {
-  "Author": "Local",
-  "Name": "DualSense Lighting",
+  "Author": "Jackoltrade",
+  "Name": "PS5 DualSense Controller for FFXIV",
   "InternalName": "DualSenseLighting",
-  "AssemblyVersion": "0.6.1.0",
-  "Description": "Custom USB DualSense lighting with a live preview. Separate combat SFX prototypes offer original single-color brightness pulses or a low/high color blend with visible quiet-state lighting. Includes RGB animations and independent white player indicators. Custom lights turn off and controller handles close automatically when FFXIV loses focus, so other lighting apps can take over. Background game lighting is always guarded. Native haptics, speaker and triggers pass through.",
-  "Punchline": "Custom DualSense lighting with protection for other apps.",
+  "AssemblyVersion": "0.13.3.0",
+  "RepoUrl": "https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-",
+  "Description": "Custom USB DualSense lighting, character combat haptics and an optional native footstep vibration amplifier. Limit Break bottom LEDs show ready bars, partial PvP charge and your LB cast/use. Spatial combat direction is character-centered and camera-aligned. Native footsteps can be boosted independently while unmounted; mount, speaker and trigger effects are preserved. Added feedback pauses and custom lights turn off when FFXIV loses focus.",
+  "Punchline": "Custom DualSense lighting and character combat haptics.",
   "ApplicableVersion": "any",
   "DalamudApiLevel": 15,
   "LoadRequiredState": 0,
   "LoadSync": false,
   "CanUnloadAsync": false,
-  "Tags": ["controller", "dualsense", "lighting"]
+  "Tags": [
+    "controller",
+    "dualsense",
+    "lighting",
+    "haptics"
+  ]
 }

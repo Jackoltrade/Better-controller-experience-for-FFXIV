@@ -17,7 +17,7 @@ public static class LightingEffects
 
     public static bool IsSfx(LightingEffect effect) => effect is LightingEffect.SfxLoudness or LightingEffect.SfxColorBlend;
 
-    public static LightingFrame Render(LightingSettings settings, double seconds, float sfxLevel = 0)
+    public static LightingFrame Render(LightingSettings settings, double seconds, float sfxLevel = 0, LimitBreakState? limitBreak = null)
     {
         var s = settings.Normalize();
         var phase = double.IsFinite(seconds) ? Math.Max(0, seconds) % s.CycleSeconds / s.CycleSeconds : 0;
@@ -38,9 +38,12 @@ public static class LightingEffects
             LightingEffect.SfxColorBlend => Mix(primary, secondary, level),
             _ => primary,
         };
-        var indicators = PlayerIndicatorEffects.Render(s.PlayerLights, s.PlayerAnimation, s.PlayerCycleSeconds, seconds);
-        return new(Scale(color.Red, s.Brightness), Scale(color.Green, s.Brightness), Scale(color.Blue, s.Brightness), indicators,
-            s.PlayerAnimation != PlayerIndicatorAnimation.Steady);
+        var indicators = s.PlayerMode == PlayerIndicatorMode.LimitBreak
+            ? LimitBreakIndicators.Render(limitBreak, seconds, s.PlayerCycleSeconds)
+            : new LightingFrame(0, 0, 0, PlayerIndicatorEffects.Render(s.PlayerLights, s.PlayerAnimation, s.PlayerCycleSeconds, seconds),
+                s.PlayerAnimation != PlayerIndicatorAnimation.Steady);
+        return new(Scale(color.Red, s.Brightness), Scale(color.Green, s.Brightness), Scale(color.Blue, s.Brightness), indicators.PlayerLights,
+            indicators.PlayerLightsImmediate);
     }
 
     private static byte Scale(byte value, double gain) => (byte)Math.Clamp((int)Math.Round(value * gain), 0, 255);

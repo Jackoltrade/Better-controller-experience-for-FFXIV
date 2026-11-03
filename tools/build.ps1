@@ -40,7 +40,7 @@ if (-not $PrepareOffline) {
     if ($LASTEXITCODE -ne 0) { throw 'Could not inspect .NET SDKs.' }
 }
 if ($sdks | Where-Object { $_ -match '^10\.' }) {
-    & $dotnet build (Join-Path $projectRoot 'src\DualSenseLighting\DualSenseLighting.csproj') -c Release "-p:DalamudLibPath=$DalamudLibPath" -o $pluginOutput
+    & $dotnet build (Join-Path $projectRoot 'src\DualSenseLighting\PS5DualSenseControllerForFFXIV.csproj') -c Release "-p:DalamudLibPath=$DalamudLibPath" -o $pluginOutput
     if ($LASTEXITCODE -ne 0) { throw 'Plugin build failed.' }
     & $dotnet build (Join-Path $projectRoot 'tests\LightingChecks.csproj') -c Release -o $checksOutput
     if ($LASTEXITCODE -ne 0) { throw 'Checks build failed.' }
@@ -63,17 +63,21 @@ if ($sdks | Where-Object { $_ -match '^10\.' }) {
     $runtimeConfig = '{"runtimeOptions":{"tfm":"net10.0","framework":{"name":"Microsoft.NETCore.App","version":"10.0.0"}}}'
     [IO.File]::WriteAllText((Join-Path $toolOutput 'OfflineBuild.runtimeconfig.json'), $runtimeConfig)
     [IO.File]::WriteAllText((Join-Path $checksOutput 'LightingChecks.runtimeconfig.json'), $runtimeConfig)
+    [IO.File]::WriteAllText((Join-Path $toolOutput 'VerifyAssembly.runtimeconfig.json'), $runtimeConfig)
     $pluginSources = @(Get-ChildItem (Join-Path $projectRoot 'src\DualSenseLighting') -Filter *.cs -Recurse |
         Where-Object { $_.FullName -notmatch '[\\/](obj|bin)[\\/]' } | ForEach-Object FullName)
     $checkSources = @(Get-ChildItem (Join-Path $projectRoot 'src\DualSenseLighting\Core') -Filter *.cs | ForEach-Object FullName)
+    $checkSources += @(Get-ChildItem (Join-Path $projectRoot 'src\DualSenseLighting\Ui') -Filter UiText*.cs | ForEach-Object FullName)
     $checkSources += Join-Path $projectRoot 'src\DualSenseLighting\Windows\Native.cs'
     $checkSources += Join-Path $projectRoot 'src\DualSenseLighting\Windows\HidDevices.cs'
-    $checkSources += Join-Path $projectRoot 'src\DualSenseLighting\Windows\SteamInstallation.cs'
-    $checkSources += Join-Path $projectRoot 'tests\Program.cs'
+    $checkSources += Join-Path $projectRoot 'src\DualSenseLighting\Windows\NativeHapticOutput.cs'
+    $checkSources += @(Get-ChildItem (Join-Path $projectRoot 'tests') -Filter *.cs | ForEach-Object FullName)
     if ($PrepareOffline) {
         $plan = [ordered]@{
             Dotnet = $dotnet; Bootstrap = $bootstrap; Dalamud = $DalamudLibPath; Compiler = $CompilerPath
             Plugin = (Join-Path $pluginOutput 'DualSenseLighting.dll'); Checks = (Join-Path $checksOutput 'LightingChecks.dll')
+            Verifier = (Join-Path $toolOutput 'VerifyAssembly.dll')
+            VerifierSources = @((Join-Path $projectRoot 'tools\VerifyAssembly\Program.cs'))
             PluginSources = $pluginSources; CheckSources = $checkSources
         }
         [IO.File]::WriteAllText((Join-Path $projectRoot 'artifacts\build-plan.json'), ($plan | ConvertTo-Json -Depth 4))
@@ -84,10 +88,18 @@ if ($sdks | Where-Object { $_ -match '^10\.' }) {
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path (Join-Path $pluginOutput 'DualSenseLighting.dll'))) { throw 'Plugin build failed.' }
     & $dotnet $bootstrap (Join-Path $checksOutput 'LightingChecks.dll') console $DalamudLibPath $CompilerPath @checkSources
     if ($LASTEXITCODE -ne 0) { throw 'Checks build failed.' }
+    & $dotnet $bootstrap (Join-Path $toolOutput 'VerifyAssembly.dll') console $DalamudLibPath $CompilerPath (Join-Path $projectRoot 'tools\VerifyAssembly\Program.cs')
+    if ($LASTEXITCODE -ne 0) { throw 'Metadata verifier build failed.' }
 }
 
 & $dotnet (Join-Path $checksOutput 'LightingChecks.dll')
 if ($LASTEXITCODE -ne 0) { throw 'Lighting checks failed.' }
+if ($sdks | Where-Object { $_ -match '^10\.' }) {
+    & $dotnet run --project (Join-Path $projectRoot 'tools\VerifyAssembly\VerifyAssembly.csproj') -c Release -- (Join-Path $pluginOutput 'DualSenseLighting.dll') (Join-Path $projectRoot 'src\DualSenseLighting\DualSenseLighting.json') $DalamudLibPath
+} else {
+    & $dotnet (Join-Path $toolOutput 'VerifyAssembly.dll') (Join-Path $pluginOutput 'DualSenseLighting.dll') (Join-Path $projectRoot 'src\DualSenseLighting\DualSenseLighting.json') $DalamudLibPath
+}
+if ($LASTEXITCODE -ne 0) { throw 'Plugin metadata verification failed.' }
 if ($Probe) {
     & $dotnet (Join-Path $checksOutput 'LightingChecks.dll') --probe
     if ($LASTEXITCODE -ne 0) { throw 'Read-only HID probe failed.' }

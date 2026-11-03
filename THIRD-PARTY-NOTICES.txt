@@ -41,12 +41,93 @@ Copyright (c) 2021-2023 aers.
 
 src/DualSenseLighting/Core/GameAudioLayout.cs adapts minimal read-only fields from:
 FFXIVClientStructs/SQEX/Sd/Driver/Core/CoreSourceVoice.cs
+FFXIVClientStructs/SQEX/Sd/Driver/Core/VoiceSend.cs
 FFXIVClientStructs/SQEX/CDev/Engine/Sd/Driver/Sead/VoiceSead.cs
 FFXIVClientStructs/SQEX/CDev/Engine/Sd/Driver/SoundTrack.cs
 FFXIVClientStructs/SQEX/CDev/Engine/Sd/Driver/RootSound.cs
+FFXIVClientStructs/FFXIV/Client/Sound/SoundData.cs
+FFXIVClientStructs/FFXIV/Client/Sound/SoundManager.cs
+FFXIVClientStructs/FFXIV/Client/Game/Object/GameObject.cs
+FFXIVClientStructs/FFXIV/Client/Game/Character/ContainerInterface.cs
+FFXIVClientStructs/FFXIV/Client/Game/Character/VfxContainer.cs
+FFXIVClientStructs/FFXIV/Client/Graphics/Scene/Object.cs
+FFXIVClientStructs/FFXIV/Client/System/Scheduler/Base/SchedulerTimeline.cs
 
 src/DualSenseLighting/Windows/SfxAudioCapture.cs adapts the source-render and
 CoreSystem global signatures from that revision. The callback-vtable signature
 and source-layout checks were verified against the local game executable.
-These bindings observe source audio for RGB loudness only. No upstream audio
-setters, routing changes, sample replacement or haptic generation are included.
+The SoundManager singleton and sound-pool acquisition signature also follow that
+revision. The playback-ID getter, pool slot layout and VFX sound-callback field
+accesses were independently checked in the local executable. Player-only filtering
+uses caster identity rather than volume category.
+The positional sound-entry lookup, logical handle at entry+0x38 and embedded
+controller playback ID at entry+0x10 were independently checked through local
+disassembly and read-only comparison with active mixer voices. The observer
+retains the game's original lookup, arguments and return value.
+The character-sound callback uses VfxContainer.LoadCharacterSound's signature
+and ContainerInterface.OwnerObject at +8. The local model tree uses Scene.Object's
+parent/child/sibling fields and its type getter to include weapon/character models
+while excluding attached VFX objects. Model refreshes do not reset actor ownership.
+The action timeline owner uses SchedulerTimeline's vfunc 29 and its checked
+owning-object-index field at +0x18C. The sound-clip update signature was researched
+in Penumbra.GameData; the clip-to-timeline resolver and its call ordering were
+verified independently in the local executable. Existing native calls and their
+return values are preserved; the plugin does not walk mutable scheduler lists.
+The source observer reads audio for RGB loudness and optional character combat
+haptics. Original samples, source sends and native playback are not changed.
+
+src/DualSenseLighting/Windows/NativeHapticOutput.cs additionally adapts the
+CoreSubmixVoice layout, Instances signature and MixIn virtual-function signature:
+FFXIVClientStructs/SQEX/Sd/Driver/Core/CoreSubmixVoice.cs
+The native MixIn implementation, source-send call ordering, vibration submix name,
+format and effect presence were checked against the local executable and a
+read-only inventory of the running game. Optional character haptics adds approved
+PCM to that existing native submix. Existing vibration sends are not duplicated;
+no upstream DSP implementation or mod audio assets are bundled.
+
+Character-centered, camera-aligned haptics adapts read-only fields and signatures from the same revision:
+FFXIVClientStructs/FFXIV/Client/Game/Control/Control.cs
+FFXIVClientStructs/FFXIV/Client/Game/Control/CameraManager.cs
+FFXIVClientStructs/FFXIV/Client/Game/CameraBase.cs
+FFXIVClientStructs/FFXIV/Client/Graphics/Scene/Camera.cs
+FFXIVClientStructs/FFXIV/Client/Graphics/Scene/Object.cs
+FFXIVClientStructs/FFXIV/Client/Sound/SoundData.cs
+FFXIVClientStructs/SQEX/Sd/Driver/Core/CoreSystem.cs
+GameHapticCamera reads the active camera's view orientation and position on the
+framework thread. The direction origin comes from Dalamud's local-player Position
+property; the distance origin can be character or camera. SoundData positional coordinates and flag were independently
+checked in the native sound-creation path. The stereo conversion-matrix builder,
+vibration filter's per-channel processing and controller endpoint channel copy were
+researched in local disassembly. Native conversion is called only to create private
+matrices; source voice setters and game camera state are not modified. A separate
+PCM buffer is used for spatial haptics; no original playback buffer is replaced.
+HapticStereoMatrix converts the native builder's padded input rows into compact
+output rows, retaining its intentional crossfeed. This layout and the int return
+status were checked against the installed executable's native arithmetic in an
+isolated process, in addition to disassembly and recorded source metadata.
+
+The opt-in native footstep amplifier reads the existing CoreSourceVoice send gain
+and the Foot sound-bus ID from the same revision. It adds only the requested extra
+gain to an already-present native vibration send while the character is unmounted.
+Original PCM, sends, source gains and speaker routes are not changed.
+
+The combat-enable confirmation uses the same CoreSubmixVoice vibration format.
+Its short-lived render hook was identified and validated in the installed mix
+pass by local disassembly; the original render callback and result are retained.
+The CoreSystem.SampleRate signature follows the upstream CoreSystem binding.
+The confirmation waveform and scheduler are original plugin code.
+
+Limit Break indicator detection adapts the read-only gauge layout and singleton
+signature, and action-effect header/Receive signature, from the same revision:
+FFXIVClientStructs/FFXIV/Client/Game/UI/LimitBreakController.cs
+FFXIVClientStructs/FFXIV/Client/Game/Character/ActionEffectHandler.cs
+The singleton signature and action-effect call signature each matched once in the
+installed executable; the target callback prologue/header access were checked in
+local disassembly. The observer retains the original callback and arguments.
+Cast state comes from Dalamud; action identities come from Lumina's installed game
+data. Dalamud provides the Lumina assemblies; they are not bundled in this plugin.
+
+Native VFX callback research reference (no Penumbra source code is bundled):
+https://github.com/xivdev/Penumbra/blob/9bb793149b9f02408509c5980fcf34428f2602d3/Penumbra/Interop/Hooks/Animation/ApricotListenerSoundPlay.cs
+This documents the caster virtual function and optional draw-object pointer.
+The plugin implements a separate read-only, sound-reservation ownership observer.

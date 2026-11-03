@@ -1,0 +1,77 @@
+name: Build and verify public test package
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      dalamud_url:
+        description: HTTPS ZIP of compatible Dalamud API 15 libraries
+        default: https://goatcorp.github.io/dalamud-distrib/stg/latest.zip
+        type: string
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        default: ''
+      tag:
+        type: string
+        default: ''
+      dalamud_url:
+        type: string
+        default: https://goatcorp.github.io/dalamud-distrib/stg/latest.zip
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Get Dalamud API libraries
+        shell: pwsh
+        env:
+          DALAMUD_URL: ${{ inputs.dalamud_url || vars.DALAMUD_DOWNLOAD_URL || 'https://goatcorp.github.io/dalamud-distrib/stg/latest.zip' }}
+        run: |
+          $url = [uri]$env:DALAMUD_URL
+          if ($url.Scheme -ne 'https') { throw 'Dalamud libraries must use HTTPS.' }
+          $zip = Join-Path $env:RUNNER_TEMP 'dalamud.zip'
+          $directory = Join-Path $env:RUNNER_TEMP 'dalamud'
+          Invoke-WebRequest -Uri $url -OutFile $zip
+          Expand-Archive -LiteralPath $zip -DestinationPath $directory
+          $libraries = @(Get-ChildItem $directory -Recurse -Filter Dalamud.dll)
+          if ($libraries.Count -ne 1) { throw 'Expected exactly one Dalamud.dll.' }
+          "DALAMUD_HOME=$($libraries[0].DirectoryName)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Build, check and verify binary metadata
+        shell: pwsh
+        run: ./tools/build.ps1 -DalamudLibPath $env:DALAMUD_HOME
+      - name: Check hot-path allocations
+        shell: pwsh
+        run: dotnet ./artifacts/checks/LightingChecks.dll --benchmark
+      - name: Check package boundaries
+        run: python -m unittest discover -s tests -p "test_*.py" -v
+      - name: Package opt-in testing release
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          if ($env:RELEASE_TAG) { python tools/package-release.py --tag $env:RELEASE_TAG }
+          else { python tools/package-release.py }
+          if ($LASTEXITCODE -ne 0) { throw 'Packaging failed.' }
+      - uses: actions/upload-artifact@v7
+        with:
+          name: public-test-package
+          path: artifacts/release/*
+          if-no-files-found: error
+          retention-days: 30

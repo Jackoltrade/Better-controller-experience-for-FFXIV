@@ -32,14 +32,7 @@ public sealed class SfxLoudness
     {
         var before = Volatile.Read(ref state);
         if ((generation & 1) == 0 || (uint)((ulong)before >> 32) != generation || samples.IsEmpty) return;
-        double energy = 0;
-        foreach (var sample in samples)
-        {
-            // Reject an invalid block as a whole instead of turning a bad sample into a flash.
-            if (!float.IsFinite(sample) || Math.Abs(sample) > 16) return;
-            energy += (double)sample * sample;
-        }
-        var bits = BitConverter.SingleToUInt32Bits((float)Math.Min(1, Math.Sqrt(energy / samples.Length)));
+        var bits = BitConverter.SingleToUInt32Bits(MeasureRms(samples));
         for (var attempt = 0; attempt < 4 && (uint)((ulong)before >> 32) == generation; attempt++)
         {
             if ((uint)before >= bits) return;
@@ -48,6 +41,19 @@ public sealed class SfxLoudness
             if (current == before) return;
             before = current;
         }
+    }
+
+    public static float MeasureRms(ReadOnlySpan<float> samples)
+    {
+        if (samples.IsEmpty) return 0;
+        double energy = 0;
+        foreach (var sample in samples)
+        {
+            // Reject an invalid block as a whole instead of turning a bad sample into a flash.
+            if (!float.IsFinite(sample) || Math.Abs(sample) > 16) return 0;
+            energy += (double)sample * sample;
+        }
+        return (float)Math.Min(1, Math.Sqrt(energy / samples.Length));
     }
 
     public float TakePeak()

@@ -1,0 +1,51 @@
+name: Publish an opt-in public test release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag, for example v0.13.3
+        required: true
+        type: string
+      dalamud_url:
+        description: HTTPS ZIP of compatible Dalamud API 15 libraries
+        default: https://goatcorp.github.io/dalamud-distrib/stg/latest.zip
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-test-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+    with:
+      ref: ${{ inputs.tag }}
+      tag: ${{ inputs.tag }}
+      dalamud_url: ${{ inputs.dalamud_url }}
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: public-test-package
+          path: release
+      - name: Publish testing ZIP and update the installer feed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release create "$RELEASE_TAG" release/latest.zip release/SHA256SUMS.txt release/release-summary.json --verify-tag --prerelease --title "PS5 DualSense Controller for FFXIV $RELEASE_TAG" --notes "Opt-in public test build. See the README for compatibility, installation and known limitations."
+          if ! gh release view plugin-repository >/dev/null 2>&1; then
+            target_sha=$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)
+            gh release create plugin-repository --target "$target_sha" --prerelease --title "Testing plugin repository" --notes "Installer metadata for opt-in public test builds."
+          fi
+          gh release upload plugin-repository release/pluginmaster.json --clobber
