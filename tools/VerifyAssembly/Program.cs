@@ -57,7 +57,7 @@ internal static class VerifyAssembly
 
     private static string SourceFingerprint(string directory)
     {
-        var extensions = new[] { ".cs", ".csproj", ".json", ".png", ".svg" };
+        var extensions = new[] { ".cs", ".csproj", ".props", ".targets", ".json", ".png", ".svg" };
         var files = Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories)
             .Select(path => (Path: path, Relative: Path.GetRelativePath(directory, path).Replace('\\', '/')))
             .Where(file => extensions.Contains(Path.GetExtension(file.Path)) &&

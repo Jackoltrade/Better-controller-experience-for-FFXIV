@@ -41,7 +41,8 @@ internal sealed class HidDevices : ILightingDevices
                     if (!Native.SetupDiGetDeviceInterfaceDetailW(set, ref data, detail, size, out _, 0))
                         throw new Win32Exception(Marshal.GetLastWin32Error());
                     var path = Marshal.PtrToStringUni(detail + 4);
-                    if (path != null && path.Contains("vid_054c", StringComparison.OrdinalIgnoreCase)) paths.Add(path);
+                    if (path != null && (path.Contains("vid_054c", StringComparison.OrdinalIgnoreCase) ||
+                        path.Contains("vid&0002054c", StringComparison.OrdinalIgnoreCase))) paths.Add(path);
                 }
                 finally { Marshal.FreeHGlobal(detail); }
             }
@@ -50,15 +51,32 @@ internal sealed class HidDevices : ILightingDevices
         return paths;
     }
 
+    public bool HasDualSense()
+    {
+        foreach (var path in GetPaths())
+        {
+            // Metadata access also detects Bluetooth DualSense devices. Automatic
+            // mode must not send them a second feed through a virtual Xbox pad.
+            using var handle = Native.CreateFileW(path, 0, 3, 0, 3, 0, 0);
+            if (handle.IsInvalid) continue;
+            var attributes = new Native.HidAttributes { Size = (uint)Marshal.SizeOf<Native.HidAttributes>() };
+            if (Native.HidD_GetAttributes(handle.DangerousGetHandle(), ref attributes) &&
+                attributes.Vendor == 0x054c && attributes.Product is 0x0ce6 or 0x0df2) return true;
+        }
+        return false;
+    }
+
     public ILightingDevice? Open(string path)
     {
-        // Shared write access, asynchronous I/O. Never read or hide a controller.
+        // Shared output, asynchronous I/O. Read firmware metadata once; never consume inputs.
         var handle = Native.CreateFileW(path, 0x40000000, 3, 0, 3, 0x40000000, 0);
         if (handle.IsInvalid) { handle.Dispose(); return null; }
         try
         {
             if (!Native.TryGetDualSenseCaps(handle.DangerousGetHandle(), out var caps)) { handle.Dispose(); return null; }
-            return new HidDevice(new FileStream(handle, FileAccess.Write, 1, true), caps.OutputReportLength);
+            var length = DualSenseReport.ReportLength(caps.InputReportLength, caps.OutputReportLength);
+            var improved = length == DualSenseReport.BluetoothLength && Native.SupportsImprovedBluetoothRumble(handle.DangerousGetHandle());
+            return new HidDevice(new FileStream(handle, FileAccess.Write, 1, true), length, improved);
         }
         catch { handle.Dispose(); throw; }
     }
@@ -69,11 +87,13 @@ internal sealed class HidDevices : ILightingDevices
         private readonly nint handle;
         private int disposed;
         public int ReportLength { get; }
+        public bool ImprovedRumble { get; }
 
-        internal HidDevice(FileStream stream, int reportLength)
+        internal HidDevice(FileStream stream, int reportLength, bool improvedRumble)
         {
             this.stream = stream;
             ReportLength = reportLength;
+            ImprovedRumble = improvedRumble;
             handle = stream.SafeFileHandle.DangerousGetHandle();
             OwnedLightingHandles.Add(handle);
         }

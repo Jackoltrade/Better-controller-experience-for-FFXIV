@@ -1,0 +1,12 @@
+Mode: built-in image_gen
+
+Use case: precise-object-edit
+Asset type: square avatar/icon for the PS5 DualSense Controller for FFXIV plugin.
+Input image 1 is the edit target and visual base. It is a flat cartoon front-view white-and-charcoal DualSense controller on a bright blue rounded-square background.
+Primary request: create a polished avatar from this exact design, adding unmistakable rumble/vibration and RGB lighting effects.
+Preserve the recognizable controller silhouette, white outer grips, charcoal center, two symmetrical analog sticks, left D-pad, four plain round face buttons, large pale touchpad, thick crisp black outlines, simple cel shading, blue background, and small floating oval shadow. Keep the original illustrated style.
+Composition: one centered controller, slightly enlarge it and center it vertically for a balanced square avatar, with enough clear margin for all effects. Strong readability at small plugin icon sizes.
+Rumble: place two or three bold curved vibration/motion strokes immediately outside each grip, balanced on both sides. Keep the controller sharp and readable; communicate shaking through these marks.
+RGB lighting: add a vivid luminous rainbow lightbar tightly tracing the touchpad side and lower edges, with visible red, green, cyan, blue and magenta transitions. Add a restrained colored light spill on the adjacent white casing and a subtle RGB rim glow around the grips. Keep the white casing mostly white. Give the vibration strokes luminous cyan and magenta accents that coordinate with the RGB lighting and stand out against the blue.
+Background: retain the original blue field; keep it clean and uncluttered. Solid square image with fully blue corners.
+Constraints: one controller only; no text, no lettering, no watermark, no extra symbols or objects; no game characters; no photorealism; no excessive bloom or blur; all silhouette edges remain crisp. Deliver a square 1024 by 1024 PNG avatar.

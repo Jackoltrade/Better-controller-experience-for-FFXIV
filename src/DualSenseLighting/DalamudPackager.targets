@@ -1,0 +1,12 @@
+<Project>
+  <!-- Keep framework assemblies, symbols, runtime configs and local diagnostic
+       recordings out of the installer. Images use Packager's standard sidecar. -->
+  <Target Name="PackageControllerPlugin" AfterTargets="Build">
+    <DalamudPackager ProjectDir="$(ProjectDir)"
+                    OutputPath="$(OutputPath)"
+                    AssemblyName="$(AssemblyName)"
+                    ManifestType="json"
+                    MakeZip="$([System.String]::Equals('$(Configuration)', 'Release'))"
+                    Include="$(AssemblyName).dll;$(AssemblyName).json;LICENSE.txt;LICENSE-HidLibrary.txt;LICENSE-FFXIVClientStructs.txt;THIRD-PARTY-NOTICES.txt" />
+  </Target>
+</Project>

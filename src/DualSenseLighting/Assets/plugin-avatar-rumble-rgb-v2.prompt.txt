@@ -1,0 +1,14 @@
+Mode: built-in image_gen edit
+Edit target: plugin-avatar-rumble-rgb.png
+Final artwork: plugin-avatar-rumble-rgb-v2.png
+Dalamud export: icon.png (512 x 512, Lanczos downscale)
+
+Use case: precise-object-edit.
+Asset type: square Dalamud plugin icon.
+Edit target: the supplied existing controller illustration. Make a careful targeted edit, preserving its centered front-facing controller, silhouette, clean cartoon/vector-like painted style, blue background, black outlines, buttons, sticks, composition, scale, and shadow.
+
+Changes:
+1. Correct the DualSense RGB lightbar geometry to match the actual PS5 DualSense: only TWO thin, narrow illuminated seams immediately along the LEFT and RIGHT edges of the touchpad, gently following the side edges and their lower curves. The large touchpad surface remains opaque white/light gray. Remove the current continuous neon rectangle/ring around the touchpad: there must be NO illuminated horizontal strip across its top or bottom. Use a restrained colorful RGB glow at those two physical side seams, with a small soft halo and subtle reflected light on nearby plastic, not a broad neon outline. Outer controller handles are white plastic, not glowing LED strips; remove their bright neon edge outlining while preserving subtle colored reflections.
+2. Recolor the two vibration-wave arcs on the RIGHT to the same bright cyan/aqua-white light and halo as the existing arcs on the LEFT. Preserve the position, shape, size and number of arcs on both sides.
+
+Keep all other artwork unchanged. No text, logos, watermark, extra objects, transparent background, or redesign. Produce a crisp square icon that reads clearly at small sizes.

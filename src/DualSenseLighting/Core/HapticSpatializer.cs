@@ -71,14 +71,14 @@ public static class HapticSpatializer
 
     public static HapticSpatialFrame Evaluate(HapticSettings settings, HapticListenerPose? listener, Vector3 source, long now)
     {
-        if (!settings.Spatial || listener == null || !ValidPosition(source) ||
+        if ((!settings.Spatial && !settings.DistanceFalloff) || listener == null || !ValidPosition(source) ||
             now < listener.Timestamp || now - listener.Timestamp > Stopwatch.Frequency / 2) return default;
         var offset = source - listener.Origin;
         var directionLength = offset.Length();
         var distance = settings.DistanceOrigin == HapticDistanceOrigin.Camera
             ? Vector3.Distance(source, listener.CameraPosition) : directionLength;
         if (!float.IsFinite(distance)) return default;
-        var pan = DirectionalPan(offset, listener.CameraRight);
+        var pan = settings.Spatial ? DirectionalPan(offset, listener.CameraRight) : 0;
         var fade = 1f;
         if (settings.DistanceFalloff)
         {
@@ -91,7 +91,7 @@ public static class HapticSpatializer
     public static HapticSpatialFrame BiasTowardImpact(HapticSettings settings, HapticListenerPose listener,
         Vector3 source, HapticSpatialFrame original, Vector3 impact)
     {
-        if (!settings.FollowImpact || !original.Valid || !ValidPosition(impact)) return original;
+        if (!settings.Spatial || !settings.FollowImpact || !original.Valid || !ValidPosition(impact)) return original;
         var delta = source - listener.Origin;
         var radius = new Vector2(delta.X, delta.Z).Length();
         var blend = settings.ImpactBias * (1 - SmoothStep(radius / 0.75f));

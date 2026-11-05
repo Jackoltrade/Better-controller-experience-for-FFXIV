@@ -33,7 +33,19 @@ internal static class Program
         CheckSfxAudioLayout();
         CheckHaptics();
         HapticEnableCueChecks.Run(Assert);
+        ScreenEffectHapticChecks.Run(Assert);
+        RumbleChecks.Run(Assert);
+        RumblePulseChecks.Run(Assert);
+        await BluetoothChecks.Run(Assert);
+        BluetoothStereoChecks.Run(Assert);
         FootstepHapticChecks.Run(Assert);
+        EnemyHapticChecks.Run(Assert);
+        EnemyEncounterChecks.Run(Assert);
+        BossEncounterStateChecks.Run(Assert);
+        BossNpcSoundChecks.Run(Assert);
+        EnemySkillChecks.Run(Assert);
+        HapticConfigurationChecks.Run(Assert);
+        await UserConsentChecks.Run(Assert);
         CheckSpatialHaptics();
         CheckImpactBias();
         CheckNativeStereoMatrices();
@@ -42,6 +54,13 @@ internal static class Program
         UiTextChecks.Run(Assert);
         PluginInfoChecks.Run(Assert);
         PluginCommandChecks.Run(Assert);
+        TraceArchiveChecks.Run(Assert);
+        EnemyTargetingCueChecks.Run(Assert);
+        SfxNativeTraceChecks.Run(Assert);
+        var pluginArgument = Array.IndexOf(args, "--plugin");
+        var dalamudArgument = Array.IndexOf(args, "--dalamud");
+        if (pluginArgument >= 0 && dalamudArgument >= 0)
+            SfxTraceChecks.Run(Assert, args[pluginArgument + 1], args[dalamudArgument + 1]);
         CheckControllerPreview();
         await CheckOwnership();
         await CheckSolidRefresh();
@@ -561,7 +580,7 @@ internal static class Program
 
     private static unsafe void CheckHaptics()
     {
-        var enabled = new HapticSettings(true);
+        var enabled = new HapticSettings(true, DistanceFalloff: false);
         Assert(!new HapticSettings().Enabled && enabled.Strength == 0.25f, "Added haptics must be opt-in at a moderate strength");
         Assert((enabled with { Strength = float.NaN }).Normalize().Strength == 0.25f &&
             (enabled with { Strength = 2 }).Normalize().Strength == 1 &&
@@ -663,7 +682,7 @@ internal static class Program
             output.Configure(spatialSettings with { ImpactBias = 0.5f, DistanceOrigin = HapticDistanceOrigin.Camera }, true, true);
             output.Mix(previousOrigin, samples, 2048, 0);
             Assert(hapticMixCalls == 6, "Switching distance origin allowed an old in-flight block through");
-            var strict = enabled with { Spatial = true };
+            var strict = enabled with { Spatial = true, DistanceFalloff = true };
             output.Configure(strict, true, true);
             output.SetListener(new HapticListenerPose(Vector3.Zero, Vector3.UnitX, Stopwatch.GetTimestamp()));
             var cutoff = output.Prepare(&voice, true, 2, 0, new Vector3(25, 0, 0), 55);
@@ -1423,9 +1442,10 @@ internal static class Program
             using var device = devices.Open(path);
             if (device == null) continue;
             count++;
-            Console.WriteLine($"USB DualSense interface {count}: output report length {device.ReportLength}; shared handle opened and closed, zero reports written.");
+            Console.WriteLine($"{(device.ReportLength == 78 ? "Bluetooth" : "USB")} DualSense interface {count}: output report length {device.ReportLength}; shared handle opened and closed, zero reports written.");
         }
-        Console.WriteLine($"Read-only HID probe complete: {count} supported USB controller(s).");
+        Console.WriteLine($"Read-only HID probe complete: {count} supported controller(s).");
+        Console.WriteLine($"Physical DualSense detected for automatic output: {devices.HasDualSense()}.");
     }
 
     private sealed class FakeDevices(Func<bool> foreground) : ILightingDevices

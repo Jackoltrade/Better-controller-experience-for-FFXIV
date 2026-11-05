@@ -31,7 +31,7 @@ internal sealed class GameOutputGuard : IDisposable
     private delegate bool SetOutputDelegate(nint file, nint buffer, uint length);
 
     public GameOutputGuard(IGameInteropProvider interop, Func<LightingSettings> settings, Func<double> seconds, Func<float> sfxLevel,
-        Func<LimitBreakState> limitBreak)
+        Func<LimitBreakState> limitBreak, bool enabled = true)
     {
         this.settings = settings;
         this.seconds = seconds;
@@ -43,16 +43,38 @@ internal sealed class GameOutputGuard : IDisposable
         {
             output = interop.HookFromSymbol<SetOutputDelegate>("hid.dll", "HidD_SetOutputReport", SetOutput);
             setOutput = output;
-            writeFile.Enable();
-            setOutput.Enable();
+            SetEnabled(enabled);
         }
         catch { output?.Dispose(); writeFile.Dispose(); throw; }
+    }
+
+    public void SetEnabled(bool enabled)
+    {
+        try
+        {
+            if (enabled)
+            {
+                if (!writeFile.IsEnabled) writeFile.Enable();
+                if (!setOutput.IsEnabled) setOutput.Enable();
+            }
+            else
+            {
+                if (writeFile.IsEnabled) writeFile.Disable();
+                if (setOutput.IsEnabled) setOutput.Disable();
+            }
+        }
+        catch
+        {
+            if (writeFile.IsEnabled) writeFile.Disable();
+            if (setOutput.IsEnabled) setOutput.Disable();
+            throw;
+        }
     }
 
     private unsafe void Filter(nint file, nint buffer, uint length)
     {
         if (buffer == 0 || !DualSenseReport.IsSupportedLength((int)length)) return;
-        if (OwnedLightingHandles.Contains(file) || Marshal.ReadByte(buffer) != 2) return;
+        if (OwnedLightingHandles.Contains(file) || Marshal.ReadByte(buffer) is not (2 or 0x31)) return;
         // Revalidate handles rather than caching identities across a disconnect/handle reuse.
         if (!Native.TryGetDualSenseCaps(file, out _)) return;
         var snapshot = settings();
@@ -66,13 +88,13 @@ internal sealed class GameOutputGuard : IDisposable
     {
         // Patch the caller's buffer in place: an overlapped write must retain its original lifetime.
         try { Filter(file, buffer, length); } catch { Interlocked.Increment(ref errors); }
-        return writeFile.Original(file, buffer, length, bytesWritten, overlapped);
+        return writeFile.OriginalDisposeSafe(file, buffer, length, bytesWritten, overlapped);
     }
 
     private bool SetOutput(nint file, nint buffer, uint length)
     {
         try { Filter(file, buffer, length); } catch { Interlocked.Increment(ref errors); }
-        return setOutput.Original(file, buffer, length);
+        return setOutput.OriginalDisposeSafe(file, buffer, length);
     }
 
     public void Dispose()

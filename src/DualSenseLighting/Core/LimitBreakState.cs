@@ -39,4 +39,5 @@ public struct LimitBreakActionHeader
     [FieldOffset(0x08)] public uint ActionId;
     [FieldOffset(0x0C)] public uint GlobalSequence;
     [FieldOffset(0x1F)] public byte ActionType;
+    [FieldOffset(0x21)] public byte NumTargets;
 }

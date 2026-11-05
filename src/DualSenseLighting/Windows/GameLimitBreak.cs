@@ -17,7 +17,7 @@ namespace DualSenseLighting.Windows;
 internal sealed unsafe class GameLimitBreak : IDisposable
 {
     private const string GaugeSignature = "44 8B C7 48 8D 0D ?? ?? ?? ?? 48 8B D3";
-    private const string EffectSignature = "E8 ?? ?? ?? ?? 48 8B 8D ?? ?? ?? ?? 48 33 CC E8 ?? ?? ?? ?? 48 81 C4 00 05 00 00";
+    private const string EffectSignature = GameAudioLayout.ActionEffectSignature;
     private readonly nint gauge;
     private readonly LimitBreakTracker tracker;
     private readonly Func<double> seconds;
@@ -54,9 +54,9 @@ internal sealed unsafe class GameLimitBreak : IDisposable
         try
         {
             var function = Relative(EffectSignature, 1, 5, 0x90);
-            var body = new ReadOnlySpan<byte>((void*)function, 0x90);
-            if (!body.StartsWith(new byte[] { 0x40, 0x55, 0x53, 0x56, 0x57, 0x41, 0x54 }) ||
-                body.IndexOf(new byte[] { 0x41, 0x0f, 0xb7, 0x49, 0x1c }) < 0)
+            var original = GameAudioLayout.InspectionAddress(function, scanner.Module.BaseAddress,
+                scanner.SearchBase, scanner.Module.ModuleMemorySize, 0x90);
+            if (original == 0 || !GameAudioLayout.ActionEffectLayout(new ReadOnlySpan<byte>((void*)original, 0x90)))
                 throw new NotSupportedException("Instant Limit Break observation is unsupported on this game build.");
             hook = interop.HookFromAddress<ReceiveDelegate>(function, Receive);
             receive = hook;
@@ -89,7 +89,7 @@ internal sealed unsafe class GameLimitBreak : IDisposable
                 tracker.ObserveExecution(casterEntityId, header->ActionId, header->ActionType, header->GlobalSequence, seconds());
         }
         catch { Interlocked.Increment(ref errors); }
-        receive!.Original(casterEntityId, caster, targetPosition, header, effects, targetIds);
+        receive!.OriginalDisposeSafe(casterEntityId, caster, targetPosition, header, effects, targetIds);
     }
 
     public void Dispose()

@@ -7,12 +7,15 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../src/DualSenseLighting/Configuration.cs" Link="Configuration.cs" />
     <EmbeddedResource Include="../src/DualSenseLighting/Assets/dualsense-preview.svg" LogicalName="DualSenseLighting.Assets.dualsense-preview.svg" />
     <EmbeddedResource Include="../src/DualSenseLighting/Assets/dualsense-preview.png" LogicalName="DualSenseLighting.Assets.dualsense-preview.png" />
     <EmbeddedResource Include="../src/DualSenseLighting/Assets/dualsense-preview-lightbar.png" LogicalName="DualSenseLighting.Assets.dualsense-preview-lightbar.png" />
     <Compile Include="../src/DualSenseLighting/Core/*.cs" Link="Core/%(Filename)%(Extension)" />
     <Compile Include="../src/DualSenseLighting/Ui/UiText*.cs" Link="Ui/%(Filename)%(Extension)" />
     <Compile Include="../src/DualSenseLighting/Windows/Native.cs" Link="Windows/Native.cs" />
+    <Compile Include="../src/DualSenseLighting/Windows/EnemySoundCueFilter.cs" Link="Windows/EnemySoundCueFilter.cs" />
+    <Compile Include="../src/DualSenseLighting/Windows/SfxNativeTrace.cs" Link="Windows/SfxNativeTrace.cs" />
     <Compile Include="../src/DualSenseLighting/Windows/HidDevices.cs" Link="Windows/HidDevices.cs" />
     <Compile Include="../src/DualSenseLighting/Windows/NativeHapticOutput.cs" Link="Windows/NativeHapticOutput.cs" />
   </ItemGroup>

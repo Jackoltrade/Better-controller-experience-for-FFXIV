@@ -28,6 +28,24 @@ Changes made in this project, 2026-11-02:
 - Add foreground-only effects and a background lighting-validity guard.
 - Add normalized settings, Dalamud configuration and regression checks.
 
+Bluetooth output extension, 2026-11-04:
+- Extend the common DualSense lighting fields to standard 78-byte report 0x31.
+- Retain the legacy DS4Windows Bluetooth header when guarding an existing report.
+- Add compatible rumble fields with the existing DS4Windows validity-bit meanings.
+- Use a per-device four-bit sequence and IEEE CRC-32 seeded with transaction byte 0xA2.
+The standard Bluetooth header/common-block layout is also documented in Sony's
+Linux hid-playstation driver (protocol reference):
+https://github.com/torvalds/linux/blob/master/drivers/hid/hid-playstation.c
+Bluetooth codec, sequencing and the shared output owner are implemented locally;
+this adds no controller driver, remapping service or bundled upstream executable.
+
+Bluetooth compatible rumble v2, 2026-11-04:
+Firmware capability metadata, feature CRC seed 0xA3 and the feature-version 2.21
+threshold follow the hid-playstation protocol reference above. The two-phase
+strength test, bounded impact pulse renderer and stereo rumble handoff reuse
+original plugin components. The physical protocol reference distinguishes
+compatible motor rumble from full audio haptics.
+
 The earlier local Steam Lighting Guard prototype was reused for the narrow
 Dalamud WriteFile/HidD_SetOutputReport interception approach. It is not shipped
 as a separate dependency and must be disabled before loading this replacement.
@@ -38,6 +56,15 @@ Upstream: https://github.com/aers/FFXIVClientStructs
 Revision: b69073ae2d789527fc1b9a78aa7aa590e0f299dc
 License: MIT; see LICENSE-FFXIVClientStructs.txt.
 Copyright (c) 2021-2023 aers.
+
+Windows/GameScreenEffects.cs also adapts the PostEffectManager and Scene/CameraManager
+singleton signatures from this revision. Screen parameter fields, authored blur
+modes and camera offset composition were independently verified against the local
+2026.10.06 executable. Windows/NativeHapticOutput.cs uses the CoreSubmixVoice layout
+and locally verified input-buffer fields for lowest-priority screen feedback.
+The authored-effect inventory references VFXEditor for format names only; no
+VFXEditor code or parser is bundled. Sources and limitations are recorded in
+docs/SCREEN-EFFECT-HAPTICS.md.
 
 src/DualSenseLighting/Core/GameAudioLayout.cs adapts minimal read-only fields from:
 FFXIVClientStructs/SQEX/Sd/Driver/Core/CoreSourceVoice.cs
@@ -51,7 +78,11 @@ FFXIVClientStructs/FFXIV/Client/Game/Object/GameObject.cs
 FFXIVClientStructs/FFXIV/Client/Game/Character/ContainerInterface.cs
 FFXIVClientStructs/FFXIV/Client/Game/Character/VfxContainer.cs
 FFXIVClientStructs/FFXIV/Client/Graphics/Scene/Object.cs
+FFXIVClientStructs/FFXIV/Client/Graphics/Scene/VfxObject.cs
 FFXIVClientStructs/FFXIV/Client/System/Scheduler/Base/SchedulerTimeline.cs
+FFXIVClientStructs/FFXIV/Client/System/Scheduler/Clip/BaseClip.cs
+FFXIVClientStructs/FFXIV/Client/Game/Network/SpawnPackets.cs
+FFXIVClientStructs/FFXIV/Client/Network/PacketDispatcher.cs
 
 src/DualSenseLighting/Windows/SfxAudioCapture.cs adapts the source-render and
 CoreSystem global signatures from that revision. The callback-vtable signature
@@ -73,6 +104,18 @@ owning-object-index field at +0x18C. The sound-clip update signature was researc
 in Penumbra.GameData; the clip-to-timeline resolver and its call ordering were
 verified independently in the local executable. Existing native calls and their
 return values are preserved; the plugin does not walk mutable scheduler lists.
+Delayed C012 effect ownership reuses that timeline observer and Scene.VfxObject's
+ResourceInstance field at +0x2A0. The clip/container/scene-handler link, concrete
+scene getter, listener at +0x90 and constructor signature were verified in the
+installed executable and trace metadata. A separate read-only constructor observer
+invalidates reused effect addresses; a bounded cache matches the exact listener,
+resource instance and immutable caster identity. No VFX creation, asset or playback
+parameters are changed, and no VFXEditor implementation is bundled.
+NpcSpawnMetadata adapts the NPC packet's minimal relationship and status-source
+fields. NpcSpawnObserver uses PacketDispatcher.HandleSpawnNpcPacket's signature,
+verified as a unique 0x290-byte queueing handler in the installed executable. It
+is enabled only during an explicit diagnostic trace, preserves the original call
+and arguments, and does not interpret tethers, events or link families as owners.
 The source observer reads audio for RGB loudness and optional character combat
 haptics. Original samples, source sends and native playback are not changed.
 
@@ -131,3 +174,37 @@ Native VFX callback research reference (no Penumbra source code is bundled):
 https://github.com/xivdev/Penumbra/blob/9bb793149b9f02408509c5980fcf34428f2602d3/Penumbra/Interop/Hooks/Animation/ApricotListenerSoundPlay.cs
 This documents the caster virtual function and optional draw-object pointer.
 The plugin implements a separate read-only, sound-reservation ownership observer.
+
+LuminaSupplemental boss data
+===========================
+Upstream: https://github.com/Critical-Impact/LuminaSupplemental
+Revision: bd265c2b39868387937ae5b0c038593af997e0f9
+License: GNU General Public License version 3 (GPL-3.0); see LICENSE.txt.
+Copyright remains with Critical-Impact and the upstream contributors.
+
+data/enemy-bosses.csv is the unchanged upstream file:
+src/LuminaSupplemental.Excel/Generated/DungeonBoss.csv
+Core/EnemyBossCatalog.cs derives a sorted duty/BNpcName lookup from that data.
+See data/README.md for generation and coverage limitations.
+
+Enemy skill attribution additionally uses the FFXIVClientStructs action-effect
+header and SchedulerTimeline owner/key layouts. Read-only hook validation uses
+Dalamud's documented ISigScanner.SearchBase original-module mapping. Original
+playback and action processing retain their arguments and return behavior.
+
+Sound-track format research references (no editor or parser code is bundled):
+https://github.com/0ceal0t/Dalamud-VFXEditor/blob/ed6b39dcca04225c15c404a35a46945119462015/VFXEditor/Formats/TmbFormat/Entries/C063.cs
+https://github.com/0ceal0t/Dalamud-VFXEditor/blob/ed6b39dcca04225c15c404a35a46945119462015/VFXEditor/Formats/TmbFormat/Base/Enums.cs
+https://github.com/0ceal0t/Dalamud-VFXEditor/blob/ed6b39dcca04225c15c404a35a46945119462015/VFXEditor/Formats/TmbFormat/Actor/Tmac.cs
+https://github.com/Ottermandias/Penumbra.GameData/blob/e93093ffa12e07f29f95b03018e089e4557cc825/Files/TmbFile.cs
+The C063 sound entry size/header, native SoundClip type/data field, scheduler
+actor constructor, vtable and binding-selector field were independently checked
+against local game files and executable code. The observer reuses the existing
+clip-to-timeline call and does not parse or load timeline files on audio callbacks.
+Default/target tracks in confirmed skill execution timelines can route as boss
+effects. The native C063 position resolver independently verifies its data+0x14
+positional/bind flags and data+0x15 bind index. Duration-one positional caster
+origin entries can also qualify when the same actor/timeline metadata has an
+unambiguous recognized AttackType (installed rows 1..8). Bone-bound execution,
+cast-start, voice, unknown and basic-attack tracks retain their prior exclusions.
+No sound filename or NPC/skill allowlist is used for this extension.

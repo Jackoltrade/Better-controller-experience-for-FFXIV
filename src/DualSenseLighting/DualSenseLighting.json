@@ -1,11 +1,12 @@
 {
   "Author": "Jackoltrade",
-  "Name": "PS5 DualSense Controller for FFXIV",
+  "Name": "Better controller experience for FFXIV",
   "InternalName": "DualSenseLighting",
-  "AssemblyVersion": "0.13.3.0",
+  "AssemblyVersion": "0.18.0.0",
   "RepoUrl": "https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-",
-  "Description": "Custom USB DualSense lighting, character combat haptics and an optional native footstep vibration amplifier. Limit Break bottom LEDs show ready bars, partial PvP charge and your LB cast/use. Spatial combat direction is character-centered and camera-aligned. Native footsteps can be boosted independently while unmounted; mount, speaker and trigger effects are preserved. Added feedback pauses and custom lights turn off when FFXIV loses focus.",
-  "Punchline": "Custom DualSense lighting and character combat haptics.",
+  "IconUrl": "https://raw.githubusercontent.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-/main/src/DualSenseLighting/Assets/icon.png",
+  "Description": "Customize DualSense lighting and feel skills, enemy effects and screen shake through vibration. Supports detailed USB DualSense haptics and regular rumble on Bluetooth DualSense or Xbox-compatible XInput controllers. Added effects pause when FFXIV is in the background.",
+  "Punchline": "DualSense lighting and haptics, plus regular controller rumble.",
   "ApplicableVersion": "any",
   "DalamudApiLevel": 15,
   "LoadRequiredState": 0,
@@ -15,6 +16,10 @@
     "controller",
     "dualsense",
     "lighting",
-    "haptics"
-  ]
+    "haptics",
+    "xinput",
+    "rumble"
+  ],
+  "DescriptionLoc": "自定义 DualSense 灯光，让自己的技能、Boss 招式和镜头震动更有手感。USB 连接支持触觉反馈，蓝牙 DualSense 和 Xbox 等 XInput 手柄也能用普通振动。切出游戏时会暂停插件效果。",
+  "PunchlineLoc": "让手柄体验更爽：DualSense 灯光、触觉反馈，也支持普通手柄。"
 }

@@ -1,0 +1,21 @@
+Mode: built-in image_gen edits
+Inputs: project-root ffxiv.png; plugin-avatar-rumble-rgb-v2.png
+Outputs: ffxiv-logo-transparent.png; plugin-avatar-rumble-rgb-v3.png
+Plugin export: icon.png, 512 x 512 Lanczos downscale
+
+Stage 1: transparent recolored logo
+Use case: background-extraction.
+Asset type: reusable transparent logo cutout for a plugin thumbnail.
+Edit target: the supplied ffxiv.png, containing a red Final Fantasy XIV meteor emblem on a very dark rounded-square background.
+
+Remove the entire dark rounded-square background to genuine transparent alpha. Also make the large dark circular hole inside the meteor, and every other dark negative-space area, genuinely transparent. Preserve the exact meteor silhouette, cutouts, proportions, orientation, and the small detached fragment on the right. Keep clean antialiased edges. Recolor only the red emblem to a soft, solid silver-blue / pale icy blue (#AED7EE) to complement a vivid blue controller thumbnail. No glow, shadows, outlines, backing plate, checkerboard, lettering, added graphics or redesign. Retain a square canvas and the original framing. Output a genuinely transparent-background PNG.
+
+Stage 2: thumbnail composition
+Use case: compositing.
+Asset type: square Dalamud plugin thumbnail.
+Image 1 is the EDIT TARGET: the existing white DualSense controller illustration on a rich blue background, with two RGB seams beside the touchpad and matching cyan vibration arcs.
+Image 2 is the SUPPORTING INSERT: a silver-blue Final Fantasy XIV meteor logo with a transparent background.
+
+Add the meteor logo from image 2 as a large, secondary background emblem BEHIND the controller in image 1. Keep its recognizable exact silhouette and its transparent central hole, not a colored rectangle or badge. Center the emblem behind the controller, slightly high, so its meteor crown and upper-right tail are clearly visible above the controller shoulders, with some outer rim visible around it. Keep the entire logo inside the square canvas with comfortable margins. Use a tasteful silver/icy-blue tint, softly subdued against the blue backdrop, about 55–65% visual opacity; crisp clean emblem edges, no speckling, noise or white backing. The original blue background shows through all negative space in the emblem.
+
+The controller, buttons, thumbsticks, black outlines, position and size must remain exactly as in image 1. The controller is fully in FRONT of and occludes the logo. Keep the two narrow RGB touchpad-side strips, opaque white touchpad, and the identical bright cyan/aqua-white vibration waves on both sides unchanged; the waves also stay in front of the logo. Keep the original drop shadow and illustration style. Do not add a light strip along the top/bottom of the touchpad or handles. No text, new logos, slogans, watermark or other objects. Preserve the original blue background and square framing. The controller must stay the primary focal point at small thumbnail sizes.

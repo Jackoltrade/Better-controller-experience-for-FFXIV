@@ -1,17 +1,16 @@
 [CmdletBinding()]
 param(
     [string]$DalamudLibPath,
-    [string]$CompilerPath,
-    [switch]$PrepareOffline,
-    [switch]$Probe
+    [switch]$Probe,
+    [string]$DotnetPath,
+    [switch]$LockedRestore
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $pluginOutput = Join-Path $projectRoot 'artifacts\build\plugin'
 $publishOutput = Join-Path $projectRoot 'artifacts\plugin'
 $checksOutput = Join-Path $projectRoot 'artifacts\checks'
-$toolOutput = Join-Path $projectRoot 'artifacts\tools'
-foreach ($directory in @($pluginOutput, $checksOutput, $toolOutput)) {
+foreach ($directory in @($pluginOutput, $checksOutput)) {
     New-Item -ItemType Directory -Force -Path $directory | Out-Null
 }
 
@@ -31,83 +30,68 @@ if (-not $DalamudLibPath -or -not (Test-Path (Join-Path $DalamudLibPath 'Dalamud
 }
 
 $dotnetCommand = Get-Command dotnet -ErrorAction SilentlyContinue
-$dotnet = if ($dotnetCommand) { $dotnetCommand.Source } else { Join-Path $env:ProgramFiles 'dotnet\dotnet.exe' }
-if (-not (Test-Path $dotnet)) { throw '.NET 10 runtime or SDK is required.' }
-$sdks = @()
-if (-not $PrepareOffline) {
-    $global:LASTEXITCODE = 0
-    $sdks = @(& $dotnet --list-sdks)
-    if ($LASTEXITCODE -ne 0) { throw 'Could not inspect .NET SDKs.' }
-}
-if ($sdks | Where-Object { $_ -match '^10\.' }) {
-    & $dotnet build (Join-Path $projectRoot 'src\DualSenseLighting\PS5DualSenseControllerForFFXIV.csproj') -c Release "-p:DalamudLibPath=$DalamudLibPath" -o $pluginOutput
-    if ($LASTEXITCODE -ne 0) { throw 'Plugin build failed.' }
-    & $dotnet build (Join-Path $projectRoot 'tests\LightingChecks.csproj') -c Release -o $checksOutput
-    if ($LASTEXITCODE -ne 0) { throw 'Checks build failed.' }
-} else {
-    # Offline fallback for this machine: use Roslyn already installed by another plugin.
-    # No compiler or controller dependencies are bundled with the resulting plugin.
-    if (-not $CompilerPath) {
-        foreach ($launcher in @('XIVLauncherCN', 'XIVLauncher')) {
-            $installed = Join-Path $env:APPDATA "$launcher\installedPlugins"
-            if (-not (Test-Path $installed)) { continue }
-            $compiler = Get-ChildItem $installed -Filter Microsoft.CodeAnalysis.CSharp.dll -Recurse |
-                Sort-Object LastWriteTime -Descending | Select-Object -First 1
-            if ($compiler) { $CompilerPath = $compiler.DirectoryName; break }
-        }
+$dotnet = if ($DotnetPath) { $DotnetPath } elseif ($dotnetCommand) { $dotnetCommand.Source } else { Join-Path $env:ProgramFiles 'dotnet\dotnet.exe' }
+if (-not (Test-Path -LiteralPath $dotnet)) { throw '.NET 10 SDK is required.' }
+Write-Output "Using .NET host: $dotnet"
+
+function Invoke-Dotnet {
+    param([Parameter(Mandatory)][AllowEmptyString()][string[]]$Arguments)
+    # Use the process's own exit status. A native launch can leave PowerShell's
+    # LASTEXITCODE unchanged; accepting that stale value can publish an old DLL.
+    $start = New-Object Diagnostics.ProcessStartInfo
+    $start.FileName = $dotnet
+    $start.UseShellExecute = $false
+    $start.RedirectStandardOutput = $true
+    $start.RedirectStandardError = $true
+    if ($start.PSObject.Properties['ArgumentList']) {
+        foreach ($argument in $Arguments) { $start.ArgumentList.Add($argument) }
+    } else {
+        # Windows PowerShell 5 runs on .NET Framework, without ArgumentList.
+        $start.Arguments = ($Arguments | ForEach-Object {
+            $escaped = [regex]::Replace($_, '(\\*)"', '$1$1\"')
+            '"' + [regex]::Replace($escaped, '(\\+)$', '$1$1') + '"'
+        }) -join ' '
     }
-    if (-not $CompilerPath) { throw 'Install .NET 10 SDK, or pass -CompilerPath with Microsoft.CodeAnalysis.CSharp.dll and Microsoft.CodeAnalysis.dll.' }
-    $bootstrap = Join-Path $toolOutput 'OfflineBuild.exe'
-    if (Test-Path $bootstrap) { Remove-Item -LiteralPath $bootstrap }
-    Add-Type -Path (Join-Path $PSScriptRoot 'OfflineBuild.cs') -OutputAssembly $bootstrap -OutputType ConsoleApplication
-    $runtimeConfig = '{"runtimeOptions":{"tfm":"net10.0","framework":{"name":"Microsoft.NETCore.App","version":"10.0.0"}}}'
-    [IO.File]::WriteAllText((Join-Path $toolOutput 'OfflineBuild.runtimeconfig.json'), $runtimeConfig)
-    [IO.File]::WriteAllText((Join-Path $checksOutput 'LightingChecks.runtimeconfig.json'), $runtimeConfig)
-    [IO.File]::WriteAllText((Join-Path $toolOutput 'VerifyAssembly.runtimeconfig.json'), $runtimeConfig)
-    $pluginSources = @(Get-ChildItem (Join-Path $projectRoot 'src\DualSenseLighting') -Filter *.cs -Recurse |
-        Where-Object { $_.FullName -notmatch '[\\/](obj|bin)[\\/]' } | ForEach-Object FullName)
-    $checkSources = @(Get-ChildItem (Join-Path $projectRoot 'src\DualSenseLighting\Core') -Filter *.cs | ForEach-Object FullName)
-    $checkSources += @(Get-ChildItem (Join-Path $projectRoot 'src\DualSenseLighting\Ui') -Filter UiText*.cs | ForEach-Object FullName)
-    $checkSources += Join-Path $projectRoot 'src\DualSenseLighting\Windows\Native.cs'
-    $checkSources += Join-Path $projectRoot 'src\DualSenseLighting\Windows\HidDevices.cs'
-    $checkSources += Join-Path $projectRoot 'src\DualSenseLighting\Windows\NativeHapticOutput.cs'
-    $checkSources += @(Get-ChildItem (Join-Path $projectRoot 'tests') -Filter *.cs | ForEach-Object FullName)
-    if ($PrepareOffline) {
-        $plan = [ordered]@{
-            Dotnet = $dotnet; Bootstrap = $bootstrap; Dalamud = $DalamudLibPath; Compiler = $CompilerPath
-            Plugin = (Join-Path $pluginOutput 'DualSenseLighting.dll'); Checks = (Join-Path $checksOutput 'LightingChecks.dll')
-            Verifier = (Join-Path $toolOutput 'VerifyAssembly.dll')
-            VerifierSources = @((Join-Path $projectRoot 'tools\VerifyAssembly\Program.cs'))
-            PluginSources = $pluginSources; CheckSources = $checkSources
-        }
-        [IO.File]::WriteAllText((Join-Path $projectRoot 'artifacts\build-plan.json'), ($plan | ConvertTo-Json -Depth 4))
-        Write-Output 'Offline build prepared: artifacts\build-plan.json'
-        return
-    }
-    & $dotnet $bootstrap (Join-Path $pluginOutput 'DualSenseLighting.dll') library $DalamudLibPath $CompilerPath @pluginSources
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path (Join-Path $pluginOutput 'DualSenseLighting.dll'))) { throw 'Plugin build failed.' }
-    & $dotnet $bootstrap (Join-Path $checksOutput 'LightingChecks.dll') console $DalamudLibPath $CompilerPath @checkSources
-    if ($LASTEXITCODE -ne 0) { throw 'Checks build failed.' }
-    & $dotnet $bootstrap (Join-Path $toolOutput 'VerifyAssembly.dll') console $DalamudLibPath $CompilerPath (Join-Path $projectRoot 'tools\VerifyAssembly\Program.cs')
-    if ($LASTEXITCODE -ne 0) { throw 'Metadata verifier build failed.' }
+    $process = [Diagnostics.Process]::Start($start)
+    try {
+        # Drain both pipes concurrently, including when a compiler writes a lot.
+        $standardOutput = $process.StandardOutput.ReadToEndAsync()
+        $standardError = $process.StandardError.ReadToEndAsync()
+        $process.WaitForExit()
+        $nativeOutput = $standardOutput.GetAwaiter().GetResult()
+        $nativeError = $standardError.GetAwaiter().GetResult()
+        if ($nativeOutput) { $nativeOutput.TrimEnd("`r", "`n") -split "`r?`n" }
+        if ($nativeError) { [Console]::Error.Write($nativeError) }
+        if ($process.ExitCode -ne 0) { throw ".NET command failed (exit $($process.ExitCode)): $($Arguments[0])" }
+    } finally { $process.Dispose() }
 }
 
-& $dotnet (Join-Path $checksOutput 'LightingChecks.dll')
-if ($LASTEXITCODE -ne 0) { throw 'Lighting checks failed.' }
-if ($sdks | Where-Object { $_ -match '^10\.' }) {
-    & $dotnet run --project (Join-Path $projectRoot 'tools\VerifyAssembly\VerifyAssembly.csproj') -c Release -- (Join-Path $pluginOutput 'DualSenseLighting.dll') (Join-Path $projectRoot 'src\DualSenseLighting\DualSenseLighting.json') $DalamudLibPath
-} else {
-    & $dotnet (Join-Path $toolOutput 'VerifyAssembly.dll') (Join-Path $pluginOutput 'DualSenseLighting.dll') (Join-Path $projectRoot 'src\DualSenseLighting\DualSenseLighting.json') $DalamudLibPath
+$sdks = @(Invoke-Dotnet -Arguments @('--list-sdks'))
+if (-not ($sdks | Where-Object { $_ -match '^10\.' })) {
+    throw '.NET 10 SDK is required. Install it or pass -DotnetPath pointing to its dotnet.exe.'
 }
-if ($LASTEXITCODE -ne 0) { throw 'Plugin metadata verification failed.' }
+$project = Join-Path $projectRoot 'src\DualSenseLighting\BetterControllerExperienceForFFXIV.csproj'
+$restoreArguments = @('restore', $project, "-p:DalamudLibPath=$DalamudLibPath")
+if ($LockedRestore) { $restoreArguments += '--locked-mode' }
+Invoke-Dotnet -Arguments $restoreArguments
+Invoke-Dotnet -Arguments @('build', $project, '-c', 'Release', '--no-restore', "-p:DalamudLibPath=$DalamudLibPath", '-o', $pluginOutput)
+Invoke-Dotnet -Arguments @('build', (Join-Path $projectRoot 'tests\LightingChecks.csproj'), '-c', 'Release', '-o', $checksOutput)
+
+Invoke-Dotnet -Arguments @((Join-Path $checksOutput 'LightingChecks.dll'), '--plugin', (Join-Path $pluginOutput 'DualSenseLighting.dll'), '--dalamud', $DalamudLibPath)
+Invoke-Dotnet -Arguments @('run', '--project', (Join-Path $projectRoot 'tools\VerifyAssembly\VerifyAssembly.csproj'), '-c', 'Release', '--', (Join-Path $pluginOutput 'DualSenseLighting.dll'), (Join-Path $projectRoot 'src\DualSenseLighting\DualSenseLighting.json'), $DalamudLibPath)
 if ($Probe) {
-    & $dotnet (Join-Path $checksOutput 'LightingChecks.dll') --probe
-    if ($LASTEXITCODE -ne 0) { throw 'Read-only HID probe failed.' }
+    Invoke-Dotnet -Arguments @((Join-Path $checksOutput 'LightingChecks.dll'), '--probe')
 }
-Copy-Item (Join-Path $projectRoot 'src\DualSenseLighting\DualSenseLighting.json') $pluginOutput -Force
-foreach ($file in @('LICENSE.txt', 'LICENSE-HidLibrary.txt', 'LICENSE-FFXIVClientStructs.txt', 'THIRD-PARTY-NOTICES.txt')) {
-    Copy-Item (Join-Path $projectRoot $file) $pluginOutput -Force
-}
+# Stage the exact standard Packager result only after all checks pass. Never
+# overwrite its generated manifest with the source/localized metadata.
+$standard = Join-Path $pluginOutput 'DualSenseLighting'
+if (-not (Test-Path (Join-Path $standard 'latest.zip'))) { throw 'DalamudPackager did not produce a Release package.' }
 New-Item -ItemType Directory -Force -Path $publishOutput | Out-Null
-Copy-Item (Join-Path $pluginOutput '*') $publishOutput -Force
+foreach ($file in @('DualSenseLighting.dll', 'DualSenseLighting.json', 'build-verification.json', 'LICENSE.txt', 'LICENSE-HidLibrary.txt', 'LICENSE-FFXIVClientStructs.txt', 'THIRD-PARTY-NOTICES.txt')) {
+    Copy-Item (Join-Path $pluginOutput $file) $publishOutput -Force
+}
+Copy-Item $standard $publishOutput -Recurse -Force
+$imageOutput = Join-Path $publishOutput 'images'
+New-Item -ItemType Directory -Force -Path $imageOutput | Out-Null
+Copy-Item (Join-Path $pluginOutput 'images\icon.png') (Join-Path $imageOutput 'icon.png') -Force
 Write-Output "Plugin ready: $(Join-Path $publishOutput 'DualSenseLighting.dll')"

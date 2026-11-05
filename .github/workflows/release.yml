@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing version tag, for example v0.13.3
+        description: Existing version tag, for example v0.18.0
         required: true
         type: string
       dalamud_url:
@@ -23,7 +23,7 @@ jobs:
   build:
     uses: ./.github/workflows/build.yml
     with:
-      ref: ${{ inputs.tag }}
+      ref: refs/tags/${{ inputs.tag }}
       tag: ${{ inputs.tag }}
       dalamud_url: ${{ inputs.dalamud_url }}
   publish:
@@ -32,6 +32,19 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Check out the executing workflow and regression fixtures
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Verify release recovery without network access
+        env:
+          GH_TOKEN: ''
+          GITHUB_TOKEN: ''
+        run: python -m unittest discover -s tests -p "test_release_workflow.py" -v
       - uses: actions/download-artifact@v8
         with:
           name: public-test-package
@@ -43,9 +56,35 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          gh release create "$RELEASE_TAG" release/latest.zip release/SHA256SUMS.txt release/release-summary.json --verify-tag --prerelease --title "PS5 DualSense Controller for FFXIV $RELEASE_TAG" --notes "Opt-in public test build. See the README for compatibility, installation and known limitations."
+          if release_state=$(gh release view "$RELEASE_TAG" --json isPrerelease,isDraft --jq '[.isPrerelease, .isDraft] | @tsv' 2>/dev/null); then
+            case "$release_state" in
+              $'true\ttrue') is_draft=true ;;
+              $'true\tfalse') is_draft=false ;;
+              *) echo 'Existing version release must be a prerelease.' >&2; exit 1 ;;
+            esac
+            existing_assets=$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')
+            compare_dir=$(mktemp -d)
+            trap 'rm -rf -- "$compare_dir"' EXIT
+            missing=()
+            for asset in release/latest.zip release/latest-ja.zip release/SHA256SUMS.txt release/release-summary.json; do
+              asset_name=${asset##*/}
+              if grep -Fxq "$asset_name" <<< "$existing_assets"; then
+                gh release download "$RELEASE_TAG" --pattern "$asset_name" --dir "$compare_dir"
+                if ! cmp -s "$asset" "$compare_dir/$asset_name"; then
+                  echo "Existing $asset_name differs; use the original build artifact or a new version tag." >&2
+                  exit 1
+                fi
+              else
+                missing+=("$asset")
+              fi
+            done
+            if ((${#missing[@]})); then gh release upload "$RELEASE_TAG" "${missing[@]}"; fi
+            if [ "$is_draft" = true ]; then gh release edit "$RELEASE_TAG" --draft=false --prerelease; fi
+          else
+            gh release create "$RELEASE_TAG" release/latest.zip release/latest-ja.zip release/SHA256SUMS.txt release/release-summary.json --verify-tag --prerelease --title "Better controller experience for FFXIV $RELEASE_TAG" --notes "Opt-in public test build. See the README for compatibility, installation and known limitations."
+          fi
           if ! gh release view plugin-repository >/dev/null 2>&1; then
-            target_sha=$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)
+            target_sha=$(gh api "repos/$GH_REPO/commits/refs/tags/$RELEASE_TAG" --jq .sha)
             gh release create plugin-repository --target "$target_sha" --prerelease --title "Testing plugin repository" --notes "Installer metadata for opt-in public test builds."
           fi
-          gh release upload plugin-repository release/pluginmaster.json --clobber
+          gh release upload plugin-repository release/pluginmaster.json release/pluginmaster-ja.json --clobber

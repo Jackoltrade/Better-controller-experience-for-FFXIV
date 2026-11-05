@@ -5,7 +5,7 @@ using System;
 namespace DualSenseLighting.Core;
 
 public enum PluginCommandKind { Invalid, Open, Help, Info, Trace, Switch }
-public enum ControllerFeature { Lighting, CombatHaptics, Footsteps, SpatialHaptics, DistanceFade, FollowImpact }
+public enum ControllerFeature { Lighting, CombatHaptics, Footsteps, SpatialHaptics, DistanceFade, FollowImpact, PlayerSfx, Haptics }
 public enum FeatureSwitch { On, Off, Toggle }
 
 public readonly record struct PluginCommand(PluginCommandKind Kind, ControllerFeature Feature = default, FeatureSwitch Switch = default)
@@ -26,7 +26,9 @@ public readonly record struct PluginCommand(PluginCommandKind Kind, ControllerFe
         ControllerFeature? feature = words[0].ToLowerInvariant() switch
         {
             "lighting" => ControllerFeature.Lighting,
+            "haptics" => ControllerFeature.Haptics,
             "combathaptics" => ControllerFeature.CombatHaptics,
+            "playersfx" => ControllerFeature.PlayerSfx,
             "footsteps" => ControllerFeature.Footsteps,
             "spatialhaptics" => ControllerFeature.SpatialHaptics,
             "distancefade" => ControllerFeature.DistanceFade,

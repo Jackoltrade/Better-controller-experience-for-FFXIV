@@ -39,7 +39,7 @@ internal static class UiTextChecks
             check(text.Get(original) == original, "English changed after switching languages");
         }
 
-        var options = "Solid\0Rainbow\0Breathing\0Color Shift\0Aurora\0Fire\0Heartbeat\0Comet\0Rainbow Pulse\0SFX Loudness (Prototype)\0SFX Color Blend (Prototype)\0";
+        var options = "Solid\0Rainbow\0Breathing\0Color Shift\0Aurora\0Fire\0Heartbeat\0Comet\0Rainbow Pulse\0SFX Loudness\0SFX Color Blend\0";
         var english = options.Split('\0');
         foreach (var language in new[] { UiLanguage.Chinese, UiLanguage.Japanese, UiLanguage.English, UiLanguage.Chinese })
         {

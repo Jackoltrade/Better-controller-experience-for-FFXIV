@@ -12,6 +12,8 @@ public sealed class Configuration : IPluginConfiguration
     public int Version { get; set; } = 1;
     public UiLanguage Language { get; set; } = UiLanguage.English;
     public bool HasSeenGeneralInfo { get; set; }
+    public bool HasCompletedSetup { get; set; }
+    public bool HasAcknowledgedRecording { get; set; }
     public bool Enabled { get; set; } = true;
     public LightingEffect Effect { get; set; }
     public byte Red { get; set; } = 119;
@@ -31,8 +33,22 @@ public sealed class Configuration : IPluginConfiguration
     public float SfxReleaseSeconds { get; set; } = 0.18f;
     public bool SfxAutomaticGate { get; set; } = true;
     public SfxSource AudioSource { get; set; } = SfxSource.PlayerOnly;
+    public HapticOutputMode HapticOutput { get; set; } = HapticOutputMode.Automatic;
+    // -1 selects the first connected XInput slot; 0–3 select a specific controller.
+    public int RumbleController { get; set; } = -1;
+    public float RumbleStrength { get; set; } = 0.5f;
+    public int RumblePulseMilliseconds { get; set; } = RumblePulse.DefaultMilliseconds;
+    public float BluetoothMotorBalance { get; set; } = HapticSettings.DefaultBluetoothMotorBalance;
+    public bool HapticEnabled { get; set; } = true;
+    public bool CombatHaptics { get; set; } = true;
     public bool CharacterHaptics { get; set; } = true;
-    public float HapticStrength { get; set; } = 0.8f;
+    public float HapticStrength { get; set; } = 0.25f;
+    public bool HapticBossEnabled { get; set; } = true;
+    public bool HapticRegularEnemyEnabled { get; set; } = true;
+    public float HapticEnemyStrength { get; set; } = 1;
+    public bool HapticHitReactions { get; set; }
+    public bool HapticScreenEffects { get; set; } = true;
+    public float HapticScreenStrength { get; set; } = 0.25f;
     public bool SpatialHaptics { get; set; } = true;
     public bool HapticDistanceFalloff { get; set; } = true;
     public HapticDistanceOrigin HapticDistanceSource { get; set; } = HapticDistanceOrigin.Character;
@@ -45,12 +61,14 @@ public sealed class Configuration : IPluginConfiguration
     public bool HapticFollowImpact { get; set; } = true;
     public float HapticImpactBias { get; set; } = 1;
     public bool FootstepAmplifier { get; set; }
-    public float FootstepMultiplier { get; set; } = 1.5f;
+    public float FootstepMultiplier { get; set; } = 6;
 
     public bool IsFeatureEnabled(ControllerFeature feature) => feature switch
     {
         ControllerFeature.Lighting => Enabled,
-        ControllerFeature.CombatHaptics => CharacterHaptics,
+        ControllerFeature.Haptics => HapticEnabled,
+        ControllerFeature.CombatHaptics => CombatHaptics,
+        ControllerFeature.PlayerSfx => CharacterHaptics,
         ControllerFeature.Footsteps => FootstepAmplifier,
         ControllerFeature.SpatialHaptics => SpatialHaptics,
         ControllerFeature.DistanceFade => HapticDistanceFalloff,
@@ -72,7 +90,9 @@ public sealed class Configuration : IPluginConfiguration
         switch (feature)
         {
             case ControllerFeature.Lighting: Enabled = enabled; break;
-            case ControllerFeature.CombatHaptics: CharacterHaptics = enabled; break;
+            case ControllerFeature.Haptics: HapticEnabled = enabled; break;
+            case ControllerFeature.CombatHaptics: CombatHaptics = enabled; break;
+            case ControllerFeature.PlayerSfx: CharacterHaptics = enabled; break;
             case ControllerFeature.Footsteps: FootstepAmplifier = enabled; break;
             case ControllerFeature.SpatialHaptics: SpatialHaptics = enabled; break;
             case ControllerFeature.DistanceFade: HapticDistanceFalloff = enabled; break;
@@ -84,8 +104,21 @@ public sealed class Configuration : IPluginConfiguration
     public void ResetHapticsToDefaults()
     {
         var defaults = new Configuration();
+        HapticOutput = defaults.HapticOutput;
+        RumbleController = defaults.RumbleController;
+        RumbleStrength = defaults.RumbleStrength;
+        RumblePulseMilliseconds = defaults.RumblePulseMilliseconds;
+        BluetoothMotorBalance = defaults.BluetoothMotorBalance;
+        HapticEnabled = defaults.HapticEnabled;
+        CombatHaptics = defaults.CombatHaptics;
         CharacterHaptics = defaults.CharacterHaptics;
         HapticStrength = defaults.HapticStrength;
+        HapticBossEnabled = defaults.HapticBossEnabled;
+        HapticRegularEnemyEnabled = defaults.HapticRegularEnemyEnabled;
+        HapticEnemyStrength = defaults.HapticEnemyStrength;
+        HapticHitReactions = defaults.HapticHitReactions;
+        HapticScreenEffects = defaults.HapticScreenEffects;
+        HapticScreenStrength = defaults.HapticScreenStrength;
         SpatialHaptics = defaults.SpatialHaptics;
         HapticDistanceFalloff = defaults.HapticDistanceFalloff;
         HapticDistanceSource = defaults.HapticDistanceSource;
@@ -124,14 +157,37 @@ public sealed class Configuration : IPluginConfiguration
         AudioSource = defaults.AudioSource;
     }
 
-    public HapticSettings HapticsSnapshot() => new HapticSettings(CharacterHaptics, HapticStrength,
-        SpatialHaptics, HapticDistanceFalloff,
-        HapticDistanceSource == HapticDistanceOrigin.Camera ? HapticNearDistance : HapticCharacterNearDistance,
-        HapticDistanceSource == HapticDistanceOrigin.Camera ? HapticFarDistance : HapticCharacterFarDistance,
-        HapticAutomaticDistance, HapticDistanceSource, HapticFollowImpact, HapticImpactBias,
-        FootstepAmplifier, FootstepMultiplier).Normalize();
+    public void CompleteSetup(bool lighting, bool haptics)
+    {
+        Enabled = lighting;
+        HapticEnabled = haptics;
+        HasCompletedSetup = HasSeenGeneralInfo = true;
+    }
 
-    public LightingSettings Snapshot() => new LightingSettings(Enabled, Effect, Red, Green, Blue,
+    public bool CanRecordDiagnostics() => HasCompletedSetup && HasAcknowledgedRecording;
+
+    public HapticSettings HapticsSnapshot(bool requireSetup = false)
+    {
+        var master = HapticEnabled && (!requireSetup || HasCompletedSetup);
+        var combat = master && CombatHaptics;
+        var camera = HapticDistanceSource == HapticDistanceOrigin.Camera;
+        return new HapticSettings(
+            Enabled: combat && CharacterHaptics, Strength: HapticStrength,
+            BossEnabled: combat && HapticBossEnabled, RegularEnemyEnabled: combat && HapticRegularEnemyEnabled,
+            HitReactions: combat && HapticHitReactions, EnemyStrength: HapticEnemyStrength,
+            Spatial: SpatialHaptics, DistanceFalloff: HapticDistanceFalloff,
+            NearDistance: camera ? HapticNearDistance : HapticCharacterNearDistance,
+            FarDistance: camera ? HapticFarDistance : HapticCharacterFarDistance,
+            AutomaticDistance: HapticAutomaticDistance, DistanceOrigin: HapticDistanceSource,
+            FollowImpact: HapticFollowImpact, ImpactBias: HapticImpactBias,
+            FootstepAmplifier: master && FootstepAmplifier, FootstepMultiplier: FootstepMultiplier,
+            ScreenEffects: master && HapticScreenEffects, ScreenStrength: HapticScreenStrength,
+            OutputMode: HapticOutput, RumbleController: RumbleController,
+            RumbleStrength: RumbleStrength, RumblePulseMilliseconds: RumblePulseMilliseconds,
+            BluetoothMotorBalance: BluetoothMotorBalance).Normalize();
+    }
+
+    public LightingSettings Snapshot(bool requireSetup = false) => new LightingSettings(Enabled && (!requireSetup || HasCompletedSetup), Effect, Red, Green, Blue,
         Brightness, CycleSeconds, PlayerLights, PlayerAnimation, PlayerCycleSeconds,
         SecondaryRed, SecondaryGreen, SecondaryBlue, SfxSensitivity, SfxNoiseGate, SfxReleaseSeconds, SfxAutomaticGate, AudioSource, PlayerMode).Normalize();
 }

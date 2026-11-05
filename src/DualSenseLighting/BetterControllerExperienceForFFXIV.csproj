@@ -1,0 +1,19 @@
+<Project Sdk="Dalamud.NET.Sdk/15.0.0">
+  <PropertyGroup>
+    <Version>0.18.0</Version>
+    <Title>Better controller experience for FFXIV</Title>
+    <Product>Better controller experience for FFXIV</Product>
+    <RepositoryUrl>https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <AssemblyName>DualSenseLighting</AssemblyName>
+    <RootNamespace>DualSenseLighting</RootNamespace>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="Assets/icon.png" TargetPath="images/icon.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../LICENSE.txt;../../LICENSE-HidLibrary.txt;../../LICENSE-FFXIVClientStructs.txt;../../THIRD-PARTY-NOTICES.txt" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <EmbeddedResource Include="Assets/dualsense-preview.svg" LogicalName="DualSenseLighting.Assets.dualsense-preview.svg" />
+    <EmbeddedResource Include="Assets/dualsense-preview.png" LogicalName="DualSenseLighting.Assets.dualsense-preview.png" />
+    <EmbeddedResource Include="Assets/dualsense-preview-lightbar.png" LogicalName="DualSenseLighting.Assets.dualsense-preview-lightbar.png" />
+  </ItemGroup>
+</Project>

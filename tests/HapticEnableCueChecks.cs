@@ -104,5 +104,19 @@ internal static unsafe class HapticEnableCueChecks
         output.CancelEnableCue();
         output.MixEnableCue((nint)replacement, true, true);
         check(calls == blocks + 1 && !output.HasEnableCue, "Cancelled confirmation continued playing");
+        // Master enable also confirms when only an enemy or footstep category is selected.
+        foreach (var category in new[] { new HapticSettings(BossEnabled: true),
+            new HapticSettings(RegularEnemyEnabled: true), new HapticSettings(FootstepAmplifier: true) })
+        {
+            output.SetEnemyContext(true);
+            output.Configure(category, true, true);
+            output.RequestEnableCue();
+            var before = calls;
+            output.MixEnableCue((nint)replacement, true, true);
+            check(calls == before + 1 && output.HasEnableCue, "Confirmation required the player SFX category");
+            output.Configure(new HapticSettings(), true, true);
+            output.MixEnableCue((nint)replacement, true, true);
+            check(calls == before + 1 && !output.HasEnableCue, "Master-off failed to cancel a category-only confirmation");
+        }
     }
 }

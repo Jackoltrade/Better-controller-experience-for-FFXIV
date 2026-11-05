@@ -36,6 +36,9 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
+      - name: Verify native build process handling on Windows PowerShell 5
+        shell: powershell
+        run: ./tests/BuildProcessChecks.ps1
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
@@ -53,15 +56,17 @@ jobs:
           $libraries = @(Get-ChildItem $directory -Recurse -Filter Dalamud.dll)
           if ($libraries.Count -ne 1) { throw 'Expected exactly one Dalamud.dll.' }
           "DALAMUD_HOME=$($libraries[0].DirectoryName)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-      - name: Build, check and verify binary metadata
+      - name: Build with the locked Dalamud SDK, check and verify binary metadata
         shell: pwsh
-        run: ./tools/build.ps1 -DalamudLibPath $env:DALAMUD_HOME
+        run: ./tools/build.ps1 -DalamudLibPath $env:DALAMUD_HOME -LockedRestore
       - name: Check hot-path allocations
         shell: pwsh
         run: dotnet ./artifacts/checks/LightingChecks.dll --benchmark
+      - name: Verify offline enemy boss catalog
+        run: python tools/generate-enemy-bosses.py --check
       - name: Check package boundaries
         run: python -m unittest discover -s tests -p "test_*.py" -v
-      - name: Package opt-in testing release
+      - name: Package verified SDK output for opt-in public testing
         shell: pwsh
         env:
           RELEASE_TAG: ${{ inputs.tag }}
@@ -69,6 +74,15 @@ jobs:
           if ($env:RELEASE_TAG) { python tools/package-release.py --tag $env:RELEASE_TAG }
           else { python tools/package-release.py }
           if ($LASTEXITCODE -ne 0) { throw 'Packaging failed.' }
+      - uses: actions/upload-artifact@v7
+        with:
+          name: official-dalamud-package
+          path: |
+            artifacts/plugin/DualSenseLighting/latest.zip
+            artifacts/plugin/DualSenseLighting/DualSenseLighting.json
+            artifacts/plugin/DualSenseLighting/images/icon.png
+          if-no-files-found: error
+          retention-days: 30
       - uses: actions/upload-artifact@v7
         with:
           name: public-test-package

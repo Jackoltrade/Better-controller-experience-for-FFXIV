@@ -16,6 +16,7 @@ internal static class Native
     {
         [FieldOffset(0)] public ushort Usage;
         [FieldOffset(2)] public ushort UsagePage;
+        [FieldOffset(4)] public ushort InputReportLength;
         [FieldOffset(6)] public ushort OutputReportLength;
     }
 
@@ -45,6 +46,9 @@ internal static class Native
     private static extern bool HidD_FreePreparsedData(nint data);
     [DllImport("hid.dll")]
     private static extern int HidP_GetCaps(nint data, out HidCaps caps);
+    [DllImport("hid.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    private static extern bool HidD_GetFeature(nint handle, [In, Out] byte[] report, int length);
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     internal static extern SafeFileHandle CreateFileW(string name, uint access, uint share, nint security, uint creation, uint flags, nint template);
@@ -77,8 +81,18 @@ internal static class Native
         try
         {
             return HidP_GetCaps(data, out caps) == 0x00110000 && caps.UsagePage == 1 && caps.Usage == 5 &&
-                Core.DualSenseReport.IsSupportedLength(caps.OutputReportLength);
+                Core.DualSenseReport.ReportLength(caps.InputReportLength, caps.OutputReportLength) != 0;
         }
         finally { HidD_FreePreparsedData(data); }
+    }
+
+    internal static bool SupportsImprovedBluetoothRumble(nint handle)
+    {
+        var attributes = new HidAttributes { Size = (uint)Marshal.SizeOf<HidAttributes>() };
+        if (!HidD_GetAttributes(handle, ref attributes) || attributes.Vendor != 0x054c) return false;
+        if (attributes.Product == 0x0df2) return true;
+        var firmware = new byte[64]; firmware[0] = 0x20;
+        return HidD_GetFeature(handle, firmware, firmware.Length) &&
+            Core.DualSenseReport.SupportsImprovedRumble(attributes.Product, firmware);
     }
 }
