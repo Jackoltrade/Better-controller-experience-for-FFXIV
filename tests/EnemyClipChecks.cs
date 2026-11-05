@@ -32,9 +32,9 @@ internal static unsafe class EnemyClipChecks
         CheckCapturedSkills(check);
         CheckNativeBinding(check);
         for (var i = 0; i < 2000; i++) EnemySkillCatalog.TimelineSound(execution, EnemySoundBinding.Target);
-        var before = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 0; i < 10000; i++) EnemySkillCatalog.TimelineSound(execution, EnemySoundBinding.Target);
-        check(GC.GetAllocatedBytesForCurrentThread() == before, "Per-track phase classification allocated on sound callbacks");
+        Action classifyTrack = () => EnemySkillCatalog.TimelineSound(execution, EnemySoundBinding.Target);
+        var allocated = AllocationChecks.MeasureAllocations(classifyTrack, warmup: 0, iterations: 10000);
+        check(allocated == 0, $"Per-track phase classification allocated {allocated} bytes on sound callbacks");
     }
 
     private static void CheckCapturedSkills(Action<bool, string> check)
@@ -96,9 +96,10 @@ internal static unsafe class EnemyClipChecks
             "Missing clips, data or binding support invented a target track");
         *(nint*)(clip + 0x48) = (nint)(data + 8);
         for (var i = 0; i < 2000; i++) GameAudioLayout.ClipSoundBinding((nint)clip, table);
-        var before = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 0; i < 10000; i++) GameAudioLayout.ClipSoundBinding((nint)clip, table);
-        check(GC.GetAllocatedBytesForCurrentThread() == before, "Native clip binding lookup allocated in sound callbacks");
+        var clipAddress = (nint)clip;
+        Action lookupBinding = () => GameAudioLayout.ClipSoundBinding(clipAddress, table);
+        var allocated = AllocationChecks.MeasureAllocations(lookupBinding, warmup: 0, iterations: 10000);
+        check(allocated == 0, $"Native clip binding lookup allocated {allocated} bytes in sound callbacks");
         var body = new byte[0x50];
         new byte[] { 0x40, 0x53, 0x48, 0x83, 0xec, 0x20, 0x48, 0x8b, 0xd9, 0x48, 0x8d, 0x05 }.CopyTo(body, 0);
         new byte[] { 0x44, 0x89, 0x43, 0x50, 0x44, 0x89, 0x4b, 0x54 }.CopyTo(body, 0x3b);

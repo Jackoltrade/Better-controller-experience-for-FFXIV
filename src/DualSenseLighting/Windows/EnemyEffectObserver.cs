@@ -35,7 +35,12 @@ internal sealed unsafe class EnemyEffectObserver : IDisposable
             throw new NotSupportedException("Scene effect listener validation failed.");
         constructor = interop.HookFromAddress<ConstructorDelegate>(function, Construct);
         try { constructor.Enable(); }
-        catch { constructor.Dispose(); throw; }
+        catch (Exception enableFailure)
+        {
+            try { constructor.Dispose(); }
+            catch (Exception cleanup) { throw new AggregateException("Enemy effect hook initialization and rollback failed.", enableFailure, cleanup); }
+            throw;
+        }
     }
 
     private nint Construct(nint effect)

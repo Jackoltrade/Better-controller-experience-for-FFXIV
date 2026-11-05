@@ -93,6 +93,8 @@ internal static class Program
         await runner.Run(nameof(CheckLimitBreakSession), CheckLimitBreakSession);
         await runner.Run(nameof(CheckAnimatedRgbSessions), CheckAnimatedRgbSessions);
         await runner.Run(nameof(CheckSfxSession), CheckSfxSession);
+        await runner.Run(nameof(UpdateTimingChecks), () => UpdateTimingChecks.Run(Assert));
+        await runner.Run(nameof(AllocationChecks), () => AllocationChecks.Run(Assert));
         return runner.Complete();
     }
 
@@ -354,9 +356,9 @@ internal static class Program
 
         // A warmed audio callback must not allocate; buffers already belong to the game.
         for (var i = 0; i < 20; i++) { meter.Observe(samples); meter.TakePeak(); }
-        var allocated = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 0; i < 1000; i++) { meter.Observe(samples); meter.TakePeak(); }
-        Assert(GC.GetAllocatedBytesForCurrentThread() == allocated, "SFX callback allocated on the audio thread");
+        Action observeAudio = () => { meter.Observe(samples); meter.TakePeak(); };
+        var allocated = AllocationChecks.MeasureAllocations(observeAudio, warmup: 0, iterations: 1000);
+        Assert(allocated == 0, $"SFX callback allocated {allocated} bytes on the audio thread");
 
         var left = new SfxEnvelope(); var right = new SfxEnvelope();
         var timingSettings = LightingSettings.Default;
@@ -563,13 +565,13 @@ internal static class Program
         sound.ExtendedFlags = 0x14;
         Assert(!GameAudioLayout.IsCombatVoice(&source, vtable, SfxSource.PlayerOnly, ownership), "A player's vibration-only sound triggered RGB");
         // Neither pool observations nor player classification may allocate on audio threads.
-        var allocated = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 0; i < 1000; i++)
+        Action classifySource = () =>
         {
             ownership.Acquired(pool + 3, ownership.Player);
             ownership.Contains(456);
-        }
-        Assert(GC.GetAllocatedBytesForCurrentThread() == allocated, "SFX source classification allocated on the audio thread");
+        };
+        var allocated = AllocationChecks.MeasureAllocations(classifySource, warmup: 0, iterations: 1000);
+        Assert(allocated == 0, $"SFX source classification allocated {allocated} bytes on the audio thread");
         sound.ExtendedFlags = 0;
         source.Volume = 0;
         Assert(!GameAudioLayout.IsCombatVoice(&source, vtable), "A muted voice exposed stale mixer scratch samples");
@@ -1002,10 +1004,10 @@ internal static class Program
         tracker.Observe(epoch, 9, Vector3.UnitX, 0.001f, now);
         Assert(!tracker.TryTake(epoch, now, out _), "Invalid or inaudibly quiet audio created an impact cue");
         tracker.Observe(epoch, 10, Vector3.UnitX, 0.2f, now); tracker.TryTake(epoch, now, out _);
-        var allocated = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 0; i < 1000; i++)
-        { tracker.Observe(epoch, 10, Vector3.UnitX, 0.2f, now); tracker.TryTake(epoch, now, out _); }
-        Assert(GC.GetAllocatedBytesForCurrentThread() == allocated, "Impact audio observations allocated managed memory");
+        Action observeImpact = () =>
+        { tracker.Observe(epoch, 10, Vector3.UnitX, 0.2f, now); tracker.TryTake(epoch, now, out _); };
+        var allocated = AllocationChecks.MeasureAllocations(observeImpact, warmup: 0, iterations: 1000);
+        Assert(allocated == 0, $"Impact audio observations allocated {allocated} managed bytes");
     }
 
     private static void CheckNativeStereoMatrices()

@@ -298,6 +298,7 @@ public sealed class LightingSession : IRumbleDevices, IDisposable
 
     private void Acknowledge(string path, bool lighting, bool motors)
     {
+        if (!lighting && !motors) return;
         if (!owned.TryGetValue(path, out var ownership)) return;
         if (lighting) ownership.Lighting = false;
         if (motors) ownership.Motors = false;

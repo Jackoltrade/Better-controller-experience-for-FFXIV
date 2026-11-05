@@ -12,6 +12,7 @@ internal static unsafe class EnemyTargetingCueChecks
     {
         CheckNames(check);
         CheckReservations(check);
+        CheckEncounterWarnings(check);
         CheckDeferredNames(check);
         CheckChangedReservations(check);
         CheckConcurrentRead(check);
@@ -51,9 +52,9 @@ internal static unsafe class EnemyTargetingCueChecks
             "sound/vfx/monster8/SE_Vfx_Monster_Necromancer_Explosion_c.scd",
         }) check(!StockTargetingCue.Matches(Encoding.UTF8.GetBytes(path)), "A non-stock targeting path was suppressed: " + path);
         for (var i = 0; i < 100; i++) StockTargetingCue.Matches("sound/vfx/monster4/SE_Vfx_Monster_ETC_LockOn_Share_5sec_lock.scd"u8);
-        var before = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 0; i < 10000; i++) StockTargetingCue.Matches("sound/vfx/monster4/SE_Vfx_Monster_ETC_LockOn_Share_5sec_lock.scd"u8);
-        check(GC.GetAllocatedBytesForCurrentThread() == before, "Targeting cue filename matching allocated on the audio path");
+        Action matchCue = () => StockTargetingCue.Matches("sound/vfx/monster4/SE_Vfx_Monster_ETC_LockOn_Share_5sec_lock.scd"u8);
+        var allocated = AllocationChecks.MeasureAllocations(matchCue, warmup: 0, iterations: 10000);
+        check(allocated == 0, $"Targeting cue filename matching allocated {allocated} bytes on the audio path");
     }
 
     private static GameAudioLayout.PlayerSoundOwnership Setup(GameAudioLayout.SoundData* pool, Func<nint, bool?> reader)
@@ -106,10 +107,10 @@ internal static unsafe class EnemyTargetingCueChecks
             ownership.Acquired(pool, boss, action: Released);
             ownership.EnemyKindOf(124);
             for (var i = 0; i < 100; i++) ownership.EnemyKindOf(124);
-            var before = GC.GetAllocatedBytesForCurrentThread();
-            for (var i = 0; i < 10000; i++) ownership.EnemyKindOf(124);
-            check(GC.GetAllocatedBytesForCurrentThread() == before && reads == 7,
-                "Cached enemy cue filtering allocated or performed repeated resource reads");
+            Action lookupKind = () => ownership.EnemyKindOf(124);
+            var allocated = AllocationChecks.MeasureAllocations(lookupKind, warmup: 0, iterations: 10000);
+            check(allocated == 0 && reads == 7,
+                $"Cached enemy cue filtering allocated {allocated} bytes or performed repeated resource reads");
             marker = true; pool->SoundId = -20;
             ownership.Acquired(pool, boss, action: Released); ownership.LinkPlayback(-20, 500);
             check(ownership.EnemyKindOf(500) == EnemySoundKind.None && reads == 8,
@@ -118,6 +119,42 @@ internal static unsafe class EnemyTargetingCueChecks
             ownership.Acquired(pool, boss, action: Released); ownership.LinkPlayback(-20, 500);
             check(ownership.EnemyKindOf(500) == EnemySoundKind.Boss && reads == 9,
                 "Targeting cue filtering lost an actual impact's positional playback alias");
+        }
+        finally { NativeMemory.Free(pool); }
+    }
+
+    private static void CheckEncounterWarnings(Action<bool, string> check)
+    {
+        var pool = Allocate();
+        try
+        {
+            var reads = 0;
+            var path = "sound/vfx/monster4/SE_Vfx_Monster_ETC_LockOn_Share_5sec_lock.scd";
+            var ownership = Setup(pool, _ => { reads++; return StockTargetingCue.Matches(Encoding.ASCII.GetBytes(path)); });
+            ownership.SetEnemies(new[] { new GameAudioLayout.EnemyActor(200, 2000, 20000, 20,
+                EnemySoundKind.Boss, EnemyActorRole.BossEncounter) }, 1);
+            var boss = ownership.ResolveCaster(200, 0);
+            ownership.Acquired(pool, boss);
+            check(ownership.EnemyKindOf(123) == EnemySoundKind.None && ownership.EnemyKindOf(123) == EnemySoundKind.None && reads == 1,
+                "An untagged encounter warning bypassed the stock cue veto or repeated its resource read");
+            ownership.Acquired(pool, boss, action: Released);
+            check(ownership.EnemyKindOf(123) == EnemySoundKind.None && reads == 2,
+                "A released encounter warning bypassed the stock cue veto");
+            path = "sound/vfx/monster6/SE_Vfx_Monster_Tsukuyomi_GunAtk_c.scd";
+            ownership.Acquired(pool, boss, action: Released);
+            check(ownership.EnemyKindOf(123) == EnemySoundKind.Boss && reads == 3,
+                "Filtering the warning suppressed the recorded line-stack impact");
+            ownership.Acquired(pool, boss);
+            check(ownership.EnemyKindOf(123) == EnemySoundKind.Boss && reads == 4,
+                "Filtering warnings removed the broad admission of untagged real encounter effects");
+            path = "sound/vfx/monster4/SE_Vfx_Monster_ETC_LockOn_Share_5sec_lock.scd";
+            pool->SoundId = -20;
+            ownership.Acquired(pool, boss); ownership.LinkPlayback(-20, 500);
+            check(ownership.EnemyKindOf(500) == EnemySoundKind.None && reads == 5,
+                "An encounter warning playback alias bypassed the stock cue veto");
+            ownership.Acquired(pool, ownership.Player, action: Released); ownership.LinkPlayback(-20, 500);
+            check(ownership.Contains(500) && reads == 5,
+                "The encounter warning veto interfered with the owned player channel");
         }
         finally { NativeMemory.Free(pool); }
     }
@@ -265,10 +302,11 @@ internal static unsafe class EnemyTargetingCueChecks
                 "A readable path at the maximum supported length was rejected as unreadable");
             *(ulong*)(resource + 0x58) = (ulong)marker.Length;
             for (var i = 0; i < 100; i++) EnemySoundCueFilter.Read((nint)resource);
-            var before = GC.GetAllocatedBytesForCurrentThread();
-            for (var i = 0; i < 1000; i++) EnemySoundCueFilter.Read((nint)resource);
-            check(GC.GetAllocatedBytesForCurrentThread() == before,
-                "The bounded native filename reader allocated on the audio callback path");
+            var resourceAddress = (nint)resource;
+            Action readCue = () => EnemySoundCueFilter.Read(resourceAddress);
+            var allocated = AllocationChecks.MeasureAllocations(readCue, warmup: 0, iterations: 1000);
+            check(allocated == 0,
+                $"The bounded native filename reader allocated {allocated} bytes on the audio callback path");
         }
         finally { NativeMemory.Free(resource); NativeMemory.Free(filename); }
     }

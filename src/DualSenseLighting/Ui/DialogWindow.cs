@@ -23,6 +23,7 @@ internal sealed class DialogWindow(Action draw) : Window(
     }
 
     public float Width { get; set; } = 560;
+    public Action? Closed { get; set; }
 
     public override void PreDraw()
     {
@@ -39,6 +40,8 @@ internal sealed class DialogWindow(Action draw) : Window(
     }
 
     public override void Draw() => draw();
+
+    public override void OnClose() => Closed?.Invoke();
 
     public override void PostDraw()
     {

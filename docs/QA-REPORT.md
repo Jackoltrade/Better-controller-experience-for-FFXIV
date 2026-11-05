@@ -12,7 +12,21 @@ older assertion counts and selected-helper performance figures below. The
 historical in-game observations remain historical; they are not new hardware
 validation of this refactor.
 
-## Current candidate: Dalamud SDK and Windowing migration (0.18.0)
+The latest user check clarified that Escape closes Info while clearing the game
+target. The current build consumes the dialog key before native Tick and passes
+the installed key-buffer/WindowSystem probes and 56/56 automated groups. The user
+confirms both Info and Reset retain the selected target. This supersedes the earlier Escape success
+below. The latest timing sample is 20,286 updates, 0.044 ms average and 0.751 ms
+maximum; the earlier 24.489 ms maximum remains unattributed. The shared stack-arrow
+sound is now vetoed for BossEncounter actors while the impact remains eligible.
+The train trace and a user toggle test identify screen-effect feedback rather
+than boss SFX; no speculative environmental filter was introduced. The user also
+confirms quiet stack arrows with the actual hit retained and the full requested
+current lighting/preview, three-language, native vibration/sound, Alt-Tab and
+reconnect smoke checks. The final independent assessment is 9.1/10; see the
+linked optimization report for its rubric and limits.
+
+## Earlier candidate: Dalamud SDK and Windowing migration (0.18.0)
 
 The plugin now uses **Dalamud.NET.Sdk/15.0.0** and its DalamudPackager.
 `packages.lock.json` pins the build dependencies; CI uses locked restore.
@@ -68,7 +82,7 @@ content metadata and cached archives match the official downloads.
 
 The Info/Reset Escape smoke check is user-confirmed. The Computer Use runtime
 fails before connecting to the desktop (`sandboxCwd is not a local file URI`),
-so this live result is user-assisted. Other UI and hardware checks remain pending:
+so this live result is user-assisted. At that earlier stage, other UI and hardware checks were pending:
 tab widths, preview and CJK fonts, X/Close and command reopen, lighting and
 combat/screen/footstep feedback, native haptics/speaker, Alt-Tab lights-off release
 and reconnect. If Dalamud gamepad navigation is enabled, include cancel while a

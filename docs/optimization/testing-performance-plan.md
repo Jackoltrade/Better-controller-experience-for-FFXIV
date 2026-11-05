@@ -213,13 +213,143 @@ Parent authorized T1-T5 implementation and this narrow CI addition. Review prior
 
 Parent subsequently authorized T1-T5 implementation. T1-T4 are implemented and verified within their stated scope; T5 compiled-plugin collection is complete, while shared build/package/fresh overall review remain the parent gate. Detailed raw-derived outcomes and limits are in `docs/optimization/testing-performance-results.md`. Final collector run:54/54groups,0skips,515,934assertions; authored source union3,132/6,014mappedlines(52.078%),60/61authoredfilesmapped,2,882zero-hitlines. The earlier~95% linked subset is not whole-plugin coverage. Embedded portable symbols worked. Original-runtime linked run53/53groups with1explicitplugin-scope skip,515,778assertions. Native NuGet audit fails closed on actual unavailable-feed NU1900/NU1905; no online success is claimed. Full actual framework timing is now opt-in and ready but no in-game samples were collected. No arbitrary score is assigned.
 
+## Follow-up no-op acknowledgement addendum
+
+Architecture/code review: reuse LightingSession.Acknowledge and return before
+its dictionary lookup when both clearing flags are false. Reserve always creates
+at least one owned field; a false/false acknowledgement has no state to retire.
+Keep all true-clear, admission, cancellation and foreground logic unchanged.
+This one-line existing-helper guard is the complete choice; no ownership-map
+redesign or CRC scope is justified. Parent reviewed the proof and approved it.
+
+Test/performance review: compare private 166ff17 before/after copies using the
+same existing device/sink fixture, default runtime, ABBA/BAAB processes, all
+chronological batches and matching counts/checksums/allocation medians. Separate
+JIT-event runs from timing evidence. Run critical Bluetooth recovery/admission
+and stereo checks, then the full integration build. Results support only a small
+USB lookup saving, no consistent Bluetooth steady-state gain; large pooled shifts
+coincide with runtime recompilation. See verification.md and
+work/independent-review/ack-profile/. Formal new startup reported update/lease
+failures; no new persisted full-skill/external-review success is claimed. The
+original reviewed device/performance plans and parent approval remain in force.
+
+## Focused engineering review: callback allocation measurement boundary
+
+Selected target remains this plan. Parent explicitly authorized this narrow scope after independent `final_quality_review` approval; office-hours skipped by prior user direction. Real plan-eng-review startup reran (session1-1793877836-ea53f565): protocol1, interactive, telemetryoff; update statusUNKNOWN/leaseunavailable, no upgrade performed. Existing product/context, ordinary console framework and outside-review availability are unchanged; no setup preference was inferred from startup. Claude CLI remains unavailable; parent independent native review is recorded as native approval, not external-provider completion.
+
+Scope Challenge: accepted as-is. Four changed files estimated: this plan, EnemyEffectChecks.cs, Program.cs and one new test helper/controls file; one new class, no runtime service/dependency. Reuse .NET MethodImpl attributes and existing console group runner. Reject a test framework/benchmark dependency or global runtime flags. No new TODO or PR split. The original failure records remain red. This is a test contract repair, not a claim that OSR allocated the observed2,792/6,192 bytes.
+
+Architecture finding [P2] (confidence10/10): `work/testing-performance-causal/full-child-jit-default.txt:1587` contains `call CORINFO_HELP_PATCHPOINT` inside the two reads; the emitted Run Tier1-OSR entry061A lies in the10,000-step measured loop. Intended contract is callback managed allocations; existing interval also executes harness profiling/OSR. Native code keeps diagnostic allocations after the ending counter, so moving message formatting is not the selected remedy. Repair with a single non-inlined, immediately optimized test-only measurement method; it invokes a pre-created ordinary non-loop Action, keeping actual cache methods/default production callback tiering unchanged. Disposition: approved D6, parent exact task authorization after independent review.
+
+Code quality: no additional finding. One small test helper owns warmup/counters/iterations and behavior controls; no copying cache logic. The callback remains exactly Observe then Resolve. Delegate creation, fixture setup, strings and assertions stay outside counter reads. Added helper/control source estimated60lines, removed loop source5lines, replaced with pre-created callback+one call estimated4lines; net growth is deliberate proof, not a claimed extraction saving. No runtime file touched.
+
+Test review:
+```
+existing fixture -> pre-created Action -> MeasureAllocations
+ + warmup2000 [unchanged]
+ + read current-thread bytes ->10000 Action.Invoke calls ->read bytes
+ + return delta ->strict0 assertion [unchanged]
+controls ->same helper
+ + noop ->0
+ + escaping newbyte[37] ->64bytes/step on x64
+ + real changing cache association ->positive allocation +published effect identity
+actual Main ->prior async/device groups ->ThreadPool continuation ->EnemyEffectChecks fixture ->AllocationChecks controls
+ + ordinary source-only run [explicit compiled-plugin skip]
+ + malformed --plugin child ->only expected metadata failure if other groups pass
+```
+Value: protects=callback allocation contract excludes loop JIT work; fails_when=helper allocates or swallows callback bytes; why_new=native disassembly proved harness scope mismatch; seam=test-only helper; no_claim=historical allocation cause solved.
+Value: protects=counter detects real escaping allocation; fails_when=known64bytes/step ignored; why_new=positive detector control absent; seam=none; no_claim=all runtime contexts proven deterministic.
+Value: protects=real cache association allocation stays visible; fails_when=helper hides newEntry allocation; why_new=no callback-allocation control exercised counter; seam=none; no_claim=physical/native allocations measured.
+Required regression: retain2,000warmup/10,000measured steps and exactzero, production methods unannotated/default tiering, no retries or failed-sample discard. Initial D6 order put controls immediately after EnemyEffectChecks; D7 supersedes that placement and moves them after every original group, following CheckSfxSession and before Complete. JIT verification must show no measurement-wrapper PATCHPOINT and an indirect Action call boundary, with actual callback/Observe/Resolve code retaining normal tiering. Run private full async child and process guard once, preserve every result; parent performs final SDK/coverage/package verification afterward.
+
+Performance review: this is correctness of measurement scope, not an application speed optimization. AggressiveOptimization|NoInlining applies only to the helper; no global tiering/PGO change and no warmup inflation. The NoInlining boundary prevents caller-propagated callback specialization; verify actual generated code rather than trusting the attribute alone. Remaining normal runtime effects inside the callback still belong to its measured contract. No overall performance number or automatic9+ score follows.
+
+D6 decision ledger: current value=large mixed fixture with measured-loop profiler/OSR; A=test-only optimized/non-inlined measurement boundary+ordinary pre-created Action+strict controls (completeness10/10, selected); B=leave known scope mismatch (5/10); C=global tiering-off/tolerances (3/10, rejected). Root's exact authorization and independent native approval select A; no genuine tie. Setup/navigation grants no additional remedy. Historical allocation attribution remains unknown, not an unresolved policy choice. Approval readiness: PASS D6 under exact parent implementation authorization.
+
+T6 (P2, human~2h/Codex~20min estimated): add one helper and its three controls, replace only fixture warmup/measurement loops with callback invocation, register controls. T7 (P2, human~1h/Codex~15min estimated): private build, actual JIT boundary verification, one full async source run and one complete process-guard invocation; retain outputs and failures. T7 depends T6; sequential shared tests module, no parallelization or shared runtime publication. Failure modes: helper throws/null callback propagates; real callback allocation fails strictassert; native code unexpectedly inlines/removes boundary invalidates verification; historical failures stay disclosed. No silent untested failure accepted; zero new critical silent gaps. Outside coverage unavailable; native independent review approved with stated conditions. Review adds1architecture finding,0code-quality findings,3new control gaps and0application-performance findings; all mapped to T6/T7.
+
+Focused amendment verification: private Release build succeeded with0warnings. First source/Main invocation after the order-preserving repair passed54/54executedgroups with1explicitcompiled-plugin-scope skip and515,781assertions; target31assertions precedes controls3assertions. One process-guard invocation passed sync/async/pass and malformedmetadata-onlyexit1 contracts. Native helper code is FullOpts69bytes, has two indirect Action.Invoke loops and ordered counter reads, with no PATCHPOINT or COUNTPROFILE. Ordinary callback lambda, Observe and Resolve were emitted Tier0; no production attributes changed. No retries performed. Historical2,792/6,192-byte causes remain unresolved; this verification establishes the repaired measurement boundary and positive detector controls only. Raw outputs/code/hashes: `work/allocation-boundary-repair/`. Parent SDK/compiled-plugin/coverage checks follow after freeze.
+
+## Consistent regression allocation-window scope amendment
+
+Fresh retained evidence: final coverage (`work/optimization-final/coverage-run.txt`) passed EnemyEffectChecks and controls but failed BluetoothStereoChecks.Configure with24,624bytes, leaving54/55groups and red XML. The preceding uninstrumented55-group run passed. Neither coverage instrumentation nor OSR is assigned as this delta's cause. Original red log/XML are copied under `work/allocation-window-audit/`.
+
+Architecture: apply the already approved D6 callback-only measurement boundary consistently to raw strict-zero regression windows. One existing MeasureAllocations(Action,int,int) helper remains the only attributed method. No new overload/framework, runtime annotation, global flag, tolerance or retry policy. Timed microbench/roster windows intentionally measure whole-loop CPU/runtime work and remain unchanged; process-total async measurement is a separate scope.
+
+Code quality: preserve every original callback operation, warmup count/body, measured iteration count, index/timestamp sequence, counter and final semantic assertion. Where warmup and measured steps differ, keep the exact warmup outside the counter and use helperwarmup0 with a pre-created measured Action; never add measured mutations/counter increments to warmup. Unsafe/ref-struct lifetimes remain within their existing owning scope; no assertions, new arrays or delegate construction enter the measured callback. Existing closure/pointer captures need compile and lifetime review.
+
+Test review: migrate BluetoothStereo's Observe/TakePeak and Configure windows with1,000existing warmup and10,000measured calls each. Preserve both snapshot ReferenceEquals assertions. Other strict windows are mapped in `docs/optimization/allocation-window-map.md`; root explicitly assigns disjoint owners and reviews every diff. Move AllocationChecks controls to the very end of Program, after existing CheckSfxSession and before Complete, preserving every old group's order and avoiding control pre-warm of any old target. ROOT owns Program from this point. All assertions remain strictzero plus their original semantic counters/read counts/state assertions.
+
+Performance review: this corrects regression-test scope only. It does not redefine timed benchmark work or claim any application speedup. Coverage runs remain distinct and can still fail if instrumented callbacks allocate. Preserve fresh failed runs even if changed tests later pass; no causal/determinism/9+ claim follows from migration.
+
+D7: parent exact authorization selects consistent callback scope across regression windows (10/10) over waiting for each raw loop to fail before repairing the same known contract mismatch (5/10). No new causal claim or independently pending runtime policy is bundled. Architecture finding: the existing raw harness loops share the measured-loop scope defect; confidence9/10 structural equivalence, with actual machine-code proof established for D6 rather than asserted for every old site. Accepted regressions: exact operation/count/index/counter/unsafe-lifetime preservation. Approval readiness: PASS D7 under parent explicit scope/ownership instructions; no taste tie. Sequential owner edits, root full integration/coverage after all freeze; no extra cold probe batches.
+
+D7 readiness receipt: all32raw strict windows are migrated by their assigned owners; source search now retains only canonical helper and the two intentional timed current-thread windows, plus the distinct async process-total pair. Controls are last (CheckSfxSession then AllocationChecks then Complete), with all original groups in the original order. BluetoothStereo-only Release verification passed81assertions, then controls3, with0compilerwarnings; rawreceipt `work/allocation-window-audit/focused-run.txt`. B8/Q12/ROOT10 migrations are frozen for root integration review. The preserved red coverage54/55 log/XML is not overwritten or causally reclassified. Parent private full/metadata/process-guard/coverage verification is the next gate; no new overall green or deterministic claim is made here.
+
+## Focused review: opt-in update-tail attribution
+
+The selected review target remains this plan. The user observed 25,895 updates, with a mean of 0.057 ms and a maximum of 24.489 ms. These are elapsed callback intervals, not CPU time or evidence of a particular cause. The independent Sol source review is retained at `work/independent-review/update-tail/focused-plan.md`. The parent approved its minimal instrumentation scope and the API below.
+
+Office-hours was skipped as explicitly directed, and the complete approved scope was selected automatically. The real plan-eng-review startup used session `1-1793881467-e12dd9d2`: protocol 1, interactive mode and telemetry off. Update status was UNKNOWN, and the workflow lease was unavailable. No upgrade or successful external review is claimed. Existing context and reuse decisions remain binding.
+
+Scope Challenge: accepted as-is. This lane owns only the new `Core/UpdateTiming.cs`, new `tests/UpdateTimingChecks.cs` and this addendum. The parent owns Plugin, UI and Program integration. The design uses one narrow counter owner, a mutable frame value and readonly snapshot values. It adds no generic profiling service, framework, dependency, reset or GC event collector. It reuses Stopwatch, Interlocked, the existing opt-in checkbox/runtime state and the canonical allocation helper. The real timestamp delegate is cached once; fixed phase arrays are allocated once per owner. Disabled and capped paths read no clock.
+
+Architecture finding [P2] (confidence: 9/10): the existing Plugin.Update records only whole-callback count, total and maximum. UpdateCore includes recording coordination, observer initialization/result pickup, player publication, roster/arena processing, screen effects, recording sampling and save/guard work. A single maximum cannot localize a tail or show its frequency. Add count, total and maximum for these seven fixed phases, plus whole-update counts at or above 1 ms, 5 ms and 16.7 ms. Counters accumulate until reload, with at most 1 million admitted frames. No attribution to storage, roster processing or GC is justified yet. Disposition: D8 approved by the parent after independent source review.
+
+Code quality: keep UpdateTiming internal and narrow. Begin(bool) reserves a slot before reading the clock; reservations are separate from completed frames. Frame.Next records the previous phase. Complete records the active phase and whole interval in finally, then becomes inert on the same frame variable. The parent must pass that variable by ref into UpdateCore; copying it duplicates mutable completion state and is outside the contract.
+
+Snapshots are readonly values whose numeric fields are read atomically. They are not coherent snapshots of one frame. Do not allocate snapshot arrays or sum independent phase maxima. Threshold ticks use exact ceiling at construction, with frequency ratios 1/1000, 1/200 and 167/10000. Count means completed frames. The production clock is Stopwatch; no generic exceptional-clock service, logging or I/O path is introduced.
+
+Test review:
+
+```
+Begin(false/capped) -> default Frame -> Next/Complete inert [zero clock reads]
+Begin(true) -> reserve slot -> timestamp -> RecordingCoordination phase
+  Next(Observers/PlayerPublication/RosterArena/ScreenEffects/RecordingSample/SaveGuard)
+    -> timestamp -> record previous phase -> advance the same frame
+  finally Complete -> timestamp -> record active phase + whole + thresholds -> inert
+ReadTotal/ReadPhase -> readonly numeric snapshots [no clock reads or new arrays]
+```
+
+Use an injected monotonic clock, frequency and sample limit to test: zero disabled clock reads; early return; thrown-body accounting in finally with the original exception preserved; skipped phases; completed versus admitted counts; cap behavior; idempotent completion of the same variable; threshold equality and just-below cases at 1 MHz; fractional-frequency ceiling; snapshot values; and clock-free reads. Enabled and disabled seven-phase callbacks use the canonical allocation helper to verify zero allocation. Clock injection supports arithmetic tests, not a benchmark-only production seam.
+
+Value: protects=timing lifecycle and disabled overhead; fails_when=disabled timing reads the clock or exit loses an interval; why_new=existing counters lack phase coverage; seam=injected clock; no_claim=the 24 ms cause is known.
+
+Value: protects=threshold frequencies and completed-frame counts; fails_when=rounding or cap admission overcounts; why_new=new diagnostic contract; seam=injected clock; no_claim=snapshots describe one coherent frame.
+
+Value: protects=zero allocation on the hot path; fails_when=frames or snapshots allocate on the heap; why_new=new instrumentation; seam=none; no_claim=game or driver timing is validated.
+
+Performance review: compare enabled seven-phase timing against no-op and disabled paths in bounded experiments. Preserve raw batches and account for wrapper/runtime noise. A complete seven-phase path reads eight timestamps, and elapsed totals include instrumentation overhead. The disabled path performs no clock reads, allocations or logging per frame. Independent maxima must not be combined into an imaginary frame. Counters remain cumulative until reload; zero count means no samples collected. The cause of the 24.489 ms interval remains unknown. Live sampling with fixed settings follows integration.
+
+D8 approved API:
+
+- `UpdateTiming.Phase`: a fixed enum with seven values.
+- `Begin(bool)`: returns a mutable Frame with `Next(Phase)` and `Complete()`.
+- `ReadTotal()`: returns readonly totals for completed count, total ticks, maximum ticks and counts at or above 1 ms, 5 ms and 16.7 ms.
+- `ReadPhase(Phase)`: returns readonly count, total and maximum.
+- The default constructor uses the cached Stopwatch delegate/frequency and a 1 million sample cap. An internal constructor accepts a clock, frequency and limit for deterministic tests.
+
+The parent explicitly approved the API, by-ref requirement, completed-count distinction and ceiling arithmetic. The complete option (10/10) was selected over guessing at an optimization from one maximum (3/10); there was no taste tie. Approval readiness: PASS for D8 under the parent's exact authorization. This does not approve reset, a GC collector or production algorithm changes.
+
+T8: implement the counter owner, frame, snapshots and deterministic tests (estimated human effort: 3 hours; Codex: 30 minutes). T9: verify private tests, zero allocation and no-op overhead (estimated human effort: 1 hour; Codex: 15 minutes). Parent integration and live sampling depend on both tasks. Only the parent edits Plugin, UI and Program.
+
+Failure coverage: exceptions record the active phase in finally; early setup records only visited phases; UI reads expose independently atomic values; capped frames read no clock; by-ref integration prevents accidental frame copies. No silent critical gap is accepted. This review identifies one architecture finding, the test requirements above and one performance measurement gap; no additional code-quality finding. Independent native review and parent authorization do not count as external-provider coverage. The original user sample is measured evidence, thresholds and cap are approved constants, and live phase/recurrence distributions remain unverified.
+
+D8 verification receipt: the private Release build passed with zero warnings, and all 17 deterministic assertions passed. These include injected-clock and real-clock zero-allocation checks using the canonical helper. The cause of the user's 24.489 ms interval remains unknown.
+
+The separate no-op experiment ran on Windows 10.0.26100, .NET 10.0.14 x64, with 10 interleaved batches of 10,000 calls each and 2,000 warmup calls per batch. Median times were 0.000545 µs for an empty delegate, 0.017145 µs for disabled seven-boundary calls and 0.344005 µs for enabled seven-phase calls. The observed incremental median was approximately 0.32686 µs. The first empty-loop batch, 0.88647 µs, was retained. These are warm synthetic batch observations with JIT/scheduling noise, not measured game-frame overhead or causal attribution. The benchmark completed 120,000 enabled intervals and zero disabled intervals. All 30 raw observations and counters are retained in `work/update-tail-counter-checks/results.txt`.
+
+Source readback confirms the parent's integration uses Begin followed by `try UpdateCore(framework, ref timing)` and `finally timing.Complete()`, including the fixed phase and early-setup boundaries. The parent reports a current Release result of 56/56 groups passed with zero skips, including the 17 new timing assertions; independent review found no defect. This lane made no Plugin, UI or Program edits. Final metadata, coverage, packaging and live verification remain the parent's responsibility. Live phase data is uncollected until the user enables diagnostics. No reset or GC-overlap collector was added.
+
+The fresh outside-review preflight found no installed Claude CLI, and the required bounded native fallback tools are absent. External coverage remains unavailable, not clean. QA requirements and the required focused review log were persisted separately. JSONL task aggregation remains unavailable because jq is absent, following the skill's documented fallback.
+
 ## GSTACK REVIEW REPORT
 
 | Review | Trigger | Why | Runs | Status | Findings |
 |---|---|---|---|---|---|
 | CEO Review | none | routine verification scope | 0 | not requested | none |
 | Outside Review | Claude Code preflight | independent second opinion | 1 attempt | unavailable | CLI absent; required native fallback contract absent |
-| Eng Review | /plan-eng-review | architecture, tests, performance | 1 current | ISSUES OPEN | 10 mapped issues, 0 proposed critical silent gaps |
+| Eng Review | /plan-eng-review | architecture, tests, performance | 3 current | ISSUES OPEN | Update-tail amendment:5 mapped requirements/findings; prior scope retained;0 critical silent gaps |
 | Design Review | none | no UI scope | 0 | not applicable | none |
 | DX Review | none | console diagnostics covered here | 0 | not requested | none |
 

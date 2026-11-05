@@ -264,10 +264,10 @@ internal static unsafe class SfxNativeTraceChecks
                 BitConverter.ToInt32(frozen[0].Header.AsSpan().Slice(0x38, 4)) == -12345,
                 "Negative native reservation/controller IDs lost their exact sign or layout/entry provenance");
             for (var i = 0; i < 2000; i++) trace.ObserveResolution(0x8000, -12345, (nint)entry);
-            var before = GC.GetAllocatedBytesForCurrentThread();
-            for (var i = 0; i < 10000; i++) trace.ObserveResolution(0x8000, -12345, (nint)entry);
-            check(GC.GetAllocatedBytesForCurrentThread() == before && trace.Resolutions.Length == 1,
-                "Repeated native resolution callbacks allocated or duplicated an established controller link");
+            Action observeResolution = () => trace.ObserveResolution(0x8000, -12345, (nint)entry);
+            var allocated = AllocationChecks.MeasureAllocations(observeResolution, warmup: 0, iterations: 10000);
+            check(allocated == 0 && trace.Resolutions.Length == 1,
+                $"Repeated native resolution callbacks allocated {allocated} bytes or duplicated an established controller link");
             *(int*)(entry + 0x10) = -54320;
             trace.ObserveResolution(0x8000, -12345, (nint)entry);
             *(nint*)(entry + 0x18) = 0x9001;
@@ -309,11 +309,11 @@ internal static unsafe class SfxNativeTraceChecks
             {
                 if (stopped) { trace.Start(); trace.Stop(); }
                 ExerciseDisabled(trace, unreadable, 2000);
-                var before = GC.GetAllocatedBytesForCurrentThread();
-                ExerciseDisabled(trace, unreadable, 10000);
-                check(GC.GetAllocatedBytesForCurrentThread() == before && trace.TraceError == null &&
+                Action exerciseDisabled = () => ExerciseDisabledOnce(trace, unreadable);
+                var allocated = AllocationChecks.MeasureAllocations(exerciseDisabled, warmup: 0, iterations: 10000);
+                check(allocated == 0 && trace.TraceError == null &&
                     trace.Acquisitions.Length == 0 && trace.Voices.Length == 0 && trace.PoolSounds.Length == 0 && trace.Resolutions.Length == 0,
-                    "Disabled native diagnostics allocated, read inaccessible native memory, or collected observations");
+                    $"Disabled native diagnostics allocated {allocated} bytes, read inaccessible native memory, or collected observations");
             }
             trace.Start();
             trace.ObserveVoice((GameAudioLayout.SourceVoice*)unreadable, (GameAudioLayout.RootSound*)unreadable);
@@ -341,13 +341,15 @@ internal static unsafe class SfxNativeTraceChecks
 
     private static void ExerciseDisabled(SfxNativeTrace trace, nint unreadable, int count)
     {
-        for (var i = 0; i < count; i++)
-        {
-            trace.ObserveAcquisition((GameAudioLayout.SoundData*)unreadable, 0, 0, 0, default);
-            trace.ObserveVoice((GameAudioLayout.SourceVoice*)unreadable, (GameAudioLayout.RootSound*)unreadable);
-            trace.ObserveResolution(unreadable, -123, unreadable);
-            trace.CapturePool();
-        }
+        for (var i = 0; i < count; i++) ExerciseDisabledOnce(trace, unreadable);
+    }
+
+    private static void ExerciseDisabledOnce(SfxNativeTrace trace, nint unreadable)
+    {
+        trace.ObserveAcquisition((GameAudioLayout.SoundData*)unreadable, 0, 0, 0, default);
+        trace.ObserveVoice((GameAudioLayout.SourceVoice*)unreadable, (GameAudioLayout.RootSound*)unreadable);
+        trace.ObserveResolution(unreadable, -123, unreadable);
+        trace.CapturePool();
     }
 
     [DllImport("kernel32.dll", SetLastError = true)]

@@ -52,9 +52,9 @@ internal static unsafe class HapticEnableCueChecks
 
         var allocationCue = new HapticEnableCue(long.MaxValue);
         allocationCue.Render(pcm, 1); // Warm the render path before measuring.
-        var allocated = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 0; i < blocks; i++) allocationCue.Render(pcm, 1);
-        check(GC.GetAllocatedBytesForCurrentThread() == allocated, "Confirmation allocated on the audio render path");
+        Action renderCue = () => allocationCue.Render(pcm, 1);
+        var allocated = AllocationChecks.MeasureAllocations(renderCue, warmup: 0, iterations: blocks);
+        check(allocated == 0, $"Confirmation allocated {allocated} bytes on the audio render path");
 
         var table = stackalloc nint[16]; new Span<nint>(table, 16).Clear();
         var mix = (nint)(delegate* unmanaged<nint, float*, uint, float, uint, void>)&Capture;

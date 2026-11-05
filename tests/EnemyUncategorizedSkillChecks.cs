@@ -273,12 +273,15 @@ internal static class EnemyUncategorizedSkillChecks
             catalog.ObserveCast(actor, 2000, 8519, 1); catalog.TimelineKey("mon_sp/m0555/mon_sp001"u8, actor);
             catalog.TimelineKey("mon_sp/m0555/mon_sp001"u8);
         }
-        var before = GC.GetAllocatedBytesForCurrentThread(); var matched = 0;
-        for (var i = 0; i < 10000; i++)
+        var matched = 0;
+        Action lookupSkill = () =>
+        {
             if (catalog.ObserveCast(actor, 2000, 8519, 1) && !catalog.ObserveCast(actor, 2001, 8542, 1) &&
                 catalog.Action(8519, 1).IsSkill && catalog.TimelineKey("mon_sp/m0555/mon_sp001"u8, actor).IsSkill &&
                 catalog.TimelineKey("mon_sp/m0555/mon_sp001"u8).IsSkill) matched++;
-        check(matched == 10000 && GC.GetAllocatedBytesForCurrentThread() == before,
-            "Cast observation or uncategorized skill/template lookup allocated on the repeated native callback path");
+        };
+        var allocated = AllocationChecks.MeasureAllocations(lookupSkill, warmup: 0, iterations: 10000);
+        check(matched == 10000 && allocated == 0,
+            $"Cast observation or uncategorized skill/template lookup allocated {allocated} bytes on the repeated native callback path");
     }
 }

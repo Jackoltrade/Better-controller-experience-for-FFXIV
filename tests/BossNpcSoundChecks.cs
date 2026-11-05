@@ -67,7 +67,7 @@ internal static unsafe class BossNpcSoundChecks
     private static void CheckNpcSounds(Action<bool, string> check)
     {
         var reads = 0;
-        using var fixture = new Fixture(_ => { reads++; return true; });
+        using var fixture = new Fixture(_ => { reads++; return false; });
         var ownership = fixture.Ownership;
         var npc = ownership.ResolveTimelineCaster(20, 0);
         check(npc != null && npc.Actor == Npc.Actor, "The broad NPC policy lost exact timeline-owner resolution");
@@ -84,7 +84,7 @@ internal static unsafe class BossNpcSoundChecks
                 check(reservation.Action == tag && reservation.Origin == origin && reservation.TimelineOwnerIndex == 20,
                     "Broad NPC routing fabricated an action tag or discarded its source provenance");
             }
-        check(reads == 0, "The all-NPC SFX policy still suppressed or read targeting-cue filenames");
+        check(reads == 12, "Real NPC effects were not classified once per reservation or repeated cached filename reads");
         fixture.Pool->IsPositional = 0;
         check(ownership.EnemyKindOf(500) == EnemySoundKind.Boss && !ownership.TryGetEnemyPosition(500, out _),
             "Broad NPC routing invented a position for a nonpositional native sound");
@@ -93,14 +93,14 @@ internal static unsafe class BossNpcSoundChecks
         check(!ownership.TryGetEnemyPosition(500, out _), "Broad NPC routing admitted a nonfinite source position");
         fixture.Pool->Position = new(3, 0, 4);
         for (var i = 0; i < 100; i++) ownership.EnemyKindOf(500);
-        var before = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 0; i < 10000; i++)
+        Action lookup = () =>
         {
             ownership.EnemyKindOf(500);
             ownership.TryGetEnemyPosition(500, out _);
-        }
-        check(GC.GetAllocatedBytesForCurrentThread() == before && reads == 0,
-            "Broad NPC audio lookups allocated or read native filenames on the mixer path");
+        };
+        var allocated = AllocationChecks.MeasureAllocations(lookup, warmup: 0, iterations: 10000);
+        check(allocated == 0 && reads == 12,
+            $"Broad NPC audio lookups allocated {allocated} bytes or repeated cached native filename reads");
     }
 
     private static void CheckOwnershipLifetime(Action<bool, string> check)

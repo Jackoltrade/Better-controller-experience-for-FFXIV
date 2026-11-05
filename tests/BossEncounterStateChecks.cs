@@ -211,11 +211,14 @@ internal static class BossEncounterStateChecks
             check(state.Classify(invalid) == invalid, "An invalid native actor was promoted during boss combat");
         var promoted = neutral with { Kind = EnemySoundKind.Boss, Role = EnemyActorRole.BossEncounter };
         for (var i = 0; i < 2000; i++) { state.Classify(neutral); state.Classify(changedPresentation); }
-        var before = GC.GetAllocatedBytesForCurrentThread(); var matched = 0;
-        for (var i = 0; i < 10000; i++)
+        var matched = 0;
+        Action classify = () =>
+        {
             if (state.Classify(neutral) == promoted && state.Classify(changedPresentation) == regular) matched++;
-        check(matched == 10000 && GC.GetAllocatedBytesForCurrentThread() == before,
-            "Repeated active encounter classification allocated or lost regular-NPC exemptions");
+        };
+        var allocated = AllocationChecks.MeasureAllocations(classify, warmup: 0, iterations: 10000);
+        check(matched == 10000 && allocated == 0,
+            $"Repeated active encounter classification allocated {allocated} bytes or lost regular-NPC exemptions");
         state.Update(100, 263, 12345, false, false);
         check(state.Classify(changedPresentation) == changedPresentation && state.Count == 1 && state.WasRegular(known),
             "Inactive classification rewrote input metadata or erased regular history");
@@ -231,14 +234,15 @@ internal static class BossEncounterStateChecks
         var state = new BossEncounterState(4); var actor = Regular(1);
         state.Update(100, 263, 12345, false, false); state.RememberRegular(actor);
         for (var i = 0; i < 2000; i++) { state.RememberRegular(actor); state.WasRegular(actor); }
-        var before = GC.GetAllocatedBytesForCurrentThread(); var found = 0;
-        for (var i = 0; i < 10000; i++)
+        var found = 0;
+        Action update = () =>
         {
             state.Update(100, 263, 12345, false, false);
             if (state.RememberRegular(actor) && state.WasRegular(actor)) found++;
-        }
-        check(found == 10000 && state.Count == 1 && GC.GetAllocatedBytesForCurrentThread() == before,
-            "Stable framework updates or repeated regular identity lookups allocated or duplicated memory entries");
+        };
+        var allocated = AllocationChecks.MeasureAllocations(update, warmup: 0, iterations: 10000);
+        check(found == 10000 && state.Count == 1 && allocated == 0,
+            $"Stable framework updates or repeated regular identity lookups allocated {allocated} bytes or duplicated memory entries");
     }
 
     private static (GameAudioLayout.EnemyActor[] Actors, GameAudioLayout.EnemyActor[] Retained, uint[] Seeds) OwnershipFixture()
@@ -328,14 +332,15 @@ internal static class BossEncounterStateChecks
         var actors = new GameAudioLayout.EnemyActor[fixture.Actors.Length];
         for (var i = 0; i < 2000; i++)
         { fixture.Actors.AsSpan().CopyTo(actors); state.ExcludePlayerOwned(actors, fixture.Seeds); }
-        var before = GC.GetAllocatedBytesForCurrentThread(); var matched = 0;
-        for (var i = 0; i < 10000; i++)
+        var matched = 0;
+        Action exclude = () =>
         {
             fixture.Actors.AsSpan().CopyTo(actors);
             if (state.ExcludePlayerOwned(actors, fixture.Seeds) == fixture.Retained.Length) matched++;
-        }
-        check(matched == 10000 && GC.GetAllocatedBytesForCurrentThread() == before &&
+        };
+        var allocated = AllocationChecks.MeasureAllocations(exclude, warmup: 0, iterations: 10000);
+        check(matched == 10000 && allocated == 0 &&
             actors.AsSpan(0, fixture.Retained.Length).SequenceEqual(fixture.Retained),
-            "Repeated player-owned closure allocated or changed its stable compacted NPC output");
+            $"Repeated player-owned closure allocated {allocated} bytes or changed its stable compacted NPC output");
     }
 }

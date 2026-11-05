@@ -125,10 +125,9 @@ internal static unsafe class EnemyHapticChecks
                 "Despawning the boss left a stale summon voice attributed to it");
         }
         finally { NativeMemory.Free(pool); }
-        for (var i = 0; i < 2000; i++) GameAudioLayout.SelectEnemyActors(knives, selected);
-        var before = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 0; i < 10000; i++) GameAudioLayout.SelectEnemyActors(knives, selected);
-        check(GC.GetAllocatedBytesForCurrentThread() == before, "Summon resolution allocated during framework publication");
+        Action select = () => GameAudioLayout.SelectEnemyActors(knives, selected);
+        var allocated = AllocationChecks.MeasureAllocations(select, warmup: 2000, iterations: 10000);
+        check(allocated == 0, $"Summon resolution allocated {allocated} bytes during framework publication");
     }
 
     private static void CheckBossHelpers(Action<bool, string> check)
@@ -275,16 +274,16 @@ internal static unsafe class EnemyHapticChecks
             // attributing runtime setup allocations to the audio algorithm.
             for (var i = 0; i < 20000; i++)
             { ownership.SetEnemies(actors, 778); ownership.EnemyKindOf(1003); ownership.TryGetEnemyPosition(1003, out _); }
-            var before = GC.GetAllocatedBytesForCurrentThread();
             var count = 0;
-            for (var i = 0; i < 10000; i++)
+            Action publish = () =>
             {
                 ownership.SetEnemies(actors, 778);
                 if (ownership.EnemyKindOf(1003) == EnemySoundKind.Regular && ownership.TryGetEnemyPosition(1003, out _)) count++;
                 ownership.ResolveCaster(200, 0); ownership.ResolveTimelineCaster(30, 1);
-            }
-            check(GC.GetAllocatedBytesForCurrentThread() == before && count == 10000,
-                "Steady-state enemy publication or audio attribution allocated managed memory");
+            };
+            var allocated = AllocationChecks.MeasureAllocations(publish, warmup: 0, iterations: 10000);
+            check(allocated == 0 && count == 10000,
+                $"Steady-state enemy publication or audio attribution allocated {allocated} bytes");
         }
         finally { NativeMemory.Free(pool); }
     }
@@ -503,12 +502,14 @@ internal static unsafe class EnemyHapticChecks
                 "A nonfinite position contaminated an otherwise valid ownership observation");
             pool->Position = new(7, 8, 9);
             for (var i = 0; i < 1000; i++) ownership.Inspect(404, true, true);
-            var allocated = GC.GetAllocatedBytesForCurrentThread();
             var accepted = 0;
-            for (var i = 0; i < 10000; i++)
+            Action inspect = () =>
+            {
                 if (ownership.Inspect(404, true, true) is { Owned: true, HitReaction: false, Position: { X: 7, Y: 8, Z: 9 } }) accepted++;
-            check(accepted == 10000 && GC.GetAllocatedBytesForCurrentThread() == allocated,
-                "Per-voice ownership inspection allocated or lost valid observations");
+            };
+            var allocated = AllocationChecks.MeasureAllocations(inspect, warmup: 0, iterations: 10000);
+            check(accepted == 10000 && allocated == 0,
+                $"Per-voice ownership inspection allocated {allocated} bytes or lost valid observations");
             ownership.SetPlayer(0, 0, 0);
             check(ownership.Inspect(404, true, true) == default && ownership.Inspect(0, true, true) == default,
                 "Voice inspection survived logout or accepted a nonpositive playback ID");

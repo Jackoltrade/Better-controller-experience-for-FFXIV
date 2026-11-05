@@ -2,8 +2,11 @@
 
 Baseline: `9354236` (2026-11-05). The original review rated the project **7.3/10**.
 Scores are engineering judgments, not assertion counts or coverage percentages.
-This change addresses every confirmed finding; it does **not** claim the requested
-9+ target has been independently established. See [verification and limits](verification.md).
+The final independent assessment is **9.1/10** under the unchanged weights.
+The original findings are addressed, and the requested current in-game smoke
+checks pass. See [the independent review](final-review.md),
+[verification and limits](verification.md), and the
+[requirement-by-requirement completion audit](completion-audit.md).
 
 ## Findings and changes
 
@@ -13,12 +16,12 @@ This change addresses every confirmed finding; it does **not** claim the request
 | Separate left/right publication can split one centered sample | Confirmed. Stereo peaks now use one atomic pair and retired accumulator epochs. |
 | Failed autosaves retry each framework frame | Confirmed. Debounced saves retain dirty revisions, apply a five-second retry floor, serialize storage callbacks and expose a deduplicated error. Explicit consent saves still propagate failure. |
 | Allocation failure aborts later checks | Confirmed. Named independent groups continue, retain original diagnostics and return failure. Exact allocation checks include the delta and runtime context; their thresholds are unchanged. |
-| Allocation inconsistency | Reproduced intermittent 6,192-byte first-window allocations on .NET 10.0.14. Cause remains unproven; controls and raw investigation are documented in the test plan. No retry-to-green policy was added. |
+| Allocation inconsistency | Reproduced intermittent 6,192-byte first-window allocations on .NET 10.0.14. Cause remains unproven. A demonstrated harness-scope flaw is repaired using a shared test measurement boundary; unchanged strict checks and positive controls now pass. No retry-to-green policy was added. |
 | Plugin mixes rendering, recording and lifecycle | SettingsUi owns rendering/windows; DiagnosticRecordingCoordinator owns recording intents, save ordering and deletion. Plugin retains wiring, framework and worker orchestration. |
 | Raw actor offsets scattered through Plugin | Existing GameAudioLayout now owns the typed, bounded, identity-checked read. Public OwnerId replaces its raw offset. Installed client metadata is checked. |
 | Exceptional cleanup can stop at the first failure | Independent cleanup attempts now cover constructor failure, worker exit and shutdown. Original initialization exceptions are preserved. |
 | Selected-helper timing is insufficient | Added complete device/report and roster-pipeline fixtures, paired baseline measurements, structural coverage and optional real framework-update timing. Synthetic evidence is explicitly separated from live game timing. |
-| Dependency audit unavailable | Added a fail-closed built-in NuGet audit of the locked production graph and SDK graph. Local Windows feed access remains unavailable; a separate Linux read of the official advisory data found no entries for the three pinned build package IDs. |
+| Dependency audit unavailable | Added a fail-closed built-in NuGet audit of the locked production graph and SDK graph. The follow-up native Windows audit now passes against the official feed, including the SDK graph; an isolated known-vulnerable package is rejected with NU1903. The original feed failure came from an inherited proxy scheme. |
 
 ## Reviewed plans
 
@@ -34,7 +37,19 @@ outside review.
 - [Testing and performance](testing-performance-plan.md)
 
 The parent owns integration, fresh Release verification, independent adversarial
-probes and commit review. Shared development DLL publication is parent-controlled.
+probes and commit review. Local checks pass after the reviewed allocation-test
+repair. The latest user timing sample is 20,286 updates, 0.044 ms average and
+0.751 ms maximum; the earlier 24.489 ms peak remains unattributed. Their Info
+Escape check exposed target cancellation beyond the focus-handoff issue. The
+updated DLL consumes the dialog key before native Tick and passes installed
+key-buffer/window tests; the user confirms both dialogs retain the selected
+target. The recorded shared
+stack warning is now excluded without removing the impact. The train vibration
+was traced to screen effects and stops when that option is off; no speculative
+boss filter was added. The user confirms quiet arrows with the impact retained,
+plus lighting/preview, all three languages, native walking/mount vibration and
+controller sound, Alt-Tab lights-off release, and reconnect.
+Shared development DLL publication is parent-controlled.
 
 ## Preserved contracts
 

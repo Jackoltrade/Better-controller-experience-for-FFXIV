@@ -38,6 +38,7 @@ public sealed partial class Plugin : IDalamudPlugin
     private readonly IDalamudPluginInterface pluginInterface;
     private readonly ICommandManager commands;
     private readonly IFramework framework;
+    private readonly IKeyState keyState;
     private readonly IPluginLog log;
     private readonly IChatGui chat;
     private readonly Configuration configuration;
@@ -86,7 +87,7 @@ public sealed partial class Plugin : IDalamudPlugin
     private bool commandRegistered;
     private int disposed;
     private int measureUpdates;
-    private long updateSamples, updateTotalTicks, updateMaxTicks;
+    private readonly UpdateTiming updateTiming = new();
     private long hapticEnableCueDeadline;
     private GameAudioLayout.EnemyActor[] enemyActors;
     private GameAudioLayout.EnemyActor[] enemyCandidates;
@@ -96,11 +97,12 @@ public sealed partial class Plugin : IDalamudPlugin
 
     public Plugin(IDalamudPluginInterface pluginInterface, ICommandManager commands,
         IFramework framework, IGameInteropProvider interop, IPluginLog log, ITextureProvider textures, ISigScanner scanner,
-        IObjectTable objects, IDataManager data, IClientState clientState, IChatGui chat, ICondition condition)
+        IObjectTable objects, IDataManager data, IClientState clientState, IChatGui chat, ICondition condition, IKeyState keyState)
     {
         this.pluginInterface = pluginInterface;
         this.commands = commands;
         this.framework = framework;
+        this.keyState = keyState;
         this.log = log;
         this.chat = chat;
         this.interop = interop;
@@ -141,8 +143,7 @@ public sealed partial class Plugin : IDalamudPlugin
                 () => new UiRuntimeState(Volatile.Read(ref audioCapture), limitBreakCapture, audioError, limitBreakError,
                     rumbleError, Volatile.Read(ref lastError), Volatile.Read(ref sfxLevel), Volatile.Read(ref sfxRms),
                     BluetoothOutput, UsesRegularRumble, ActiveRumble.Slot, bossEncounter.Count, Volatile.Read(ref limitBreakState), clientState.IsPvP,
-                    Volatile.Read(ref measureUpdates) != 0, Interlocked.Read(ref updateSamples),
-                    Interlocked.Read(ref updateTotalTicks), Interlocked.Read(ref updateMaxTicks), audioInitialization != null),
+                    Volatile.Read(ref measureUpdates) != 0, updateTiming, audioInitialization != null),
                 Changed, PublishSettings, Save, request => Interlocked.Exchange(ref rumbleTestRequested, request),
                 () => { if (commandInfo != null) commandInfo.HelpMessage = uiText.Get("Configure lighting and haptics. Use /bcef help for feature commands."); }, ReportError, enabled => Volatile.Write(ref measureUpdates, enabled ? 1 : 0));
             windowOpen = ui.IsOpen;
@@ -268,6 +269,7 @@ public sealed partial class Plugin : IDalamudPlugin
 
     private void OnCommand(string command, string args)
     {
+        if (Volatile.Read(ref disposed) != 0) return;
         var parsed = PluginCommand.Parse(args);
         switch (parsed.Kind)
         {
@@ -328,9 +330,15 @@ public sealed partial class Plugin : IDalamudPlugin
         chat.Print(T("Features: lighting, haptics, combathaptics, playersfx, footsteps, spatialhaptics, distancefade, followimpact."));
     }
 
-    private void Open() { ui.Open(); Volatile.Write(ref windowOpen, true); }
+    private void Open()
+    {
+        if (Volatile.Read(ref disposed) != 0) return;
+        ui.Open();
+        Volatile.Write(ref windowOpen, true);
+    }
     private void Draw()
     {
+        if (Volatile.Read(ref disposed) != 0) return;
         try { ui.Draw(); }
         finally { Volatile.Write(ref windowOpen, ui.IsOpen); }
     }
@@ -339,27 +347,23 @@ public sealed partial class Plugin : IDalamudPlugin
 
     private void Update(IFramework framework)
     {
-        if (Volatile.Read(ref measureUpdates) == 0 || Interlocked.Read(ref updateSamples) >= 1_000_000)
-        { UpdateCore(framework); return; }
-        var started = Stopwatch.GetTimestamp();
-        try { UpdateCore(framework); }
-        finally
-        {
-            var elapsed = Stopwatch.GetTimestamp() - started;
-            Interlocked.Add(ref updateTotalTicks, elapsed);
-            if (elapsed > Interlocked.Read(ref updateMaxTicks)) Interlocked.Exchange(ref updateMaxTicks, elapsed);
-            Interlocked.Increment(ref updateSamples);
-        }
+        if (Volatile.Read(ref disposed) != 0) return;
+        var timing = updateTiming.Begin(Volatile.Read(ref measureUpdates) != 0);
+        try { UpdateCore(framework, ref timing); }
+        finally { timing.Complete(); }
     }
 
-    private unsafe void UpdateCore(IFramework _)
+    private unsafe void UpdateCore(IFramework _, ref UpdateTiming.Frame timing)
     {
+        ui.ProcessInput(keyState);
         recording.Update();
         if (!Volatile.Read(ref setupReady))
         {
+            timing.Next(UpdateTiming.Phase.SaveGuard);
             saves.TrySaveDue(clock.Elapsed.TotalSeconds);
             return;
         }
+        timing.Next(UpdateTiming.Phase.Observers);
         // Scanning a large executable must not block a game frame. The optional observer
         // remains inactive until its completed initialization is published to the worker.
         var snapshot = Volatile.Read(ref settings);
@@ -392,6 +396,7 @@ public sealed partial class Plugin : IDalamudPlugin
         var capture = Volatile.Read(ref audioCapture);
         if (capture != null)
         {
+            timing.Next(UpdateTiming.Phase.PlayerPublication);
             // ObjectTable is read on the framework thread only. The draw-object field
             // follows the pinned GameObject layout; callbacks receive an immutable identity.
             var player = objects.LocalPlayer;
@@ -401,12 +406,20 @@ public sealed partial class Plugin : IDalamudPlugin
             if (!validPlayer) address = 0;
             capture.SetPlayer(address, validPlayer ? entityId : 0, fields.DrawObject,
                 validPlayer ? player?.Position : null, validPlayer && player?.CurrentMount != null);
+            timing.Next(UpdateTiming.Phase.RosterArena);
             UpdateEnemyActors(capture, validPlayer);
+            timing.Next(UpdateTiming.Phase.ScreenEffects);
             capture.UpdateScreenEffects(address != 0 && !clientState.IsPvP && !condition[ConditionFlag.BetweenAreas] &&
                 !condition[ConditionFlag.BetweenAreas51] && Native.IsCurrentProcessForeground(), clientState.TerritoryType, address);
+            timing.Next(UpdateTiming.Phase.RecordingSample);
             recording.Sample(capture, Volatile.Read(ref hapticSettings), objects);
         }
-        else UpdateEnemyActors(null, (objects.LocalPlayer?.Address ?? 0) != 0);
+        else
+        {
+            timing.Next(UpdateTiming.Phase.RosterArena);
+            UpdateEnemyActors(null, (objects.LocalPlayer?.Address ?? 0) != 0);
+        }
+        timing.Next(UpdateTiming.Phase.SaveGuard);
         saves.TrySaveDue(clock.Elapsed.TotalSeconds);
         if (!reportedGuardError && guard.Errors > 0)
         {
@@ -549,6 +562,9 @@ public sealed partial class Plugin : IDalamudPlugin
 
     private void Shutdown()
     {
+        // Also gate callbacks retained after a failed constructor or detach.
+        // A callback already in progress remains owned by the host's lifecycle.
+        Interlocked.Exchange(ref disposed, 1);
         ResourceCleanup.Run(
             () => framework.Update -= Update,
             () => pluginInterface.UiBuilder.Draw -= Draw,

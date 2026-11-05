@@ -8,6 +8,7 @@ using System.Numerics;
 using System.Text;
 using System.Threading;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Game.ClientState.Keys;
 using Dalamud.Interface;
 using Dalamud.Interface.Components;
 using Dalamud.Interface.ManagedFontAtlas;
@@ -21,10 +22,14 @@ namespace DualSenseLighting.Ui;
 
 internal readonly record struct UiRuntimeState(SfxAudioCapture? Capture, GameLimitBreak? LimitBreak,
     string? AudioError, string? LimitBreakError, string? RumbleError, string? LastError,
-    float SfxLevel, float SfxRms, bool BluetoothOutput, bool UsesRegularRumble, int RumbleSlot, int BossCount, LimitBreakState LimitBreakState, bool IsPvP, bool MeasureUpdates, long UpdateSamples, long UpdateTotalTicks, long UpdateMaxTicks, bool AudioStarted);
+    float SfxLevel, float SfxRms, bool BluetoothOutput, bool UsesRegularRumble, int RumbleSlot, int BossCount, LimitBreakState LimitBreakState, bool IsPvP, bool MeasureUpdates, UpdateTiming Timing, bool AudioStarted);
 
 internal sealed class SettingsUi : IDisposable
 {
+    private bool consumeEscapeUntilRelease;
+    private bool inputHidden;
+    private readonly IUiBuilder uiBuilder;
+    private static readonly Func<bool> IsEscapeDown = Native.IsEscapeDown;
     private static readonly string PluginVersion = typeof(SettingsUi).Assembly.GetName().Version?.ToString(3) ?? "unknown";
     private readonly Configuration configuration;
     private readonly UiText uiText;
@@ -62,6 +67,7 @@ internal sealed class SettingsUi : IDisposable
         Func<LightingSettings> lighting, Func<HapticSettings> haptics, Func<UiRuntimeState> runtime,
         Action changed, Action publishSavedSetup, Action save, Action<int> rumbleTest, Action refreshCommandHelp, Action<Exception> reportError, Action<bool> measureUpdates)
     {
+        uiBuilder = pluginInterface.UiBuilder;
         this.configuration = configuration; this.uiText = uiText; this.session = session; this.guard = guard;
         this.recording = recording; this.saves = saves; this.clock = clock; getLighting = lighting; getHaptics = haptics;
         getRuntime = runtime; Changed = changed; this.publishSavedSetup = publishSavedSetup; Save = save; requestRumbleTest = rumbleTest;
@@ -71,25 +77,42 @@ internal sealed class SettingsUi : IDisposable
         setupLighting = configuration.Enabled; setupHaptics = configuration.HapticEnabled;
         showGeneralInfo = !configuration.HasCompletedSetup;
         dialogWindow = new DialogWindow(DrawDialog);
-        settingsWindow = new SettingsWindow(DrawSettings) { IsOpen = showGeneralInfo, Closed = () => dialogWindow.IsOpen = false };
+        settingsWindow = new SettingsWindow(DrawSettings) { IsOpen = showGeneralInfo };
         preview = new ControllerPreview(textures, uiText);
         IFontHandle? acquiredFont = null;
         try
         {
-            uiFont = acquiredFont = pluginInterface.UiBuilder.FontAtlas.NewDelegateFontHandle(e =>
+            uiFont = acquiredFont = uiBuilder.FontAtlas.NewDelegateFontHandle(e =>
                 e.OnPreBuild(tk => tk.AddDalamudDefaultFont(-1, UiText.GlyphRanges)));
-            windowSystem.AddWindow(settingsWindow); windowSystem.AddWindow(dialogWindow);
+            RegisterWindows();
+            uiBuilder.HideUi += OnHideUi;
+            uiBuilder.ShowUi += OnShowUi;
         }
         catch
         {
-            try { ResourceCleanup.Run(() => windowSystem.RemoveAllWindows(), () => acquiredFont?.Dispose()); } catch { }
+            try { ResourceCleanup.Run(() => uiBuilder.HideUi -= OnHideUi, () => uiBuilder.ShowUi -= OnShowUi,
+                () => windowSystem.RemoveAllWindows(), () => acquiredFont?.Dispose()); } catch { }
             throw;
         }
     }
+    private void RegisterWindows()
+    {
+        settingsWindow.Closed = () => dialogWindow.IsOpen = false;
+        dialogWindow.Closed = () =>
+        {
+            if (settingsWindow.IsOpen) settingsWindow.BringToFront();
+        };
+        // The closed dialog must restore focus before the parent host draws,
+        // so native Escape inhibition never loses a frame during the handoff.
+        windowSystem.AddWindow(dialogWindow);
+        windowSystem.AddWindow(settingsWindow);
+    }
+
     public void Dispose()
     {
         if (Interlocked.Exchange(ref disposed, 1) != 0) return;
-        ResourceCleanup.Run(() => windowSystem.RemoveAllWindows(), () => uiFont.Dispose());
+        ResourceCleanup.Run(() => uiBuilder.HideUi -= OnHideUi, () => uiBuilder.ShowUi -= OnShowUi,
+            () => windowSystem.RemoveAllWindows(), () => uiFont.Dispose());
     }
 
     private void DrawColor(bool secondary, string label)
@@ -108,11 +131,40 @@ internal sealed class SettingsUi : IDisposable
         Changed();
     }
 
+    private void OnHideUi() => Volatile.Write(ref inputHidden, true);
+    private void OnShowUi() => Volatile.Write(ref inputHidden, false);
+
+    internal void ProcessInput(IKeyState keyState) => ProcessInput(keyState, IsEscapeDown);
+
+    internal void ProcessInput(IKeyState keyState, Func<bool> isEscapeDown)
+    {
+        if (consumeEscapeUntilRelease)
+        {
+            // Clear the final release frame too. The independent physical state
+            // remains available even when Draw is skipped or the game key was cleared.
+            keyState[VirtualKey.ESCAPE] = false;
+            if (!isEscapeDown()) consumeEscapeUntilRelease = false;
+            return;
+        }
+        // WindowSystem inhibits addon close events, but target cancel also reads
+        // the game keyboard buffer. Consume the focused dialog's key before Tick.
+        if (!Volatile.Read(ref inputHidden) && settingsWindow.IsOpen && dialogWindow.IsOpen &&
+            (dialogWindow.IsFocused || dialogWindow.RequestFocus) && keyState[VirtualKey.ESCAPE])
+        {
+            dialogWindow.IsOpen = false;
+            consumeEscapeUntilRelease = true;
+            keyState[VirtualKey.ESCAPE] = false;
+        }
+    }
+
     internal void Draw()
     {
         // Include the title bar and PreDraw constraints in the language font.
         runtime = getRuntime();
         using var font = uiFont.Push();
+        // Dialog hosts draw first for focus handoff. Do not draw an orphan
+        // while the closed parent is waiting for its native OnClose callback.
+        if (!settingsWindow.IsOpen) dialogWindow.IsOpen = false;
         windowSystem.Draw();
     }
 
@@ -560,12 +612,7 @@ internal sealed class SettingsUi : IDisposable
 
     private void DrawDiagnostics(bool foreground)
     {
-        var measuring = runtime.MeasureUpdates;
-        if (ImGui.Checkbox(Label("Measure framework updates"), ref measuring)) measureUpdates(measuring);
-        if (runtime.UpdateSamples == 0) ImGui.TextDisabled(T("Framework timing: not collected"));
-        else ImGui.TextUnformatted(F("Framework updates: {0}; average {1:F3} ms; maximum {2:F3} ms",
-            runtime.UpdateSamples, runtime.UpdateTotalTicks * 1000d / Stopwatch.Frequency / runtime.UpdateSamples,
-            runtime.UpdateMaxTicks * 1000d / Stopwatch.Frequency));
+        DrawFrameworkTiming();
         var capture = runtime.Capture;
         ImGui.TextDisabled(F("Version {0}", PluginVersion));
         ImGui.TextUnformatted(T(foreground ? "FFXIV active" : "Background protected — custom output paused"));
@@ -594,6 +641,53 @@ internal sealed class SettingsUi : IDisposable
         if (ImGui.CollapsingHeader(Label("SFX capture"))) DrawSfxDiagnostics(foreground, capture);
         if (ImGui.CollapsingHeader(Label("Haptics"))) DrawHapticDiagnostics(foreground, capture);
         if (ImGui.CollapsingHeader(Label("Limit Break detection"))) DrawLimitBreakDiagnostics(foreground);
+    }
+
+    private void DrawFrameworkTiming()
+    {
+        var measuring = runtime.MeasureUpdates;
+        if (ImGui.Checkbox(Label("Measure framework updates"), ref measuring)) measureUpdates(measuring);
+        Help("Elapsed time includes thread pauses. Samples accumulate until reload, up to 1,000,000. Phase maxima may come from different updates.");
+        var total = runtime.Timing.ReadTotal();
+        if (total.Count == 0) ImGui.TextDisabled(T("Framework timing: not collected"));
+        else ImGui.TextUnformatted(F("Framework updates: {0}; average {1:F3} ms; maximum {2:F3} ms",
+            total.Count, total.TotalTicks * 1000d / Stopwatch.Frequency / total.Count,
+            total.MaxTicks * 1000d / Stopwatch.Frequency));
+        if (total.Count == 0 || !ImGui.CollapsingHeader(Label("Timing breakdown"))) return;
+        ImGui.TextUnformatted(F("Updates ≥1 ms: {0}; ≥5 ms: {1}; ≥16.7 ms: {2}",
+            total.AtLeast1Ms, total.AtLeast5Ms, total.AtLeast16_7Ms));
+        if (!ImGui.BeginTable("##frameworkPhases", 4, ImGuiTableFlags.SizingStretchProp)) return;
+        try
+        {
+            ImGui.TableSetupColumn(T("Phase"), ImGuiTableColumnFlags.WidthStretch, 2);
+            ImGui.TableSetupColumn(T("Samples"));
+            ImGui.TableSetupColumn(T("Average (ms)"));
+            ImGui.TableSetupColumn(T("Maximum (ms)"));
+            ImGui.TableHeadersRow();
+            for (var index = 0; index < UpdateTiming.PhaseCount; index++)
+            {
+                var phase = (UpdateTiming.Phase)index;
+                var sample = runtime.Timing.ReadPhase(phase);
+                var name = phase switch
+                {
+                    UpdateTiming.Phase.RecordingCoordination => "Input / recording",
+                    UpdateTiming.Phase.Observers => "Audio / LB observers",
+                    UpdateTiming.Phase.PlayerPublication => "Player snapshot",
+                    UpdateTiming.Phase.RosterArena => "Actors / arena",
+                    UpdateTiming.Phase.ScreenEffects => "Screen effects",
+                    UpdateTiming.Phase.RecordingSample => "Recording sample",
+                    _ => "Save / guard",
+                };
+                ImGui.TableNextRow();
+                ImGui.TableNextColumn(); ImGui.TextUnformatted(T(name));
+                ImGui.TableNextColumn(); ImGui.TextUnformatted(sample.Count.ToString());
+                ImGui.TableNextColumn(); ImGui.TextUnformatted(sample.Count == 0 ? "—" :
+                    (sample.TotalTicks * 1000d / Stopwatch.Frequency / sample.Count).ToString("F3"));
+                ImGui.TableNextColumn(); ImGui.TextUnformatted(sample.Count == 0 ? "—" :
+                    (sample.MaxTicks * 1000d / Stopwatch.Frequency).ToString("F3"));
+            }
+        }
+        finally { ImGui.EndTable(); }
     }
 
     private void DrawLightingDiagnostics()

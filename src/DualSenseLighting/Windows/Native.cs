@@ -33,6 +33,8 @@ internal static class Native
     internal static extern nint GetForegroundWindow();
     [DllImport("user32.dll")]
     internal static extern uint GetWindowThreadProcessId(nint window, out uint processId);
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int virtualKey);
     [DllImport("hid.dll")]
     internal static extern void HidD_GetHidGuid(out Guid guid);
     [DllImport("hid.dll", SetLastError = true)]
@@ -63,6 +65,10 @@ internal static class Native
     [DllImport("setupapi.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool SetupDiDestroyDeviceInfoList(nint set);
+
+    // The high bit is the current physical state; the low "pressed since" bit
+    // is shared with other processes and cannot determine key ownership.
+    internal static bool IsEscapeDown() => (GetAsyncKeyState(0x1B) & 0x8000) != 0;
 
     internal static bool IsCurrentProcessForeground()
     {

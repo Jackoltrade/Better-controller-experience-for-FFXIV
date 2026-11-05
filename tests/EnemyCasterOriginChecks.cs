@@ -96,11 +96,15 @@ internal static unsafe class EnemyCasterOriginChecks
         var execution = new EnemyActionTag(EnemyActionKind.Skill, TimelineId: 3209, Phase: EnemyActionPhase.Execution, HasAttackType: true);
         for (var i = 0; i < 2000; i++)
             EnemySkillCatalog.TimelineSound(execution, GameAudioLayout.ClipSoundBinding((nint)clip, ActorTable, true));
-        var before = GC.GetAllocatedBytesForCurrentThread(); var accepted = 0;
-        for (var i = 0; i < 10000; i++)
-            if (EnemySkillCatalog.TimelineSound(execution, GameAudioLayout.ClipSoundBinding((nint)clip, ActorTable, true)).IsReleasedEffect) accepted++;
-        check(GC.GetAllocatedBytesForCurrentThread() == before && accepted == 10000,
-            "Native caster-origin binding/tag lookup allocated or lost effect evidence in steady state");
+        var clipAddress = (nint)clip;
+        var accepted = 0;
+        Action observeBinding = () =>
+        {
+            if (EnemySkillCatalog.TimelineSound(execution, GameAudioLayout.ClipSoundBinding(clipAddress, ActorTable, true)).IsReleasedEffect) accepted++;
+        };
+        var allocated = AllocationChecks.MeasureAllocations(observeBinding, warmup: 0, iterations: 10000);
+        check(allocated == 0 && accepted == 10000,
+            $"Native caster-origin binding/tag lookup allocated {allocated} bytes or lost effect evidence in steady state");
     }
 
     private static void CheckAttackTypeEvidence(Action<bool, string> check)
@@ -179,11 +183,14 @@ internal static unsafe class EnemyCasterOriginChecks
                 "A recognized native attack type was excluded from the generic origin-effect rule");
         }
         for (var i = 0; i < 2000; i++) catalog.TimelineKey("mon_sp/m0487/mon_sp009"u8, typedActor);
-        var before = GC.GetAllocatedBytesForCurrentThread(); var count = 0;
-        for (var i = 0; i < 10000; i++)
+        var count = 0;
+        Action lookupAttackType = () =>
+        {
             if (catalog.TimelineKey("mon_sp/m0487/mon_sp009"u8, typedActor).HasAttackType && catalog.Action(100, 1).HasAttackType) count++;
-        check(count == 10000 && GC.GetAllocatedBytesForCurrentThread() == before,
-            "Native attack-type evidence allocated during actor/template or direct action lookup");
+        };
+        var allocated = AllocationChecks.MeasureAllocations(lookupAttackType, warmup: 0, iterations: 10000);
+        check(count == 10000 && allocated == 0,
+            $"Native attack-type evidence allocated {allocated} bytes during actor/template or direct action lookup");
     }
 
     private static void CheckLayoutValidation(Action<bool, string> check)

@@ -108,9 +108,10 @@ internal static class CameraShakeChecks
             tracker.Observe(new(0.1f, 0, 0), Vector3.Zero, At(1.99)) == 0 &&
             tracker.Observe(Vector3.Zero, Vector3.Zero, At(2.01)) == 0,
             "A backward camera timestamp created feedback");
-        var allocated = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 1; i <= 100; i++) tracker.Observe(Vector3.Zero, Vector3.Zero, At(2 + i / 120.0));
-        check(GC.GetAllocatedBytesForCurrentThread() == allocated, "Camera tracking allocated each game frame");
+        var allocationFrame = 1;
+        Action observeFrame = () => tracker.Observe(Vector3.Zero, Vector3.Zero, At(2 + allocationFrame++ / 120.0));
+        var allocated = AllocationChecks.MeasureAllocations(observeFrame, warmup: 0, iterations: 100);
+        check(allocated == 0, $"Camera tracking allocated {allocated} bytes across game frames");
 
         CheckOutputRhythm(check, origin);
     }

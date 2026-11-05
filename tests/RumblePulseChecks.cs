@@ -77,8 +77,9 @@ internal static class RumblePulseChecks
                 { RumbleStrength: 1, RumblePulseMilliseconds: 300 },
             "Basic-rumble reset or invalid-value limits failed");
         pulse.Reset(); pulse.Update(0.5f, 0, 120);
-        var allocated = GC.GetAllocatedBytesForCurrentThread();
-        for (var index = 1; index <= 10000; index++) pulse.Update(0.5f, index * 0.033, 120);
-        check(GC.GetAllocatedBytesForCurrentThread() == allocated, "The pulse renderer allocated during regular updates");
+        var allocationIndex = 1;
+        Action updatePulse = () => pulse.Update(0.5f, allocationIndex++ * 0.033, 120);
+        var allocated = AllocationChecks.MeasureAllocations(updatePulse, warmup: 0, iterations: 10000);
+        check(allocated == 0, $"The pulse renderer allocated {allocated} bytes during regular updates");
     }
 }

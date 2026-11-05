@@ -168,13 +168,15 @@ internal static unsafe class ScreenEffectHapticChecks
             "An earlier busy block delayed the next camera response or a zero-count block read stale PCM");
         fixture.SetNative(1, 0.02f, -0.02f);
         output.MixScreenEffects(destination, true, true, now); // Warm the measured callback path.
-        var allocated = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 0; i < 100; i++)
+        var allocationBlock = 0;
+        Action mixBlock = () =>
         {
+            var i = allocationBlock++;
             fixture.SetNative((short)(1 + i % 8), 0.02f, -0.02f);
             output.MixScreenEffects(destination, true, true, now + i);
-        }
-        check(GC.GetAllocatedBytesForCurrentThread() == allocated, "Screen mixing or its diagnostics allocated on the audio thread");
+        };
+        var allocated = AllocationChecks.MeasureAllocations(mixBlock, warmup: 0, iterations: 100);
+        check(allocated == 0, $"Screen mixing or its diagnostics allocated {allocated} bytes on the audio thread");
     }
 
     private static void CheckHeadroom(Action<bool, string> check)
@@ -451,9 +453,10 @@ internal static unsafe class ScreenEffectHapticChecks
         check(pcm.All(value => Math.Abs(value) <= 0.05f), "Shake did not follow a weaker current camera effect");
         check(!changing.Render(pcm, 0, ScreenEffectKind.Shake) && pcm.All(value => value == 0),
             "A finished shake continued vibrating");
-        var allocated = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 0; i < 100; i++) changing.Render(pcm, 0.25f, profiles[i % profiles.Length]);
-        check(GC.GetAllocatedBytesForCurrentThread() == allocated, "Changing screen textures allocated on the audio thread");
+        var allocationFrame = 0;
+        Action renderTexture = () => changing.Render(pcm, 0.25f, profiles[allocationFrame++ % profiles.Length]);
+        var allocated = AllocationChecks.MeasureAllocations(renderTexture, warmup: 0, iterations: 100);
+        check(allocated == 0, $"Changing screen textures allocated {allocated} bytes on the audio thread");
     }
 
 }

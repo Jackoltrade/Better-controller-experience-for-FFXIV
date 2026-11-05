@@ -35,6 +35,7 @@ internal static class SfxTraceChecks
             SpecialSoundPlaybackChecks.Run(check, assembly);
             ArenaCatalogLifecycleChecks.Run(check, assembly);
             HookOriginalLifecycleChecks.Run(check, assembly);
+            OwnerLifecycleChecks.Run(check, assembly);
             RecordingCoordinatorChecks.Run(check, assembly);
             SettingsConsentChecks.Run(check, assembly);
             GameObjectLayoutChecks.CheckInstalledLayout(check, assembly);

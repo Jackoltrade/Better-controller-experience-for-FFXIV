@@ -63,10 +63,12 @@ internal static unsafe class EnemyEffectChecks
         check(cache.Resolve(collision, 2000, caster) == effect, "An old colliding address cleared a newer effect");
         cache.Observe(0, 1000, caster, execution);
         check(!cache.Resolve(0, 1000, caster).IsSkill, "A null effect inherited skill ownership");
-        for (var i = 0; i < 2000; i++) { cache.Observe(collision, 2000, caster, execution); cache.Resolve(collision, 2000, caster); }
-        var before = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 0; i < 10000; i++) { cache.Observe(collision, 2000, caster, execution); cache.Resolve(collision, 2000, caster); }
-        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Action observeAndResolve = () =>
+        {
+            cache.Observe(collision, 2000, caster, execution);
+            cache.Resolve(collision, 2000, caster);
+        };
+        var allocated = AllocationChecks.MeasureAllocations(observeAndResolve, warmup: 2000, iterations: 10000);
         check(allocated == 0, $"Repeated effect observation/lookup allocated {allocated} bytes in native callbacks " +
             $"(warmup=2000, iterations=10000, thread={Environment.CurrentManagedThreadId}, runtime={Environment.Version})");
         CheckNativeLink(check);

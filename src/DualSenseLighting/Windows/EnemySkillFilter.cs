@@ -157,7 +157,12 @@ internal sealed unsafe class EnemySkillFilter : IDisposable
             throw new NotSupportedException("Enemy skill action layout validation failed.");
         receive = interop.HookFromAddress<ReceiveDelegate>(function, Receive);
         try { receive.Enable(); }
-        catch { receive.Dispose(); throw; }
+        catch (Exception enableFailure)
+        {
+            try { receive.Dispose(); }
+            catch (Exception cleanup) { throw new AggregateException("Enemy skill hook initialization and rollback failed.", enableFailure, cleanup); }
+            throw;
+        }
         // Optional extension: retain the proven sound/helper paths if this
         // client's scene-effect layout cannot be validated.
         try { effects = new EnemyEffectObserver(interop, scanner); }
@@ -254,6 +259,7 @@ internal sealed unsafe class EnemySkillFilter : IDisposable
 
     public void Dispose()
     {
-        if (Interlocked.Exchange(ref disposed, 1) == 0) { effects?.Dispose(); receive.Dispose(); }
+        if (Interlocked.Exchange(ref disposed, 1) != 0) return;
+        ResourceCleanup.Run(() => effects?.Dispose(), () => receive.Dispose());
     }
 }

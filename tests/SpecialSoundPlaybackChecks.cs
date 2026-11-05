@@ -202,11 +202,14 @@ internal static unsafe class SpecialSoundPlaybackChecks
     {
         f.Reset();
         for (var i = 0; i < 2000; i++) resolve((nint)f.Sound, out _);
-        var before = GC.GetAllocatedBytesForCurrentThread(); var mapped = 0;
-        for (var i = 0; i < 10000; i++)
+        var mapped = 0;
+        Action resolvePlayback = () =>
+        {
             if (resolve((nint)f.Sound, out var id) && id == PlaybackId) mapped++;
-        check(GC.GetAllocatedBytesForCurrentThread() == before && mapped == 10000,
-            "Repeated exact special-playback resolution allocated or lost a stable native mapping");
+        };
+        var allocated = AllocationChecks.MeasureAllocations(resolvePlayback, warmup: 0, iterations: 10000);
+        check(allocated == 0 && mapped == 10000,
+            $"Repeated exact special-playback resolution allocated {allocated} bytes or lost a stable native mapping");
     }
 
     [DllImport("kernel32.dll", SetLastError = true)]

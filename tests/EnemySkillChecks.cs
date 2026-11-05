@@ -102,16 +102,18 @@ internal static class EnemySkillChecks
         NpcSpawnMetadataChecks.Run(check);
         CheckHitTargets(check);
         for (var i = 0; i < 2000; i++) catalog.TimelineKey("mon_sp/m0176/mon_sp001_hit"u8);
-        var before = GC.GetAllocatedBytesForCurrentThread();
         var count = 0;
-        for (var i = 0; i < 10000; i++)
+        Action lookupSkill = () =>
+        {
             if (catalog.TimelineKey("mon_sp/m0176/mon_sp001_hit"u8).IsSkill && catalog.Action(39021, 1).IsSkill) count++;
-        check(GC.GetAllocatedBytesForCurrentThread() == before && count == 10000,
-            "Skill metadata lookup allocated on the native sound path");
-        before = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 0; i < 10000; i++)
-        { actor.ObserveAction(39021); catalog.TimelineKey("mon_sp/m0350/mon_sp003"u8, actor); }
-        check(GC.GetAllocatedBytesForCurrentThread() == before, "Per-actor skill history or template lookup allocated in native callbacks");
+        };
+        var allocated = AllocationChecks.MeasureAllocations(lookupSkill, warmup: 0, iterations: 10000);
+        check(allocated == 0 && count == 10000,
+            $"Skill metadata lookup allocated {allocated} bytes on the native sound path");
+        Action observeActor = () =>
+        { actor.ObserveAction(39021); catalog.TimelineKey("mon_sp/m0350/mon_sp003"u8, actor); };
+        allocated = AllocationChecks.MeasureAllocations(observeActor, warmup: 0, iterations: 10000);
+        check(allocated == 0, $"Per-actor skill history or template lookup allocated {allocated} bytes in native callbacks");
     }
 
     private static void CheckBossSounds(Action<bool, string> check, EnemySkillCatalog catalog)
@@ -161,9 +163,9 @@ internal static class EnemySkillChecks
             !ambiguous.TimelineKey("shared"u8, actor).IsReleasedEffect,
             "A timeline used for both caster and impact tracks was assumed to be released-only");
         for (var i = 0; i < 2000; i++) catalog.ClassifySound(helper, emitter, 1, default, default);
-        var before = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 0; i < 10000; i++) catalog.ClassifySound(helper, emitter, 1, default, default);
-        check(GC.GetAllocatedBytesForCurrentThread() == before, "Boss sound classification allocated in audio callbacks");
+        Action classifySound = () => catalog.ClassifySound(helper, emitter, 1, default, default);
+        var allocated = AllocationChecks.MeasureAllocations(classifySound, warmup: 0, iterations: 10000);
+        check(allocated == 0, $"Boss sound classification allocated {allocated} bytes in audio callbacks");
     }
 
     private static void CheckHitTargets(Action<bool, string> check)

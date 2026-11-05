@@ -110,9 +110,8 @@ internal static unsafe class BluetoothStereoChecks
         publisher.GetAwaiter().GetResult();
         check(coherent, "One balanced stereo block split across worker ticks");
         for (var index = 0; index < 1000; index++) { signal.Observe(0.5f, 0.25f, epoch); signal.TakePeak(); }
-        var before = GC.GetAllocatedBytesForCurrentThread();
-        for (var index = 0; index < 10000; index++) { signal.Observe(0.5f, 0.25f, epoch); signal.TakePeak(); }
-        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Action observeAndTake = () => { signal.Observe(0.5f, 0.25f, epoch); signal.TakePeak(); };
+        var allocated = AllocationChecks.MeasureAllocations(observeAndTake, warmup: 0, iterations: 10000);
         check(allocated == 0, $"Stereo publication/consumption allocated {allocated} managed bytes");
     }
 
@@ -158,9 +157,8 @@ internal static unsafe class BluetoothStereoChecks
         output.Configure(requested, true, true);
         for (var index = 0; index < 1000; index++) output.Configure(requested, true, true);
         var snapshot = output.CurrentSettings; var screenSnapshot = output.ScreenSettings;
-        var beforeAllocation = GC.GetAllocatedBytesForCurrentThread();
-        for (var index = 0; index < 10000; index++) output.Configure(requested, true, true);
-        var allocation = GC.GetAllocatedBytesForCurrentThread() - beforeAllocation;
+        Action configure = () => output.Configure(requested, true, true);
+        var allocation = AllocationChecks.MeasureAllocations(configure, warmup: 0, iterations: 10000);
         check(allocation == 0 && ReferenceEquals(snapshot, output.CurrentSettings) && ReferenceEquals(screenSnapshot, output.ScreenSettings),
             $"Unchanged haptic settings reset snapshots or allocated {allocation} bytes");
     }

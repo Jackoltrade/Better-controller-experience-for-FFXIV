@@ -44,9 +44,9 @@ internal static unsafe class EnemyEncounterChecks
         CheckHelperIdentity(check);
         EnemyMechanicRoutingChecks.Run(check);
         for (var i = 0; i < 2000; i++) catalog.IsBoss(0, 13006, 17422, 123);
-        var before = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 0; i < 10000; i++) { catalog.IsBoss(0, 13006, 17422, 123); catalog.IsBoss(0, 13361, 17707, 0); }
-        check(before == GC.GetAllocatedBytesForCurrentThread(), "Boss metadata lookup allocated on framework updates");
+        Action lookup = () => { catalog.IsBoss(0, 13006, 17422, 123); catalog.IsBoss(0, 13361, 17707, 0); };
+        var allocated = AllocationChecks.MeasureAllocations(lookup, warmup: 0, iterations: 10000);
+        check(allocated == 0, $"Boss metadata lookup allocated {allocated} bytes on framework updates");
     }
 
     private static void CheckHelperIdentity(Action<bool, string> check)

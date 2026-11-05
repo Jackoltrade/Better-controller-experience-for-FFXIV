@@ -478,8 +478,8 @@ public static unsafe class GameAudioLayout
                 var kind = owned ? EnemySoundKind.None : KindOf(owner, roster, out role);
                 var encounterNpc = kind == EnemySoundKind.Boss && role == EnemyActorRole.BossEncounter;
                 if (!owned && (kind == EnemySoundKind.None ||
-                    !encounterNpc && (!action.IsSkill || kind == EnemySoundKind.Boss && !action.IsReleasedEffect ||
-                        IsTargetingCue(slot, sound, owner, generation, reservation)))) continue;
+                    !encounterNpc && (!action.IsSkill || kind == EnemySoundKind.Boss && !action.IsReleasedEffect) ||
+                    IsTargetingCue(slot, sound, owner, generation, reservation))) continue;
                 if (sound->IsActive == 0 || sound->SoundId != reservation || sound->ResourceHandle != handle ||
                     sound->SoundNumber != number || includePosition && sound->IsPositional != positional ||
                     generation != Volatile.Read(ref cueGenerations[slot]) ||
