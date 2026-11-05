@@ -33,7 +33,7 @@ Detailed DualSense haptics and controller-speaker effects need **USB**. Enable c
 | `/bcef` | Open settings |
 | `/bcef help` | List commands |
 | `/bcef info` | Open the setup guide |
-| `/bcef trace` | Start or stop a diagnostic recording |
+| `/bcef trace` | Start or stop a diagnostic recording (development installs only) |
 
 Use `/bcef <feature> on`, `off` or `toggle` in chat or a macro:
 
@@ -49,7 +49,7 @@ Features: `lighting`, `haptics`, `combathaptics`, `playersfx`, `footsteps`, `spa
 
 ## Help and feedback
 
-Check **Diagnostics** for connection and output errors. For a missing or unwanted reaction, run `/bcef trace` before the effect, reproduce it, then run it again to stop. Recordings contain diagnostic metadata, not audio; nothing uploads automatically. Review files before sharing. Size, locations and confirmed cleanup are available in Diagnostics.
+**Diagnostics** and `/bcef trace` are available only for plugins loaded through the development flow. Regular installs can report problems through **About → GitHub**. On a development install, check Diagnostics for connection and output errors. For a missing or unwanted reaction, run `/bcef trace` before the effect, reproduce it, then run it again to stop. Recordings contain diagnostic metadata, not audio; nothing uploads automatically. Review files before sharing. Size, locations and confirmed cleanup are available in Diagnostics.
 
 This is a testing project; support can vary by client, patch and controller. See the [user guide](docs/USER-GUIDE.md), [coverage limits](docs/ENEMY-HAPTICS-COVERAGE.md) and [QA report](docs/QA-REPORT.md).
 

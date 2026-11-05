@@ -8,6 +8,8 @@
 
 **公开测试版 · Windows x64 · Dalamud API 15**
 
+本指南提到的诊断页和诊断命令仅在通过开发插件流程加载时可用。
+
 [项目源码](https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-) · [版本下载](https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-/releases) · [提交问题](https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-/issues) · [Ko-fi 支持](https://ko-fi.com/K7C122MEWU)
 
 ![手柄灯光预览](../src/DualSenseLighting/Assets/dualsense-preview.png)
@@ -203,6 +205,8 @@ USB DualSense 通过游戏原生振动处理，把音效变成更细腻的手感
 命令不区分大小写，会自动保存，可直接用于宏而不打开设置。上级关闭时，子项选择仍会保留，聊天栏会提示所需上级开关或 USB 条件。重复输入 `on` 不会重播启用提示。`footsteps off` 恢复原生强度，不会静音脚步振动。Boss／小怪／受击／画面开关和数值设置目前需在界面中调整。
 
 ## 诊断与隐私
+
+本节仅适用于开发插件加载。通过普通插件列表或仓库测试频道安装时，不会显示「诊断」，也不能使用 `/bcef trace`；通过开发流程加载的 Release 构建仍可使用。
 
 「诊断」提供手柄连接、前后台状态、输出选择与错误、马达测试结果、音效归属计数、计算后的左右强度及极限技状态。
 

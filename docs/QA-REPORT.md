@@ -4,6 +4,28 @@ Version: **0.18.0.0** · Checked: **2026-11-05** · Target: **Windows x64, USB/B
 
 The local release build and automated checks pass. This report separates those results from earlier in-game observations and the checks still needed before a public release. It does not establish compatibility with every regional client or game patch.
 
+## Dialog title-bar cleanup
+
+The screenshot showed Dalamud's extra window-options menu overlapping the close
+button. Transient dialogs now disable pinning, click-through and background-blur
+controls; the menu is absent while Close and Escape remain enabled. The Release
+build passes all 56 groups, and an installed-API probe confirms the compiled
+dialog's option and close-hotkey state. No new in-game visual pass is claimed.
+
+## Development-only Diagnostics follow-up
+
+Diagnostics now follows Dalamud's runtime `IsDev` flag. Regular and repository
+testing installs hide the tab and reject recording requests; a Release build
+loaded through the development flow retains it. Compiled UI/command checks cover
+install origin, copied consent, timing activation, help and the normal Info path.
+The Release and separate coverage runs pass 56/56 groups with no skips.
+
+Fresh mapped coverage is 56.13% across source and 23.92% within the compiled
+plugin. UI rendering, audio-adapter and orchestration gaps remain. Helper/roster
+zero-allocation results do not apply to device loops or imply an in-game speedup;
+autosave storage is still synchronous when it runs. See
+[current verification](optimization/verification.md) for identities and scope.
+
 ## Current source: reliability and maintainability optimization
 
 The follow-up refactor and verification are documented in

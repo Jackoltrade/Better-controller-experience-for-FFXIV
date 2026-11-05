@@ -8,6 +8,8 @@ DualSenseのライトと振動をFFXIVに合わせて楽しめる、Dalamud用�
 
 **公開テスト版 · Windows x64 · Dalamud API 15**
 
+このガイドの診断タブと診断コマンドは、開発用プラグインとして読み込んだ場合のみ利用できます。
+
 [ソースコード](https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-) · [リリース](https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-/releases) · [不具合を報告](https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-/issues) · [Ko-fiで応援](https://ko-fi.com/K7C122MEWU)
 
 ![コントローラーのライトプレビュー](../src/DualSenseLighting/Assets/dualsense-preview.png)
@@ -205,6 +207,8 @@ Bluetoothでは、戦闘の方向設定による左右の強さを維持しま�
 大文字・小文字は区別せず、自動保存します。設定画面を開かずにマクロでも使えます。上位スイッチがオフでも選択は保持し、必要なスイッチやUSB条件をチャットに表示します。`on`を繰り返しても通知の振動は再生しません。`footsteps off`は元の強さに戻すだけで、標準の足音振動を消しません。ボス・通常の敵・被ダメージ・画面のスイッチと数値設定は、現在は画面から変更します。
 
 ## 診断とプライバシー
+
+この節は開発用プラグインとして読み込んだ場合のみ対象です。通常のプラグイン一覧やリポジトリのテスト版からインストールした場合、診断タブと `/bcef trace` は利用できません。開発用として読み込んだ Release ビルドでは利用できます。
 
 診断タブには、接続、アクティブ状態、出力先とエラー、モーターテスト結果、発生元カウンター、計算後の左右の強さ、LB状態がまとまっています。
 

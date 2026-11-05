@@ -8,10 +8,18 @@ using DualSenseLighting.Core;
 
 namespace DualSenseLighting.Ui;
 
-internal sealed class DialogWindow(Action draw) : Window(
-    PluginInfo.Name + "###DualSenseLightingDialog",
-    ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoCollapse)
+internal sealed class DialogWindow : Window
 {
+    private readonly Action draw;
+
+    public DialogWindow(Action draw) : base(PluginInfo.Name + "###DualSenseLightingDialog",
+        ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoCollapse)
+    {
+        this.draw = draw;
+        // Transient dialogs need a close button, not persistent-window controls.
+        AllowPinning = AllowClickthrough = AllowBackgroundBlur = false;
+    }
+
     public const float ViewportHeightFraction = 0.9f;
     private string title = PluginInfo.Name;
     private bool pushedStyles;

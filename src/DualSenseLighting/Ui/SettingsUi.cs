@@ -59,6 +59,7 @@ internal sealed class SettingsUi : IDisposable
     private enum ResetTarget { Lighting, Haptics }
     private ResetTarget? resetTarget;
     private bool showGeneralInfo, setupLighting, setupHaptics, showRecordingNotice, selectDiagnostics;
+    internal bool DiagnosticsAvailable { get; }
     internal bool IsOpen => settingsWindow.IsOpen;
     internal void ShowInfo() => showGeneralInfo = true;
     internal SettingsUi(Configuration configuration, UiText uiText, IDalamudPluginInterface pluginInterface,
@@ -67,12 +68,14 @@ internal sealed class SettingsUi : IDisposable
         Func<LightingSettings> lighting, Func<HapticSettings> haptics, Func<UiRuntimeState> runtime,
         Action changed, Action publishSavedSetup, Action save, Action<int> rumbleTest, Action refreshCommandHelp, Action<Exception> reportError, Action<bool> measureUpdates)
     {
+        DiagnosticsAvailable = pluginInterface.IsDev;
         uiBuilder = pluginInterface.UiBuilder;
         this.configuration = configuration; this.uiText = uiText; this.session = session; this.guard = guard;
         this.recording = recording; this.saves = saves; this.clock = clock; getLighting = lighting; getHaptics = haptics;
         getRuntime = runtime; Changed = changed; this.publishSavedSetup = publishSavedSetup; Save = save; requestRumbleTest = rumbleTest;
         this.refreshCommandHelp = refreshCommandHelp;
-        this.reportError = reportError; this.measureUpdates = measureUpdates;
+        this.reportError = reportError;
+        this.measureUpdates = enabled => measureUpdates(DiagnosticsAvailable && enabled);
         uiText.Language = Enum.IsDefined(configuration.Language) ? configuration.Language : UiLanguage.English;
         setupLighting = configuration.Enabled; setupHaptics = configuration.HapticEnabled;
         showGeneralInfo = !configuration.HasCompletedSetup;
@@ -210,7 +213,7 @@ internal sealed class SettingsUi : IDisposable
                         try { DrawHaptics(); }
                         finally { ImGui.EndDisabled(); ImGui.EndTabItem(); }
                     }
-                    if (ImGui.BeginTabItem(Label("Diagnostics"), selectDiagnostics ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None))
+                    if (DiagnosticsAvailable && ImGui.BeginTabItem(Label("Diagnostics"), selectDiagnostics ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None))
                     {
                         selectDiagnostics = false;
                         try { DrawDiagnostics(foreground); }
@@ -830,17 +833,19 @@ internal sealed class SettingsUi : IDisposable
     }
 
 
-    internal void RequestTraceToggle()
+    internal bool RequestTraceToggle()
     {
+        if (!DiagnosticsAvailable) return false;
         selectDiagnostics = true;
         if (!recording.Active && !configuration.CanRecordDiagnostics())
         {
             if (!configuration.HasCompletedSetup) showGeneralInfo = true;
             else showRecordingNotice = true;
             Open();
-            return;
+            return true;
         }
         recording.RequestToggle();
+        return true;
     }
 
     // UI and commands only post intent. The framework owns the recorder, final
@@ -950,7 +955,9 @@ internal sealed class SettingsUi : IDisposable
                 if (ImGui.CollapsingHeader(Label("How it works and privacy")))
                 {
                     DrawInfoItem("How it works", "The plugin reads sound, camera and encounter data inside FFXIV and hooks native functions to add controller effects. Game updates and other plugins can affect compatibility.");
-                    DrawInfoItem("Privacy", "Game audio is processed locally. No extra controller drivers or services are installed. There is no microphone recording, telemetry or automatic upload. Diagnostic recording is optional.");
+                    DrawInfoItem("Privacy", DiagnosticsAvailable
+                        ? "Game audio is processed locally. No extra controller drivers or services are installed. There is no microphone recording, telemetry or automatic upload. Diagnostic recording is optional."
+                        : "Game audio is processed locally. No extra controller drivers or services are installed. There is no microphone recording, telemetry or automatic upload.");
                 }
             }
         }
@@ -1230,7 +1237,8 @@ internal sealed class SettingsUi : IDisposable
             if (ImGui.Button(Label("Test left/right motors"))) requestRumbleTest(2);
         }
         finally { ImGui.EndDisabled(); }
-        Help("Plays left, then right, using your current balance. Commands remain visible in Diagnostics.");
+        Help(DiagnosticsAvailable ? "Plays left, then right, using your current balance. Commands remain visible in Diagnostics."
+            : "Plays left, then right, using your current balance.");
     }
 
     private void DrawCombatHaptics()

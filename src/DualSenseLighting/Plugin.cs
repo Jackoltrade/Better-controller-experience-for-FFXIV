@@ -275,7 +275,10 @@ public sealed partial class Plugin : IDalamudPlugin
         {
             case PluginCommandKind.Open: Open(); return;
             case PluginCommandKind.Info: ui.ShowInfo(); Open(); return;
-            case PluginCommandKind.Trace: ui.RequestTraceToggle(); Open(); return;
+            case PluginCommandKind.Trace:
+                if (ui.RequestTraceToggle()) Open();
+                else chat.Print(PluginInfo.ChatPrefix + T("Diagnostics is only available for development installs."));
+                return;
             case PluginCommandKind.Help: PrintCommandHelp(); return;
             case PluginCommandKind.Invalid:
                 chat.PrintError(PluginInfo.ChatPrefix + T("Unknown command or value. Use /bcef help for syntax."));
@@ -325,7 +328,9 @@ public sealed partial class Plugin : IDalamudPlugin
 
     private void PrintCommandHelp()
     {
-        chat.Print(PluginInfo.ChatPrefix + T("/bcef opens settings. /bcef info opens the guide. /bcef trace starts or stops diagnostics."));
+        chat.Print(PluginInfo.ChatPrefix + T(ui.DiagnosticsAvailable
+            ? "/bcef opens settings. /bcef info opens the guide. /bcef trace starts or stops diagnostics."
+            : "/bcef opens settings. /bcef info opens the guide."));
         chat.Print(T("Usage: /bcef <feature> <on|off|toggle>"));
         chat.Print(T("Features: lighting, haptics, combathaptics, playersfx, footsteps, spatialhaptics, distancefade, followimpact."));
     }

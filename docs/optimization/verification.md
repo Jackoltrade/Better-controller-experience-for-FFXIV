@@ -3,20 +3,80 @@
 Baseline: `9354236`. This is a reliability/maintainability change, not a new
 feature release; package identity and version remain 0.18.0.0.
 
-## Current verification status
+## Current results
 
-The current local Release gate passes (zero warnings/errors):
+**Escape handling passes the final user-assisted check:** Info and Reset close
+without clearing the selected target, including held Escape. The failed checks
+below are historical; they preceded the corrected 9d2 build.
+
+Transient dialogs now disable Dalamud's pinning, click-through and background-blur
+options. This removes the extra title-bar menu that overlapped the close button
+in the reported screenshot. The compiled-dialog probe confirms those options
+are off while the close button and Escape handling remain enabled.
+
+Diagnostics is available only when Dalamud reports `IDalamudPluginInterface.IsDev`.
+Regular repository installs, including testing releases, hide the tab and reject
+`/bcef trace` without opening recording consent or starting a recording. Release
+builds loaded through the development flow retain Diagnostics. Framework timing
+activation follows the same gate; saved consent cannot override install origin.
+Regular help and tooltips no longer point to an unavailable tab.
+
+This follow-up passes a locked Release build with zero warnings/errors, all
+**56/56 check groups with no skips**, 107 process assertions and binary metadata
+verification. The preceding Diagnostics-snapshot coverage run also passes all 56
+groups. Latest build/probe receipts: `work/dialog-titlebar/verify-results.txt`,
+`probe-results.txt` and `artifacts/dialog-titlebar/plugin/build-verification.json`.
+
+Follow-up source SHA-256:
+`d90450184d859792896fcaeb599a0544d45797f7f3938ecb61e8cc5196f8aef9`.
+DLL SHA-256:
+`f7c2aa9b2ea4247bd9c86c8552bbaa9c9edf2486bf5cba48d7ee105253812c07`.
+
+New tests invoke the compiled UI constructor and Plugin command/help handlers
+with development and regular install flags, including testing releases, copied
+recording consent and timing activation. They extend direct UI/orchestration
+execution; they do not render every UI branch or exhaust native audio adapters.
+
+## Coverage and performance limits
+
+The Diagnostics snapshot (`91f2272d`, before the title-bar change) has
+**3,473/6,187 mapped lines (56.13%)** of source-union coverage; execution
+inside the compiled plugin is **1,476/6,187 (23.92%)**. Core remains the best
+exercised layer. Substantial UI rendering, audio-adapter and orchestration paths
+remain unreached. The new command/consent cases improve a specific boundary;
+they do not close that wider coverage gap or establish whole-game coverage.
+
+Performance remains scoped: the five helper benchmarks and stable roster
+fixtures allocate zero managed bytes, while device/report loops allocate.
+Synthetic loop timings do not establish an overall in-game speedup. Autosave
+serialization and storage remain synchronous when a save runs. Debouncing,
+retry backoff and nonblocking lock acquisition do not remove that IO latency.
+
+## Verified optimization snapshot (`e49807e`)
+
+The final independent quality assessment is **9.1/10**, with unrounded weighted
+result 9.093 under the unchanged weights. No concrete remaining P1/P2 was found.
+See [the independent review](final-review.md). The user confirms the verified optimization
+staged build passes Info/Reset Escape without clearing the target, quiet stack
+arrows with the actual hit still vibrating, lighting/preview, all three language
+options, native walking/mount vibration and controller sound, Alt-Tab lights-off
+release, and unplug/reconnect. These are user-assisted observations on the
+connected controller, not simulated equivalents or exhaustive hardware coverage.
+The desktop tool still fails before app access; no tool-controlled game test is
+claimed. No remote CI or release publication was performed.
+
+That snapshot's local Release gate passes (zero warnings/errors):
 **56/56 groups with no skips, 516,943 assertions**, actual compiled-owner tests,
 process-failure/malformed-argument checks, 107 PowerShell assertions, 44 Python
 tests, catalog/workflow/whitespace checks, binary verification and actual standard
 and localized packaging. The separate coverage invocation passes all 56 groups.
-Current proof: `work/optimization-input-fix/verify-results.txt`, `coverage-run.txt`
+Snapshot proof: `work/optimization-input-fix/verify-results.txt`, `coverage-run.txt`
 and `artifacts/optimization-input-fix/plugin/build-verification.json`.
 
 Source SHA-256: `657acce8a1cba9bfa68fff570af379ccd74f5c35c81550133f850714ec06c3c9`.
 DLL SHA-256: `9d2d7128971b9e1a390fdcecbea16ca47522101613b0c78c17464990f549111a`.
-The staged dev DLL, check binaries, icon and standard package match the verified
-candidate; the Chinese development descriptions are preserved. Dalamud's log
+At that snapshot, the staged dev DLL, checks, icon and standard package matched
+the verified candidate; Chinese development descriptions were preserved. Dalamud's log
 records a normal unload and successful reload at 21:19 on 2026-11-05, after
 staging this candidate, with the new cleanup path. This is load/lifecycle evidence;
 it does not substitute for device feel, UI interaction or framework timing.
@@ -38,14 +98,17 @@ verification of the repaired measurement contract does not assign their causal
 type/stack or establish universal test determinism. Earlier red receipts below
 are historical stages, not the current gate result.
 
-Current source-union coverage is **3,436/6,173 mapped lines (55.66%)**; actual
+Snapshot source-union coverage was **3,436/6,173 mapped lines (55.66%)**; actual
 compiled-plugin coverage is 1,431/6,173. Sixty-one of 62 authored files map, with
 ArenaEffectSource unmapped. These are reached-line metrics, not correctness or
 whole-game coverage claims.
 
-User live feedback received: Escape closes Info but also reaches the game UI.
-This is a failed current input-handling check and supersedes the earlier
-successful dialog report. A current measurement contains **25,895 updates,
+## Historical Escape and timing investigation
+
+Before the corrected 9d2 build, the user reported that Escape closed Info while
+also reaching the game UI. This was a failed earlier check, subsequently resolved
+and confirmed in the final result above. An earlier timing sample contains
+**25,895 updates,
 0.057 ms average, 24.489 ms maximum**. Those wall-clock aggregates establish a
 real sample and a tail to investigate; they do not identify its cause or prove
 stable per-frame latency. The old aggregate cannot attribute that peak. New
@@ -65,7 +128,7 @@ The user then reported that Escape still **cleared the selected target**. The
 WindowSystem proof covered addon-close inhibition, not targeting cancellation;
 the live failure supersedes any claim that focus handoff alone solved it.
 Installed IL shows public framework Update runs before native Tick, and ordinary
-focused windows do not clear the game's keyboard buffer. The current build
+focused windows do not clear the game's keyboard buffer. The corrected build
 therefore consumes only a focused dialog's Escape through the public IKeyState
 false-only setter during Update, explicitly closes that dialog, and retains
 consumption until physical release. A cached callback reads only GetAsyncKeyState's
@@ -74,7 +137,7 @@ input hook. Independent release works without Draw; HideUi/ShowUi publish
 visibility so an invisible dialog cannot acquire a new press. Constructor
 rollback and disposal independently detach both events before window/font cleanup.
 
-The exact current DLL passes 55 focused actual-owner checks and the installed
+The corrected 9d2 DLL passes 55 focused actual-owner checks and the installed
 WindowSystem/KeyState/ImGui buffer probe. The probe checks zero Escape before a
 simulated native consumer, unchanged unrelated keys, held/released input without
 Draw, and subsequent independent presses. It does not execute game targeting.
@@ -131,16 +194,6 @@ receipt is retained as `work/optimization-live-fix/coverage-missing-tool.txt`.
 The successful run explicitly reuses the already installed pinned 18.12.0
 collector. No test failure was bypassed or retried for a passing result.
 
-The final independent quality assessment is **9.1/10**, with unrounded weighted
-result 9.093 under the unchanged weights. No concrete remaining P1/P2 was found.
-See [the independent review](final-review.md). The user confirms the current
-staged build passes Info/Reset Escape without clearing the target, quiet stack
-arrows with the actual hit still vibrating, lighting/preview, all three language
-options, native walking/mount vibration and controller sound, Alt-Tab lights-off
-release, and unplug/reconnect. These are user-assisted observations on the
-connected controller, not simulated equivalents or exhaustive hardware coverage.
-The desktop tool still fails before app access; no tool-controlled game test is
-claimed. No remote CI or release publication was performed.
 
 ## Follow-up investigation chronology after 166ff17
 

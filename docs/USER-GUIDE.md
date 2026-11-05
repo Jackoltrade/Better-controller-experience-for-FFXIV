@@ -8,6 +8,8 @@ Custom DualSense lighting and game-driven vibration for Final Fantasy XIV, built
 
 **Public test build · Windows x64 · Dalamud API 15**
 
+Diagnostics and diagnostic commands described in this guide are available only for development installs.
+
 [Source](https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-) · [Releases](https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-/releases) · [Report an issue](https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-/issues) · [Support on Ko-fi](https://ko-fi.com/K7C122MEWU)
 
 ![Controller lighting preview](../src/DualSenseLighting/Assets/dualsense-preview.png)
@@ -205,6 +207,8 @@ Use `/bcef <feature> on`, `off` or `toggle`, for example `/bcef combathaptics of
 Commands ignore case, save automatically and work in macros without opening settings. They keep child choices while a parent is off; chat explains required parent/USB conditions. Repeating `on` does not repeat the enable cue. `footsteps off` restores native strength, rather than muting native footsteps. Boss/regular/hit/screen switches and numeric settings are currently configured in the UI.
 
 ## Diagnostics and privacy
+
+This section applies only to development installs. Dalamud's regular installer and repository testing releases do not show Diagnostics or enable `/bcef trace`. A Release build loaded as a development plugin retains both.
 
 Diagnostics shows controller connections, focus, output selection/errors, motor test results, sound ownership counters, calculated grip gains and Limit Break status.
 

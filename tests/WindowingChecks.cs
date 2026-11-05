@@ -84,6 +84,7 @@ internal static class WindowingChecks
         finally { removeAll.Invoke(system, null); }
         CheckOwnerFocusHandoff(check, plugin, windowBase, systemType, type, dialogType);
         CheckVisibilityLifecycle(check, plugin, windowBase);
+        DiagnosticsAccessChecks.Run(check, plugin);
         var native = plugin.GetType("DualSenseLighting.Windows.Native", true)!;
         var physicalKey = native.GetMethod("GetAsyncKeyState", BindingFlags.Static | BindingFlags.NonPublic)!;
         var import = physicalKey.GetCustomAttribute<System.Runtime.InteropServices.DllImportAttribute>();
@@ -103,19 +104,7 @@ internal static class WindowingChecks
         var pluginInterface = Proxy("Dalamud.Plugin.IDalamudPluginInterface");
         ((UiServiceProxy)pluginInterface).Builder = builder;
         var ownerType = plugin.GetType("DualSenseLighting.Ui.SettingsUi", true)!;
-        var constructor = ownerType.GetConstructors(all).Single();
-        object Construct()
-        {
-            var arguments = constructor.GetParameters().Select(parameter => parameter.Name switch
-            {
-                "configuration" => Activator.CreateInstance(plugin.GetType("DualSenseLighting.Configuration", true)!),
-                "uiText" => Activator.CreateInstance(plugin.GetType("DualSenseLighting.Ui.UiText", true)!, nonPublic: true),
-                "pluginInterface" => pluginInterface,
-                "clock" => new System.Diagnostics.Stopwatch(),
-                _ => null,
-            }).ToArray();
-            return constructor.Invoke(arguments);
-        }
+        object Construct() => CreateSettingsUi(plugin, pluginInterface);
         var owner = Construct();
         var settings = ownerType.GetField("settingsWindow", all)!.GetValue(owner)!;
         var dialog = ownerType.GetField("dialogWindow", all)!.GetValue(owner)!;
@@ -156,12 +145,14 @@ internal static class WindowingChecks
     public class UiServiceProxy : DispatchProxy
     {
         internal object? Builder, Atlas, Font;
-        internal bool FailShowSubscription, FailHideRemoval;
+        internal bool FailShowSubscription, FailHideRemoval, IsDev, IsTesting;
         internal int Disposals;
         internal readonly System.Collections.Generic.Dictionary<string, Delegate?> Events = new();
         protected override object? Invoke(MethodInfo? method, object?[]? args)
         {
             var name = method!.Name;
+            if (name == "get_IsDev") return IsDev;
+            if (name == "get_IsTesting") return IsTesting;
             if (name == "get_UiBuilder") return Builder;
             if (name == "get_FontAtlas") return Atlas;
             if (name == "NewDelegateFontHandle") return Font;
@@ -186,6 +177,25 @@ internal static class WindowingChecks
             return method.ReturnType.IsValueType ? Activator.CreateInstance(method.ReturnType) : null;
         }
         internal void Raise(string name) { if (Events.TryGetValue(name, out var handler)) handler?.DynamicInvoke(); }
+    }
+
+    internal static object CreateSettingsUi(Assembly plugin, object pluginInterface,
+        object? configuration = null, object? recording = null, Action<bool>? measure = null)
+    {
+        const BindingFlags all = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+        var type = plugin.GetType("DualSenseLighting.Ui.SettingsUi", true)!;
+        var constructor = type.GetConstructors(all).Single();
+        var arguments = constructor.GetParameters().Select(parameter => parameter.Name switch
+        {
+            "configuration" => configuration ?? Activator.CreateInstance(plugin.GetType("DualSenseLighting.Configuration", true)!),
+            "uiText" => Activator.CreateInstance(plugin.GetType("DualSenseLighting.Ui.UiText", true)!, nonPublic: true),
+            "pluginInterface" => pluginInterface,
+            "clock" => new System.Diagnostics.Stopwatch(),
+            "recording" => recording,
+            "measureUpdates" => measure,
+            _ => null,
+        }).ToArray();
+        return constructor.Invoke(arguments);
     }
 
     public class KeyStateProxy : DispatchProxy
