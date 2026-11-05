@@ -90,7 +90,8 @@ class ReleasePackageChecks(unittest.TestCase):
                                  {"DualSenseLighting.dll", "DualSenseLighting.json", "images/icon.png"})
                 self.assertEqual(bundle.read("images/icon.png"), self.icon)
                 self.assertIsNone(bundle.testzip())
-        store, = json.loads((self.output / "pluginmaster.json").read_text())
+        # Public feeds are UTF-8, even when the Windows test runner defaults to CP1252.
+        store, = json.loads((self.output / "pluginmaster.json").read_text(encoding="utf-8"))
         self.assertTrue(store["IsTestingExclusive"])
         self.assertEqual(store["AssemblyVersion"], "0.0.0.0")
         self.assertEqual(store["TestingAssemblyVersion"], "0.13.0.0")
@@ -152,8 +153,8 @@ class ReleasePackageChecks(unittest.TestCase):
             self.assertEqual(installed[field], self.japanese[field])
             self.assertEqual(installed[field + "Loc"], self.japanese[field])
 
-        default_feed, = json.loads((self.output / "pluginmaster.json").read_text())
-        feed, = json.loads((self.output / "pluginmaster-ja.json").read_text())
+        default_feed, = json.loads((self.output / "pluginmaster.json").read_text(encoding="utf-8"))
+        feed, = json.loads((self.output / "pluginmaster-ja.json").read_text(encoding="utf-8"))
         for field in ["Description", "Punchline", "DescriptionLoc", "PunchlineLoc"]:
             self.assertEqual(feed[field], installed[field], field)
         links = {"DownloadLinkInstall", "DownloadLinkUpdate", "DownloadLinkTesting"}
@@ -166,11 +167,11 @@ class ReleasePackageChecks(unittest.TestCase):
         self.assertEqual(feed["AssemblyVersion"], "0.0.0.0")
         self.assertEqual(feed["TestingAssemblyVersion"], installed["AssemblyVersion"])
 
-        checksums = dict(line.split("  ", 1)[::-1] for line in (self.output / "SHA256SUMS.txt").read_text().splitlines())
+        checksums = dict(line.split("  ", 1)[::-1] for line in (self.output / "SHA256SUMS.txt").read_text(encoding="utf-8").splitlines())
         self.assertEqual(set(checksums), {"latest.zip", "latest-ja.zip"})
         for name, checksum in checksums.items():
             self.assertEqual(checksum, PACKAGER.sha256((self.output / name).read_bytes()))
-        summary = json.loads((self.output / "release-summary.json").read_text())
+        summary = json.loads((self.output / "release-summary.json").read_text(encoding="utf-8"))
         self.assertEqual(summary["Archive"], "latest.zip")
         self.assertEqual(summary["DownloadUrl"], default_feed["DownloadLinkTesting"])
         self.assertEqual(summary["LocalizedPackages"], {"ja": {
@@ -363,7 +364,7 @@ class ReleasePackageChecks(unittest.TestCase):
 
     def test_proof_metadata_changes_are_rejected(self):
         proof_path = self.build / "build-verification.json"
-        original = json.loads(proof_path.read_text())
+        original = json.loads(proof_path.read_text(encoding="utf-8"))
         for key, value in [("InternalName", "AnotherPlugin"), ("AssemblyVersion", "0.13.1.0"),
                            ("DalamudApiLevel", 16), ("Architecture", "arm64"),
                            ("SourceSha256", "0" * 64), ("DllSha256", "0" * 64)]:
@@ -390,12 +391,12 @@ class ReleasePackageChecks(unittest.TestCase):
                             if key not in {"DescriptionLoc", "PunchlineLoc"}})
         self.write_standard(manifest=generated)
         proof_path = self.build / "build-verification.json"
-        proof = json.loads(proof_path.read_text())
+        proof = json.loads(proof_path.read_text(encoding="utf-8"))
         proof["SourceSha256"] = PACKAGER.source_fingerprint(source)
         proof_path.write_text(json.dumps(proof))
         PACKAGER.package(self.root, self.build, self.output)
         for feed, archive in [("pluginmaster.json", "latest.zip"), ("pluginmaster-ja.json", "latest-ja.zip")]:
-            store, = json.loads((self.output / feed).read_text())
+            store, = json.loads((self.output / feed).read_text(encoding="utf-8"))
             for key in ["DownloadLinkInstall", "DownloadLinkUpdate", "DownloadLinkTesting"]:
                 self.assertEqual(store[key], PACKAGER.REPOSITORY + "/releases/download/v0.13.0/" + archive)
 
@@ -426,7 +427,7 @@ class ReleasePackageChecks(unittest.TestCase):
 
     def test_debug_build_is_rejected(self):
         proof_path = self.build / "build-verification.json"
-        proof = json.loads(proof_path.read_text())
+        proof = json.loads(proof_path.read_text(encoding="utf-8"))
         proof["Optimized"] = False
         proof_path.write_text(json.dumps(proof))
         with self.assertRaisesRegex(ValueError, "optimized x64"):
