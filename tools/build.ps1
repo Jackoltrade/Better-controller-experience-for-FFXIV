@@ -66,6 +66,26 @@ function Invoke-Dotnet {
     } finally { $process.Dispose() }
 }
 
+function Write-DevelopmentManifest {
+    param([string]$SourcePath, [string]$GeneratedPath, [string]$DestinationPath)
+    $source = [IO.File]::ReadAllText($SourcePath) | ConvertFrom-Json
+    $manifest = [IO.File]::ReadAllText($GeneratedPath) | ConvertFrom-Json
+    if ($source -isnot [Management.Automation.PSCustomObject] -or $manifest -isnot [Management.Automation.PSCustomObject]) {
+        throw 'Plugin manifests must be JSON objects.'
+    }
+    # The upstream packager does not serialize the CN launcher's extra fields.
+    # Preserve its generated identity/defaults and add only localized copy.
+    foreach ($field in @('DescriptionLoc', 'PunchlineLoc')) {
+        $property = $source.PSObject.Properties[$field]
+        if ($null -eq $property) { continue }
+        if ($property.Value -isnot [string] -or [string]::IsNullOrWhiteSpace($property.Value)) {
+            throw "Manifest localization must be a nonempty string: $field"
+        }
+        $manifest | Add-Member -NotePropertyName $field -NotePropertyValue $property.Value -Force
+    }
+    [IO.File]::WriteAllText($DestinationPath, ($manifest | ConvertTo-Json -Depth 20) + "`n", [Text.UTF8Encoding]::new($false))
+}
+
 $sdks = @(Invoke-Dotnet -Arguments @('--list-sdks'))
 if (-not ($sdks | Where-Object { $_ -match '^10\.' })) {
     throw '.NET 10 SDK is required. Install it or pass -DotnetPath pointing to its dotnet.exe.'
@@ -82,15 +102,16 @@ Invoke-Dotnet -Arguments @('run', '--project', (Join-Path $projectRoot 'tools\Ve
 if ($Probe) {
     Invoke-Dotnet -Arguments @((Join-Path $checksOutput 'LightingChecks.dll'), '--probe')
 }
-# Stage the exact standard Packager result only after all checks pass. Never
-# overwrite its generated manifest with the source/localized metadata.
+# Stage the exact standard Packager result only after all checks pass. Its
+# generated manifest/ZIP remain unchanged; the separate dev companion gets CN copy.
 $standard = Join-Path $pluginOutput 'DualSenseLighting'
 if (-not (Test-Path (Join-Path $standard 'latest.zip'))) { throw 'DalamudPackager did not produce a Release package.' }
 New-Item -ItemType Directory -Force -Path $publishOutput | Out-Null
-foreach ($file in @('DualSenseLighting.dll', 'DualSenseLighting.json', 'build-verification.json', 'LICENSE.txt', 'LICENSE-HidLibrary.txt', 'LICENSE-FFXIVClientStructs.txt', 'THIRD-PARTY-NOTICES.txt')) {
+foreach ($file in @('DualSenseLighting.dll', 'build-verification.json', 'LICENSE.txt', 'LICENSE-HidLibrary.txt', 'LICENSE-FFXIVClientStructs.txt', 'THIRD-PARTY-NOTICES.txt')) {
     Copy-Item (Join-Path $pluginOutput $file) $publishOutput -Force
 }
 Copy-Item $standard $publishOutput -Recurse -Force
+Write-DevelopmentManifest -SourcePath (Join-Path $projectRoot 'src\DualSenseLighting\DualSenseLighting.json') -GeneratedPath (Join-Path $standard 'DualSenseLighting.json') -DestinationPath (Join-Path $publishOutput 'DualSenseLighting.json')
 $imageOutput = Join-Path $publishOutput 'images'
 New-Item -ItemType Directory -Force -Path $imageOutput | Out-Null
 Copy-Item (Join-Path $pluginOutput 'images\icon.png') (Join-Path $imageOutput 'icon.png') -Force

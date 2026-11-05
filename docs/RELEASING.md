@@ -12,7 +12,7 @@ For official main-repository review, see [Official Dalamud listing](OFFICIAL-LIS
 4. Confirm source and all third-party licenses are included in the repository. Do not add `work/`, user configuration, diagnostic traces, native research binaries or private screenshots to a release.
 5. Use matching **Dalamud API 15** libraries and .NET 10 SDK. The CI default is Dalamud's official staging ZIP; override `DALAMUD_DOWNLOAD_URL` or the manual workflow input if that feed has moved to another API. The metadata verifier rejects API mismatches.
 
-The checked-in JSON is the standard packager's metadata source. DalamudPackager generates the official manifest and ZIP; our public packager verifies those exact files before adding CN/JP installer metadata and READMEs. The generated official output is not overwritten.
+The checked-in JSON is the standard packager's metadata source. DalamudPackager generates the official manifest and ZIP; our public packager verifies those exact files before adding CN/JP installer metadata and READMEs. The generated official output is not overwritten. Development installs read the separate `artifacts/plugin/DualSenseLighting.json`: the build adds the source `DescriptionLoc` and `PunchlineLoc` to that companion so XIVLauncherCN can display Chinese. Public packaging reads the untouched generated manifest under `artifacts/plugin/DualSenseLighting/`, independent of development metadata.
 
 ## Build locally
 

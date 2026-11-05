@@ -2,6 +2,8 @@
 
 ## 0.18.0 — Better controller experience for FFXIV
 
+- Restore Chinese installer descriptions for development installs after the SDK migration; keep public packaging tied to standard SDK metadata.
+- Rename the Chinese player skill SFX option to 玩家技能音效联动 throughout the UI and guides.
 - Migrate to Dalamud.NET.Sdk 15.0.0 with locked dependencies, verified standard packaging and CI artifacts; remove the obsolete offline compiler.
 - Integrate settings with Dalamud WindowSystem, preserving sizing/fonts and popup-only Escape handling.
 - Remove README installation/start sections and document official-listing submission readiness.

@@ -15,6 +15,11 @@ $functions = @($ast.FindAll({ param($node)
 }, $true))
 Check ($functions.Count -eq 1) 'Expected the actual Invoke-Dotnet helper'
 . ([scriptblock]::Create($functions[0].Extent.Text))
+$manifestFunctions = @($ast.FindAll({ param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Write-DevelopmentManifest'
+}, $true))
+Check ($manifestFunctions.Count -eq 1) 'Expected the actual development-manifest helper'
+. ([scriptblock]::Create($manifestFunctions[0].Extent.Text))
 
 $temporary = Join-Path ([IO.Path]::GetTempPath()) ('ds5 build process ' + [Guid]::NewGuid().ToString('N'))
 $previousError = [Console]::Error
@@ -109,6 +114,36 @@ public static class BuildProcessProbe {
             Check ($dotnet -ceq $expected) 'Automatic host selection changed'
         } $selector $probe $found
     }
+    $sourcePath = Join-Path $temporary 'source.json'
+    $generatedPath = Join-Path $temporary 'generated.json'
+    $destinationPath = Join-Path $temporary 'development.json'
+    $generatedText = '{"Name":"Verified plugin","AssemblyVersion":"0.18.0.0","Description":"English description","LoadPriority":0,"AcceptsFeedback":true}'
+    [IO.File]::WriteAllText($generatedPath, $generatedText)
+    $localizedText = $unicode + " `"quoted`" \\ path`nnext line"
+    $sourceManifest = @{ Name = 'Must not replace the generated identity'; DescriptionLoc = $localizedText; PunchlineLoc = $unicode }
+    [IO.File]::WriteAllText($sourcePath, ($sourceManifest | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
+    Write-DevelopmentManifest -SourcePath $sourcePath -GeneratedPath $generatedPath -DestinationPath $destinationPath
+    $actual = [IO.File]::ReadAllText($destinationPath) | ConvertFrom-Json
+    Check ($actual.DescriptionLoc -ceq $localizedText -and $actual.PunchlineLoc -ceq $unicode) 'Development manifest lost Unicode localization or escaped characters'
+    Check ($actual.Name -ceq 'Verified plugin' -and $actual.AssemblyVersion -ceq '0.18.0.0' -and $actual.Description -ceq 'English description') 'Localization replaced generated identity or default copy'
+    Check ($actual.LoadPriority -eq 0 -and $actual.AcceptsFeedback -eq $true) 'Localization dropped generated manifest defaults'
+    Check ([IO.File]::ReadAllText($generatedPath) -ceq $generatedText) 'Localization changed the standard SDK manifest'
+    $bytes = [IO.File]::ReadAllBytes($destinationPath)
+    Check (-not ($bytes.Length -ge 3 -and $bytes[0] -eq 239 -and $bytes[1] -eq 187 -and $bytes[2] -eq 191)) 'Development manifest gained a UTF-8 BOM'
+    $saved = [IO.File]::ReadAllText($destinationPath)
+    foreach ($invalid in @('{', '[]', '{"DescriptionLoc":null}', '{"DescriptionLoc":42}', '{"DescriptionLoc":" "}')) {
+        [IO.File]::WriteAllText($sourcePath, $invalid)
+        $failed = $false
+        try { Write-DevelopmentManifest -SourcePath $sourcePath -GeneratedPath $generatedPath -DestinationPath $destinationPath } catch { $failed = $true }
+        Check $failed 'Invalid localization was accepted'
+        Check ([IO.File]::ReadAllText($destinationPath) -ceq $saved) 'Invalid localization replaced the previous development manifest'
+    }
+    [IO.File]::WriteAllText($sourcePath, '{}')
+    Write-DevelopmentManifest -SourcePath $sourcePath -GeneratedPath $generatedPath -DestinationPath $destinationPath
+    $actual = [IO.File]::ReadAllText($destinationPath) | ConvertFrom-Json
+    Check ($null -eq $actual.PSObject.Properties['DescriptionLoc'] -and $null -eq $actual.PSObject.Properties['PunchlineLoc']) 'English-only metadata retained stale localized fields'
+    Check ($actual.Name -ceq 'Verified plugin') 'English-only metadata lost the generated identity'
+
     Write-Output "Build process checks passed: $script:checks assertions, $($cases.Count) cases, $argumentCount arguments."
 } finally {
     [Console]::SetError($previousError)

@@ -110,8 +110,6 @@ def write_archive(archive, payload):
 def standard_payload(build, expected, icon):
     """Read the SDK package without extracting it or trusting additional files."""
     directory = build / "DualSenseLighting"
-    if (directory / "DualSenseLighting.json").read_bytes() != expected["DualSenseLighting.json"]:
-        raise ValueError("Standard SDK manifest differs from the verified manifest")
     if (directory / "images/icon.png").read_bytes() != icon:
         raise ValueError("Standard SDK icon differs from the verified icon")
     try:
@@ -138,7 +136,9 @@ def standard_payload(build, expected, icon):
 def package(root, build, output, tag=None):
     japanese = japanese_manifest_text(root / "src/DualSenseLighting/Manifest.ja.json")
     source = json.loads((root / "src/DualSenseLighting/DualSenseLighting.json").read_text(encoding="utf-8"))
-    manifest_bytes = (build / "DualSenseLighting.json").read_bytes()
+    # The flat manifest serves Dev Tools and may contain local metadata. Public
+    # packages always start from the untouched SDK output, verified against its ZIP.
+    manifest_bytes = (build / "DualSenseLighting/DualSenseLighting.json").read_bytes()
     manifest = json.loads(manifest_bytes)
     proof = json.loads((build / "build-verification.json").read_text(encoding="utf-8"))
     version = manifest["AssemblyVersion"]

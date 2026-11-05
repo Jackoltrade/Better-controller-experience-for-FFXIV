@@ -6,6 +6,7 @@ import unittest
 import warnings
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 SPEC = importlib.util.spec_from_file_location("package_release", Path(__file__).resolve().parents[1] / "tools/package-release.py")
 PACKAGER = importlib.util.module_from_spec(SPEC)
@@ -32,7 +33,9 @@ class ReleasePackageChecks(unittest.TestCase):
         self.generated = dict(LoadPriority=0, AcceptsFeedback=True,
                               **{key: value for key, value in self.manifest.items()
                                  if key not in {"DescriptionLoc", "PunchlineLoc"}})
-        (self.build / "DualSenseLighting.json").write_text(json.dumps(self.generated), encoding="utf-8")
+        self.development = dict(self.generated, DescriptionLoc=self.manifest["DescriptionLoc"],
+                                PunchlineLoc=self.manifest["PunchlineLoc"])
+        (self.build / "DualSenseLighting.json").write_text(json.dumps(self.development), encoding="utf-8")
         # The real build's PE/optimization verification is performed by VerifyAssembly.
         # Here only archive selection, proof checks and store-entry construction are tested.
         dll = b"synthetic-verified-payload"
@@ -55,13 +58,14 @@ class ReleasePackageChecks(unittest.TestCase):
         (self.standard / "images").mkdir()
         self.write_standard()
 
-    def write_standard(self, entries=None):
+    def write_standard(self, entries=None, manifest=None):
         """Fixture for Packager's six-file ZIP and external manifest/icon."""
-        (self.standard / "DualSenseLighting.json").write_bytes((self.build / "DualSenseLighting.json").read_bytes())
+        manifest_bytes = json.dumps(self.generated if manifest is None else manifest).encode("utf-8")
+        (self.standard / "DualSenseLighting.json").write_bytes(manifest_bytes)
         (self.standard / "images/icon.png").write_bytes((self.build / "images/icon.png").read_bytes())
         if entries is None:
             entries = {"DualSenseLighting.dll": (self.build / "DualSenseLighting.dll").read_bytes(),
-                       "DualSenseLighting.json": (self.build / "DualSenseLighting.json").read_bytes()}
+                       "DualSenseLighting.json": manifest_bytes}
             entries.update({name: (self.root / name).read_bytes() for name in PACKAGER.LICENSES})
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
@@ -103,16 +107,32 @@ class ReleasePackageChecks(unittest.TestCase):
             PACKAGER.package(self.root, self.build, self.output)
         self.assertFalse(self.output.exists(), "Missing SDK package created a public candidate")
 
+    def test_localized_development_manifest_cannot_change_public_packages(self):
+        with patch.object(PACKAGER.time, "time", return_value=1700000000):
+            PACKAGER.package(self.root, self.build, self.output)
+            previous = {path.name: path.read_bytes() for path in self.output.iterdir()}
+            development = dict(self.generated, DescriptionLoc="仅用于开发窗口的描述", PunchlineLoc="开发简介",
+                               InternalName="DevelopmentOnly", AssemblyVersion="99.0.0.0",
+                               WorkingPluginId="00000000-0000-0000-0000-000000000001",
+                               InstalledFromUrl="file:///private-development", Diagnostics={"LocalPath": "private"})
+            for data in [json.dumps(development).encode("utf-8"), b"not a manifest"]:
+                with self.subTest(development=data):
+                    (self.build / "DualSenseLighting.json").write_bytes(data)
+                    PACKAGER.package(self.root, self.build, self.output)
+                    self.assert_candidate_unchanged(previous)
+
     def test_japanese_archive_and_feed_keep_identity_and_localize_installed_metadata(self):
-        generated_bytes = (self.build / "DualSenseLighting.json").read_bytes()
+        generated_bytes = (self.standard / "DualSenseLighting.json").read_bytes()
+        development_bytes = (self.build / "DualSenseLighting.json").read_bytes()
         standard_bytes = (self.standard / "latest.zip").read_bytes()
         source_bytes = (self.root / "src/DualSenseLighting/DualSenseLighting.json").read_bytes()
         archive = PACKAGER.package(self.root, self.build, self.output)
-        self.assertEqual((self.build / "DualSenseLighting.json").read_bytes(), generated_bytes)
+        self.assertEqual((self.build / "DualSenseLighting.json").read_bytes(), development_bytes)
         self.assertEqual((self.standard / "DualSenseLighting.json").read_bytes(), generated_bytes)
         self.assertEqual((self.standard / "latest.zip").read_bytes(), standard_bytes)
         self.assertEqual((self.root / "src/DualSenseLighting/DualSenseLighting.json").read_bytes(), source_bytes)
         self.assertNotIn("DescriptionLoc", json.loads(generated_bytes), "Fixture must model the real Packager field loss")
+        self.assertEqual(json.loads(development_bytes)["DescriptionLoc"], self.manifest["DescriptionLoc"])
         with zipfile.ZipFile(archive) as original, zipfile.ZipFile(self.output / "latest-ja.zip") as japanese:
             self.assertEqual(set(original.namelist()), set(japanese.namelist()))
             self.assertEqual(len(japanese.namelist()), 10)
@@ -195,7 +215,7 @@ class ReleasePackageChecks(unittest.TestCase):
 
     def test_standard_archive_rejects_symlink_even_for_an_allowlisted_name(self):
         entries = {"DualSenseLighting.dll": (self.build / "DualSenseLighting.dll").read_bytes(),
-                   "DualSenseLighting.json": (self.build / "DualSenseLighting.json").read_bytes()}
+                   "DualSenseLighting.json": (self.standard / "DualSenseLighting.json").read_bytes()}
         entries.update({name: (self.root / name).read_bytes() for name in PACKAGER.LICENSES})
         with zipfile.ZipFile(self.standard / "latest.zip", "w") as bundle:
             for name, data in entries.items():
@@ -212,21 +232,24 @@ class ReleasePackageChecks(unittest.TestCase):
             PACKAGER.package(self.root, self.build, self.output)
         self.assertFalse(self.output.exists())
 
-    def test_standard_companion_manifest_and_icon_must_match_verified_files(self):
+    def test_standard_manifest_and_icon_are_validated_before_output_changes(self):
         PACKAGER.package(self.root, self.build, self.output)
         previous = {path.name: path.read_bytes() for path in self.output.iterdir()}
-        for name in ["DualSenseLighting.json", "images/icon.png"]:
+        for name, data, error in [
+            ("DualSenseLighting.json", json.dumps(dict(self.generated, Description="stale SDK description")).encode("utf-8"),
+             "manifest is stale"),
+            ("images/icon.png", b"stale standard companion", "Standard SDK icon differs"),
+        ]:
             self.write_standard()
-            (self.standard / name).write_bytes(b"stale standard companion")
-            with self.assertRaisesRegex(ValueError, "Standard SDK (manifest|icon) differs"):
+            (self.standard / name).write_bytes(data)
+            with self.assertRaisesRegex(ValueError, error):
                 PACKAGER.package(self.root, self.build, self.output)
             self.assert_candidate_unchanged(previous)
 
     def test_generated_standard_defaults_are_checked(self):
         for key, value in [("LoadPriority", 3), ("AcceptsFeedback", False), ("AcceptsFeedback", 1)]:
             with self.subTest(field=key, value=value):
-                (self.build / "DualSenseLighting.json").write_text(json.dumps(dict(self.generated, **{key: value})))
-                self.write_standard()
+                self.write_standard(manifest=dict(self.generated, **{key: value}))
                 with self.assertRaisesRegex(ValueError, "manifest is stale"):
                     PACKAGER.package(self.root, self.build, self.output)
                 self.assertFalse(self.output.exists())
@@ -365,8 +388,7 @@ class ReleasePackageChecks(unittest.TestCase):
         generated = dict(LoadPriority=0, AcceptsFeedback=True,
                          **{key: value for key, value in manifest.items()
                             if key not in {"DescriptionLoc", "PunchlineLoc"}})
-        (self.build / "DualSenseLighting.json").write_text(json.dumps(generated), encoding="utf-8")
-        self.write_standard()
+        self.write_standard(manifest=generated)
         proof_path = self.build / "build-verification.json"
         proof = json.loads(proof_path.read_text())
         proof["SourceSha256"] = PACKAGER.source_fingerprint(source)
@@ -383,8 +405,8 @@ class ReleasePackageChecks(unittest.TestCase):
             PACKAGER.package(self.root, self.build, self.output)
 
     def test_stale_manifest_is_rejected(self):
-        manifest = dict(self.manifest, AssemblyVersion="0.12.7.0")
-        (self.build / "DualSenseLighting.json").write_text(json.dumps(manifest))
+        manifest = dict(self.generated, AssemblyVersion="0.12.7.0")
+        self.write_standard(manifest=manifest)
         with self.assertRaisesRegex(ValueError, "stale"):
             PACKAGER.package(self.root, self.build, self.output)
 

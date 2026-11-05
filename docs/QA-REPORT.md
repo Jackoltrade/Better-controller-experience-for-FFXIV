@@ -41,9 +41,9 @@ menu.
 | Release build | .NET SDK 10.0.403, installed CN API 15.0.3.8: zero warnings/errors |
 | Feature regressions | **515,041 checks pass** on both SDK runtime and original .NET10.0.1 host, including compiled Window API registration/delegation/cleanup |
 | Clean source build | Copied 149 public source files without Git/build outputs; locked restore and all **515,041 checks pass** using the verified NuGet cache |
-| Package/workflow regression tests | **40 pass**, including corrupt/extra/stale standard package rejection and localization preservation |
+| Package/workflow regression tests | **41 pass**, including corrupt/extra/stale standard package rejection and localization preservation |
 | Actual package audit | Six standard ZIP entries and ten per public ZIP; final DLL/proof, assets, notices, localization-only differences and untouched SDK output verified |
-| Windows PowerShell build process | **88 assertions pass**, including argument preservation and failed process handling |
+| Windows PowerShell build process | **106 assertions pass**, including argument preservation and failed process handling |
 | Workflow syntax | actionlint **1.7.12** passes; remote GitHub Actions was not run |
 | Hot-path allocations | All five synthetic benchmarks report **zero managed allocations** |
 | Boss catalog | Generated lookup matches the checked-in source CSV |
@@ -67,13 +67,13 @@ and reconnect. If Dalamud gamepad navigation is enabled, include cancel while a
 combo or confirmation is open. Earlier hardware reports below predate this
 migration and are not new hardware validation.
 
-Source SHA-256: `17d9357c354ea79c4075ab69ebf8761835b780b74cbc5d6872d6dfe7f045062c`.
-DLL SHA-256: `63d7f4e3da4565526704b5c12541ca4a34505bd1c4052eac84db9ee40e4e2d9d`.
+Source SHA-256: `ee6a8e724da4953a2191d79d4021157913a7e29b5db59e52e7282e9e779cb40a`.
+DLL SHA-256: `261bd977e1a3871d746c163bd0d26d8014ae9f8b14f046a637a3e561c0f1fe98`.
 
 | Local package | Bytes | SHA-256 |
 | --- | ---: | --- |
-| `latest.zip` | 518,093 | `f573e3bc6898c13ef5a4f2fde9ba764a27cc4d0a846c7403485de3d9a19585f2` |
-| `latest-ja.zip` | 517,995 | `bdd0ecb72e4a37524198a3ea5e20547d2a6cbd039eb6d7ca3c798a5d6490c770` |
+| `latest.zip` | 518,059 | `c3c477f0fdc5a169b3cecd855f84a9c17f55c785d67a687e5f8946a4e89b7567` |
+| `latest-ja.zip` | 517,961 | `7ae579214a78b1c7260a7e71e66489319a77422530f16819b9b86bcfdb064285` |
 
 The plugin thumbnail now uses the supplied root `thumbnail.png`, copied
 byte-for-byte into the existing icon asset and all development/standard-package
@@ -81,6 +81,28 @@ sidecars. It is a 512×512 PNG; both public ZIPs contain that exact image.
 The previous source proof was verified before this non-embedded artwork change,
 and the metadata verifier refreshed it afterward. The runtime DLL and standard
 ZIP are byte-identical; controller tests were not repeated for this icon update.
+
+A subsequent Chinese copy update renames 我的音效联动 to 玩家技能音效联动
+in eight UI/help/status values and the Chinese README/user guide. The catalog
+comparison confirms only that exact Chinese substitution; English keys and
+Japanese values are unchanged. The updated SDK Release build has zero warnings
+or errors and passes **515,057 checks**. Both public packages contain the updated
+DLL and Chinese README. The clean-copy and original-runtime checks above predate
+this wording-only revision; hardware tests were not repeated.
+
+The SDK migration had dropped `DescriptionLoc` and `PunchlineLoc` from the
+flat development companion, causing English installer copy in XIVLauncherCN.
+`Write-DevelopmentManifest` now adds only these two source fields to the verified
+generated metadata for development installs. The standard SDK manifest/ZIP remain
+untouched by this overlay, and public packaging reads that standard manifest
+instead of development metadata. Regression coverage checks Unicode, generated
+identity/default preservation, invalid input and independence from dev-only data.
+**106 Windows build assertions**, **41 Python tests**, and **67 checks using the
+installed CN manifest classes/renderer IL** pass. The normal locked Release build
+reproduces the exact metadata tested by the CN parser and passes **515,057 feature
+checks**, with zero warnings/errors. The user confirmed on **2026-11-05** that
+both the installer summary and expanded description are Chinese again. No runtime
+haptic/lighting behavior changed in this metadata fix.
 
 ## Earlier candidate: branding and artwork (0.18.0)
 
