@@ -99,7 +99,6 @@ internal static class EnemySkillChecks
         CheckBossSounds(check, catalog);
         EnemyClipChecks.Run(check, catalog);
         EnemyCasterOriginChecks.Run(check);
-        EnemyEffectChecks.Run(check);
         NpcSpawnMetadataChecks.Run(check);
         CheckHitTargets(check);
         for (var i = 0; i < 2000; i++) catalog.TimelineKey("mon_sp/m0176/mon_sp001_hit"u8);

@@ -4,6 +4,8 @@ using System;
 using System.Diagnostics;
 using System.Linq;
 using System.Numerics;
+using System.Threading;
+using System.Threading.Tasks;
 using DualSenseLighting.Core;
 using DualSenseLighting.Windows;
 
@@ -20,6 +22,8 @@ internal static unsafe class BluetoothStereoChecks
     {
         CheckBalance(check);
         CheckDelayedSides(check);
+        CheckAtomicSignal(check);
+        CheckConfigurationKeys(check);
         var output = new NativeHapticOutput(null, 0, 0, 0);
         var settings = new HapticSettings(Enabled: true, Strength: 0.5f, Spatial: true, DistanceFalloff: false,
             FollowImpact: false, RumbleStrength: 1, BluetoothMotorBalance: 0);
@@ -36,8 +40,7 @@ internal static unsafe class BluetoothStereoChecks
             output.SetListener(new(Vector3.Zero, index == 1 ? -Vector3.UnitX : Vector3.UnitX, Stopwatch.GetTimestamp()));
             var frame = output.Prepare(null, true, 2, 0, index == 3 ? new(0, 0, 14) : new(3, 0, 0));
             fixed (float* samples = pcm) output.Mix(frame, samples, pcm.Length, 0);
-            var left = output.RumbleLeft.TakePeak(); var right = output.RumbleRight.TakePeak();
-            session.Tick(output.RumbleSignal, output.CurrentSettings, true, index, stereo: (left, right));
+            session.Tick(output.RumbleSignal, output.CurrentSettings, true, index, stereo: output.RumbleStereo.TakePeak());
             var full = RumbleMotors.FromLevel(0.4f).Low;
             var half = RumbleMotors.FromLevel(0.2f).Low;
             var expected = index switch
@@ -57,12 +60,109 @@ internal static unsafe class BluetoothStereoChecks
         var old = output.Prepare(null, true, 2, 0, new(3, 0, 0));
         output.ResetRumbleSignals(); output.Configure(settings with { DistanceFalloff = true }, true, true, true, true, true);
         fixed (float* samples = pcm) output.Mix(old, samples, pcm.Length, 0);
-        check(output.RumbleSignal.TakePeak() == 0 && output.RumbleLeft.TakePeak() == 0 && output.RumbleRight.TakePeak() == 0,
+        check(output.RumbleSignal.TakePeak() == 0 && output.RumbleStereo.TakePeak() == default,
             "A stale basic-rumble frame crossed a stereo/controller generation reset");
         output.Configure(settings, true, true, true, true, false);
-        check(!output.CurrentSettings.BluetoothRumble && !output.RumbleLeft.Active && !output.RumbleRight.Active,
+        check(!output.CurrentSettings.BluetoothRumble && !output.RumbleStereo.Active,
             "Switching to XInput retained a Bluetooth spatial signal");
         check(pcm.SequenceEqual(original), "Stereo rumble changed the game's original PCM buffer");
+    }
+
+    private static void CheckAtomicSignal(Action<bool, string> check)
+    {
+        var signal = new StereoRumbleSignal();
+        var inactive = signal.CurrentEpoch;
+        signal.Observe(1, 1, inactive);
+        check(signal.TakePeak() == default, "Inactive stereo signal accepted output");
+        signal.SetActive(true);
+        var epoch = signal.CurrentEpoch;
+        signal.Observe(0.12345679f, 0.8754321f, epoch);
+        check(signal.TakePeak() == (0.12345679f, 0.8754321f) && signal.TakePeak() == default,
+            "Stereo handoff quantized, swapped, or replayed a pair");
+        signal.Observe(0.25f, 0.75f, epoch); signal.Observe(0.5f, 0.125f, epoch);
+        check(signal.TakePeak() == (0.5f, 0.75f), "Stereo interval did not merge independent channel peaks");
+        signal.Observe(float.NaN, 1, epoch); signal.Observe(1, float.PositiveInfinity, epoch);
+        check(signal.TakePeak() == default, "Invalid stereo pair became a one-sided pulse");
+        signal.Observe(-1, 2, epoch);
+        check(signal.TakePeak() == (0, 1), "Stereo bounds did not clamp to normalized endpoints");
+        signal.Observe(-0.0f, -0.0f, epoch); signal.Observe(0.25f, 0.5f, epoch);
+        check(signal.TakePeak() == (0.25f, 0.5f), "Negative zero suppressed a later positive stereo peak");
+        signal.SetActive(false); signal.SetActive(true);
+        signal.Observe(1, 1, epoch);
+        check(signal.TakePeak() == default, "A retired stereo epoch republished into a new controller generation");
+        epoch = signal.CurrentEpoch;
+        // Start publication and consumption together. Either whole-pair ordering
+        // is legal; a split interval is never legal.
+        using var start = new Barrier(2);
+        var publisher = Task.Run(() =>
+        {
+            for (var index = 0; index < 10000; index++)
+            {
+                start.SignalAndWait(); signal.Observe(0.5f, 0.5f, epoch); start.SignalAndWait();
+            }
+        });
+        var coherent = true;
+        for (var index = 0; index < 10000; index++)
+        {
+            start.SignalAndWait(); var first = signal.TakePeak(); start.SignalAndWait(); var second = signal.TakePeak();
+            coherent &= first.Left == first.Right && second.Left == second.Right && first.Left + second.Left == 0.5f;
+        }
+        publisher.GetAwaiter().GetResult();
+        check(coherent, "One balanced stereo block split across worker ticks");
+        for (var index = 0; index < 1000; index++) { signal.Observe(0.5f, 0.25f, epoch); signal.TakePeak(); }
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var index = 0; index < 10000; index++) { signal.Observe(0.5f, 0.25f, epoch); signal.TakePeak(); }
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        check(allocated == 0, $"Stereo publication/consumption allocated {allocated} managed bytes");
+    }
+
+    private static void CheckConfigurationKeys(Action<bool, string> check)
+    {
+        var requested = new HapticSettings(Enabled: true, Strength: 0.5f, FootstepAmplifier: true,
+            BossEnabled: true, RegularEnemyEnabled: true, HitReactions: true, ScreenEffects: true);
+        var output = new NativeHapticOutput(null, 0, 0, 0);
+        output.SetEnemyContext(true);
+        // Reflection varies every public init property, including future ones.
+        // A newly added setting omitted by the explicit key therefore fails this
+        // behavior test instead of silently retaining stale prepared frames.
+        foreach (var property in typeof(HapticSettings).GetProperties().Where(p => p.SetMethod?.IsPublic == true))
+        {
+            var changed = requested with { };
+            var original = property.GetValue(requested)!;
+            object next = original switch
+            {
+                bool value => !value,
+                float value => value + 0.01f,
+                int value => value + 1,
+                Enum value => Enum.GetValues(value.GetType()).Cast<object>().First(other => !other.Equals(value)),
+                _ => throw new InvalidOperationException("Add a setting mutation for " + property.Name),
+            };
+            property.SetValue(changed, next);
+            output.Configure(requested, true, true);
+            var before = output.CurrentSettings; var screenBefore = output.ScreenSettings;
+            output.Configure(changed, true, true);
+            check(!ReferenceEquals(before, output.CurrentSettings),
+                $"Changing {property.Name} left stale effective settings/frames");
+            var resetsScreen = property.Name is nameof(HapticSettings.ScreenEffects) or nameof(HapticSettings.ScreenStrength) or
+                nameof(HapticSettings.OutputMode) or nameof(HapticSettings.RumbleController);
+            check(ReferenceEquals(screenBefore, output.ScreenSettings) != resetsScreen,
+                $"Changing {property.Name} used the wrong independent screen reset policy");
+        }
+        foreach (var bluetooth in new[] { false, true })
+        {
+            output.Configure(requested, true, true, useRumble: false);
+            var screenBefore = output.ScreenSettings;
+            output.Configure(requested, true, true, useRumble: true, stereoRumble: bluetooth);
+            check(!ReferenceEquals(screenBefore, output.ScreenSettings), "Backend selection failed to reset screen routing");
+        }
+        output.Configure(requested, true, true);
+        for (var index = 0; index < 1000; index++) output.Configure(requested, true, true);
+        var snapshot = output.CurrentSettings; var screenSnapshot = output.ScreenSettings;
+        var beforeAllocation = GC.GetAllocatedBytesForCurrentThread();
+        for (var index = 0; index < 10000; index++) output.Configure(requested, true, true);
+        var allocation = GC.GetAllocatedBytesForCurrentThread() - beforeAllocation;
+        check(allocation == 0 && ReferenceEquals(snapshot, output.CurrentSettings) && ReferenceEquals(screenSnapshot, output.ScreenSettings),
+            $"Unchanged haptic settings reset snapshots or allocated {allocation} bytes");
     }
 
     private static void CheckBalance(Action<bool, string> check)
@@ -113,7 +213,7 @@ internal static unsafe class BluetoothStereoChecks
         var samples = new float[2048]; Array.Fill(samples, 0.1f);
         fixed (float* pcm = samples) output.Mix(old, pcm, samples.Length, 0);
         check(output.CurrentSettings.BluetoothMotorBalance == -0.5f && output.RumbleSignal.TakePeak() == 0 &&
-            output.RumbleLeft.TakePeak() == 0 && output.RumbleRight.TakePeak() == 0,
+            output.RumbleStereo.TakePeak() == default,
             "Changing motor balance retained stale settings or an in-flight audio frame");
     }
 

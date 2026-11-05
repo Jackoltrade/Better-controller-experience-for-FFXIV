@@ -2,6 +2,7 @@
 // Minimal bindings adapted from aers/FFXIVClientStructs. See LICENSE-FFXIVClientStructs.txt.
 #nullable enable
 using System;
+using System.Buffers.Binary;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -13,6 +14,43 @@ public enum EnemyActorRole { Combatant, BossMechanic, BossSummon, Unclassified, 
 /// <summary>Read-only subset of the pinned native mixer layout; no setters or audio calls.</summary>
 public static unsafe class GameAudioLayout
 {
+    // Pinned FFXIVClientStructs GameObject prefix. Public Dalamud OwnerId is
+    // used by callers; only metadata absent from that API is read here.
+    public const int GameObjectSize = 0x1A0;
+    public const int ActorEntityIdOffset = 0x78;
+    public const int ActorLayoutIdOffset = 0x7C;
+    public const int ActorEventIdOffset = 0xF4;
+    public const int ActorFateIdOffset = 0xF8;
+    public const int ActorDrawObjectOffset = 0x100;
+    public const int RequiredActorBytes = ActorDrawObjectOffset + sizeof(long);
+    public readonly record struct ActorFields(nint DrawObject, ushort FateId, uint EventId, uint LayoutId);
+
+    // The framework owns address lifetime/readability. Bounds here describe
+    // that known object prefix; they do not validate arbitrary OS memory.
+    public static bool TryReadActor(nint actor, int availableBytes, uint expectedEntityId, out ActorFields fields)
+    {
+        fields = default;
+        return actor != 0 && availableBytes >= RequiredActorBytes &&
+            TryReadActor(new ReadOnlySpan<byte>((void*)actor, RequiredActorBytes), expectedEntityId, out fields);
+    }
+
+    public static bool TryReadActor(ReadOnlySpan<byte> actor, uint expectedEntityId, out ActorFields fields)
+    {
+        fields = default;
+        if (actor.Length < RequiredActorBytes || expectedEntityId is 0 or 0xE0000000 ||
+            BinaryPrimitives.ReadUInt32LittleEndian(actor[ActorEntityIdOffset..]) != expectedEntityId) return false;
+        var read = new ActorFields((nint)BinaryPrimitives.ReadInt64LittleEndian(actor[ActorDrawObjectOffset..]),
+            BinaryPrimitives.ReadUInt16LittleEndian(actor[ActorFateIdOffset..]),
+            BinaryPrimitives.ReadUInt32LittleEndian(actor[ActorEventIdOffset..]),
+            BinaryPrimitives.ReadUInt32LittleEndian(actor[ActorLayoutIdOffset..]));
+        // A second volatile identity read detects object reuse while collecting
+        // the prefix; this is not a general native-memory synchronization lock.
+        fixed (byte* start = actor)
+            if (Volatile.Read(ref *(uint*)(start + ActorEntityIdOffset)) != expectedEntityId) return false;
+        fields = read;
+        return true;
+    }
+
     // Sound-only boss effect actors in the pinned client; not named by Dalamud's enum.
     public const byte BossMechanicSubKind = 11;
     // The scene VFX constructor initializes its Apricot listener at +0x90.

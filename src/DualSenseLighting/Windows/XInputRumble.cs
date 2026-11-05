@@ -62,7 +62,11 @@ internal sealed unsafe class XInputRumble : IRumbleDevices, IDisposable
             if (hooks.Count == 0) throw new NotSupportedException("XInput vibration is unavailable.");
             foreach (var hook in hooks) hook.Enable();
         }
-        catch { foreach (var hook in hooks) hook.Dispose(); hooks.Clear(); NativeLibrary.Free(module); module = 0; throw; }
+        catch
+        {
+            try { ReleaseHooks(); } catch { }
+            throw;
+        }
     }
 
     public bool IsConnected(int slot)
@@ -111,15 +115,37 @@ internal sealed unsafe class XInputRumble : IRumbleDevices, IDisposable
         }
     }
 
+    private void ReleaseHooks()
+    {
+        var failures = new List<Exception>();
+        foreach (var hook in hooks)
+            try { hook.Dispose(); } catch (Exception error) { failures.Add(error); }
+        hooks.Clear();
+        if (module != 0)
+        {
+            try { NativeLibrary.Free(module); } catch (Exception error) { failures.Add(error); }
+            finally { module = 0; }
+        }
+        if (failures.Count != 0) throw new AggregateException("XInput hooks could not be released.", failures);
+    }
+
     public void Dispose()
     {
         lock (sync)
         {
             if (disposed) return;
-            for (var i = 0; i < 4; i++) if (plugin[i] != default || screen[i] != default) SetVibration(i, default);
-            disposed = true;
+            ResourceCleanup.Run(() =>
+            {
+                var failures = new List<Exception>();
+                try
+                {
+                    for (var i = 0; i < 4; i++)
+                        try { if (plugin[i] != default || screen[i] != default) SetVibration(i, default); }
+                        catch (Exception error) { failures.Add(error); }
+                }
+                finally { disposed = true; }
+                if (failures.Count != 0) throw new AggregateException(failures);
+            }, ReleaseHooks);
         }
-        foreach (var hook in hooks) hook.Dispose();
-        if (module != 0) NativeLibrary.Free(module);
     }
 }

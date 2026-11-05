@@ -35,6 +35,9 @@ internal static class SfxTraceChecks
             SpecialSoundPlaybackChecks.Run(check, assembly);
             ArenaCatalogLifecycleChecks.Run(check, assembly);
             HookOriginalLifecycleChecks.Run(check, assembly);
+            RecordingCoordinatorChecks.Run(check, assembly);
+            SettingsConsentChecks.Run(check, assembly);
+            GameObjectLayoutChecks.CheckInstalledLayout(check, assembly);
             var harness = new Harness(assembly);
             var boundary = CheckSegmentBoundary(check, harness);
             var final = CheckFinalSample(check, harness);

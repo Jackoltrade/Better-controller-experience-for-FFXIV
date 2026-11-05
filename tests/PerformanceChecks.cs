@@ -5,6 +5,8 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Numerics;
 using System.Text.Json;
+using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using DualSenseLighting.Core;
 using DualSenseLighting.Ui;
 
@@ -13,7 +15,7 @@ internal static class PerformanceChecks
     private static double sink;
     private sealed record Result(string Case, int Iterations, double MicrosecondsPerCall, long AllocatedBytes);
 
-    internal static void Run()
+    internal static async Task Run()
     {
         var samples = new float[4096];
         Array.Fill(samples, 0.1f);
@@ -45,8 +47,19 @@ internal static class PerformanceChecks
             sink += LightingEffects.Render(lighting, i / 30.0, level).Red;
         }));
         results.Add(Measure("Cached localized UI labels", 100000, _ => sink += text.Label("Lighting").Length));
-        Console.WriteLine(JsonSerializer.Serialize(new { Kind = "Synthetic CPU microbenchmark; not an in-game FPS measurement",
-            Cases = results, Checksum = sink }, new JsonSerializerOptions { WriteIndented = true }));
+        var loops = await LoopPerformanceChecks.Run();
+#if BASELINE_PERFORMANCE
+        object? roster = null; // The frozen baseline predates the production SelectRoster seam.
+#else
+        var roster = RosterPerformanceChecks.Run();
+#endif
+        Console.WriteLine(JsonSerializer.Serialize(new { Kind = "Synthetic CPU/worker replay; not in-game FPS or physical HID latency",
+            Runtime = RuntimeInformation.FrameworkDescription, OS = RuntimeInformation.OSDescription,
+            Architecture = RuntimeInformation.ProcessArchitecture.ToString(), ProcessorCount = Environment.ProcessorCount,
+            CpuIdentifier = Environment.GetEnvironmentVariable("PROCESSOR_IDENTIFIER") ?? "unavailable",
+            AssemblySha256 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.IO.File.ReadAllBytes(typeof(PerformanceChecks).Assembly.Location))),
+            HelperWarmup = 2000, LoopWarmup = 200, LoopSamples = 10,
+            Cases = results, DeviceLoops = loops, RosterLoops = roster, RosterScope = "Snapshot-copy + real exclusion/state/selection/publication; excludes Dalamud reads, cast/arena adapters and full framework Update", Checksum = sink }, new JsonSerializerOptions { WriteIndented = true }));
         foreach (var result in results)
             if (result.AllocatedBytes != 0) throw new Exception(result.Case + " allocated on a warmed hot path: " + result.AllocatedBytes);
     }

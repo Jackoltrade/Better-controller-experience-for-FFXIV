@@ -279,190 +279,186 @@ internal sealed unsafe class SfxAudioCapture : IDisposable
 
     public SfxAudioCapture(IGameInteropProvider interop, ISigScanner scanner, IDataManager data)
     {
-        nint Unique(string signature)
-        {
-            var matches = scanner.ScanAllText(signature);
-            if (matches.Length != 1) throw new NotSupportedException("SFX prototype does not recognize this game mixer version.");
-            return matches[0];
-        }
-        nint Relative(string signature, int displacement, int nextInstruction)
-        {
-            var code = Unique(signature);
-            var address = code + nextInstruction + Marshal.ReadInt32(code + displacement);
-            var start = scanner.Module.BaseAddress;
-            if (address < start || address > start + scanner.Module.ModuleMemorySize - 8)
-                throw new NotSupportedException("SFX mixer address validation failed.");
-            return address;
-        }
-        moduleStart = scanner.Module.BaseAddress;
-        moduleEnd = moduleStart + scanner.Module.ModuleMemorySize;
-        var function = Unique(RenderSignature);
-        var end = scanner.Module.BaseAddress + scanner.Module.ModuleMemorySize;
-        if (function > end - 0x2000) throw new NotSupportedException("SFX mixer function is outside its module.");
-        var body = new ReadOnlySpan<byte>((void*)function, 0x2000);
-        // Fail closed if the source layout changes despite retaining the function's prologue.
-        if (body.IndexOf(new byte[] { 0x83, 0xbf, 0xa8, 0, 0, 0, 3 }) < 0 ||
-            body.IndexOf(new byte[] { 0x48, 0x8b, 0x8f, 0xb0, 0, 0, 0 }) < 0 ||
-            body.IndexOf(new byte[] { 0xf3, 0x0f, 0x10, 0x8f, 0x30, 5, 0, 0 }) < 0 ||
-            body.IndexOf(new byte[] { 0xf3, 0x0f, 0x10, 0xbf, 0x38, 9, 0, 0 }) < 0)
-            throw new NotSupportedException("SFX source-voice layout is unsupported.");
-        callbackVTable = Relative(CallbackSignature, 7, 11);
-        var firstCallback = Marshal.ReadIntPtr(callbackVTable);
-        if (firstCallback < scanner.Module.BaseAddress || firstCallback >= end)
-            throw new NotSupportedException("SFX callback type validation failed.");
-        frames = (int*)Relative("48 63 1D ?? ?? ?? ?? E8 ?? ?? ?? ??", 3, 7);
-        channels = (int*)Relative("89 15 ?? ?? ?? ?? 0F 11 05 ?? ?? ?? ??", 2, 6);
-        spatialAudio = (int*)Relative("39 05 ?? ?? ?? ?? 48 89 5C 24 40", 2, 6);
         try
         {
-            var animationFunction = Unique(AnimationSignature);
-            var acquireFunction = Relative(AcquireSignature, 1, 5);
-            var resolveFunction = Unique(ResolveSignature);
-            var characterFunction = Relative("E8 ?? ?? ?? ?? EB 6A 0F BE 83 ?? ?? ?? ??", 1, 5);
-            var clipFunction = Unique("40 53 55 56 57 48 81 EC ?? ?? ?? ?? 48 8B F9");
-            var timelineFunction = Unique("40 53 48 83 EC 20 48 8B 41 38 48 8B D9 48 85 C0 75 49");
-            if (animationFunction > end - 0x260 || acquireFunction > end - 0x70 || resolveFunction > end - 0x100)
-                throw new NotSupportedException("SFX caster callback is outside its module.");
-            var animationBody = new ReadOnlySpan<byte>((void*)animationFunction, 0x260);
-            var acquireBody = new ReadOnlySpan<byte>((void*)acquireFunction, 0x70);
-            var resolveBody = new ReadOnlySpan<byte>((void*)resolveFunction, 0x100);
-            if (animationBody.IndexOf(new byte[] { 0xf3, 0x0f, 0x10, 0x89, 0x54, 2, 0, 0 }) < 0 ||
-                animationBody.IndexOf(new byte[] { 0x48, 0x8b, 0x81, 0xf8, 1, 0, 0 }) < 0 ||
-                animationBody.IndexOf(new byte[] { 0x0f, 0xb7, 0x90, 0xa8, 4, 0, 0 }) < 0 ||
-                animationBody.IndexOf(new byte[] { 0x66, 0xc1, 0xea, 0x0d }) < 0 ||
-                animationBody.IndexOf(new byte[] { 0x48, 0x8b, 0x98, 0x70, 2, 0, 0 }) < 0 ||
-                animationBody.IndexOf(new byte[] { 0xff, 0x50, 8 }) < 0 ||
-                acquireBody.IndexOf(new byte[] { 0x48, 0x8b, 0xbe, 0x28, 2, 0, 0 }) < 0 ||
-                acquireBody.IndexOf(new byte[] { 0xc6, 0x47, 0x24, 1 }) < 0 ||
-                resolveBody.IndexOf(new byte[] { 0x39, 0x77, 0x38 }) < 0)
-                throw new NotSupportedException("SFX caster/slot layout is unsupported.");
-            if (characterFunction > end - 0x580 || new ReadOnlySpan<byte>((void*)characterFunction, 0x580)
-                .IndexOf(new byte[] { 0x48, 0x8b, 0x49, 8, 0x48, 0x8b, 1 }) < 0)
-                throw new NotSupportedException("Character sound owner layout is unsupported.");
-            // The sound-clip updater calls this lazy timeline resolver before any
-            // sound emission. Observe that existing call so first-use clips work too.
-            if (clipFunction > end - 0x400 || timelineFunction > end - 0x60 ||
-                *(byte*)(clipFunction + 15) != 0xE8 || clipFunction + 20 + *(int*)(clipFunction + 16) != timelineFunction ||
-                new ReadOnlySpan<byte>((void*)timelineFunction, 0x60).IndexOf(new byte[] { 0x48, 0x89, 0x43, 0x38 }) < 0)
-                throw new NotSupportedException("Sound timeline ownership layout is unsupported.");
-            // A layout entry forwards position through its controller at +8;
-            // the validated SoundController ID getter reads +8 again (entry+0x10).
-            // Multiple positional setter variants share this exact field access.
-            // It is a layout check, not a hook target that needs a unique match.
-            if (scanner.ScanAllText("48 8D 4F 08 0F 10 03 0F 11 40 20 48 8B 97 68 01 00 00 48 83 C2 20").Length == 0)
-                throw new NotSupportedException("SFX positional controller layout is unsupported.");
-            Unique("8B 49 08 83 F9 01 7C 09 E8 ?? ?? ?? ?? 85 C0 75 03 8B 43 08");
-            // RootSound vfunc 63 is the SoundController's full, playback-specific ID.
-            Unique("8B 41 0C C3 CC CC CC CC CC CC CC CC CC CC CC CC 0F B6 81 88 02 00 00 C3");
-            var manager = Marshal.ReadIntPtr(Relative("48 89 35 ?? ?? ?? ?? 48 83 C4 20", 3, 7));
-            var pool = manager == 0 ? 0 : Marshal.ReadIntPtr(manager + 0x220);
-            if (pool == 0 || ((nuint)pool & 7) != 0) throw new NotSupportedException("SFX sound pool is unavailable.");
-            ownership = new GameAudioLayout.PlayerSoundOwnership((GameAudioLayout.SoundData*)pool, EnemySoundCueFilter.Read);
-            nativeTrace = new SfxNativeTrace(moduleStart, moduleEnd, (GameAudioLayout.SoundData*)pool);
+            nint Unique(string signature)
+            {
+                var matches = scanner.ScanAllText(signature);
+                if (matches.Length != 1) throw new NotSupportedException("SFX prototype does not recognize this game mixer version.");
+                return matches[0];
+            }
+            nint Relative(string signature, int displacement, int nextInstruction)
+            {
+                var code = Unique(signature);
+                var address = code + nextInstruction + Marshal.ReadInt32(code + displacement);
+                var start = scanner.Module.BaseAddress;
+                if (address < start || address > start + scanner.Module.ModuleMemorySize - 8)
+                    throw new NotSupportedException("SFX mixer address validation failed.");
+                return address;
+            }
+            moduleStart = scanner.Module.BaseAddress;
+            moduleEnd = moduleStart + scanner.Module.ModuleMemorySize;
+            var function = Unique(RenderSignature);
+            var end = scanner.Module.BaseAddress + scanner.Module.ModuleMemorySize;
+            if (function > end - 0x2000) throw new NotSupportedException("SFX mixer function is outside its module.");
+            var body = new ReadOnlySpan<byte>((void*)function, 0x2000);
+            // Fail closed if the source layout changes despite retaining the function's prologue.
+            if (body.IndexOf(new byte[] { 0x83, 0xbf, 0xa8, 0, 0, 0, 3 }) < 0 ||
+                body.IndexOf(new byte[] { 0x48, 0x8b, 0x8f, 0xb0, 0, 0, 0 }) < 0 ||
+                body.IndexOf(new byte[] { 0xf3, 0x0f, 0x10, 0x8f, 0x30, 5, 0, 0 }) < 0 ||
+                body.IndexOf(new byte[] { 0xf3, 0x0f, 0x10, 0xbf, 0x38, 9, 0, 0 }) < 0)
+                throw new NotSupportedException("SFX source-voice layout is unsupported.");
+            callbackVTable = Relative(CallbackSignature, 7, 11);
+            var firstCallback = Marshal.ReadIntPtr(callbackVTable);
+            if (firstCallback < scanner.Module.BaseAddress || firstCallback >= end)
+                throw new NotSupportedException("SFX callback type validation failed.");
+            frames = (int*)Relative("48 63 1D ?? ?? ?? ?? E8 ?? ?? ?? ??", 3, 7);
+            channels = (int*)Relative("89 15 ?? ?? ?? ?? 0F 11 05 ?? ?? ?? ??", 2, 6);
+            spatialAudio = (int*)Relative("39 05 ?? ?? ?? ?? 48 89 5C 24 40", 2, 6);
             try
             {
-                var playback = new SpecialSoundPlayback(scanner);
-                if (playback.Error != null) arenaSoundError = playback.Error;
-                else arenaSounds = new ArenaSoundEffects(scanner, data, pool, playback);
+                var animationFunction = Unique(AnimationSignature);
+                var acquireFunction = Relative(AcquireSignature, 1, 5);
+                var resolveFunction = Unique(ResolveSignature);
+                var characterFunction = Relative("E8 ?? ?? ?? ?? EB 6A 0F BE 83 ?? ?? ?? ??", 1, 5);
+                var clipFunction = Unique("40 53 55 56 57 48 81 EC ?? ?? ?? ?? 48 8B F9");
+                var timelineFunction = Unique("40 53 48 83 EC 20 48 8B 41 38 48 8B D9 48 85 C0 75 49");
+                if (animationFunction > end - 0x260 || acquireFunction > end - 0x70 || resolveFunction > end - 0x100)
+                    throw new NotSupportedException("SFX caster callback is outside its module.");
+                var animationBody = new ReadOnlySpan<byte>((void*)animationFunction, 0x260);
+                var acquireBody = new ReadOnlySpan<byte>((void*)acquireFunction, 0x70);
+                var resolveBody = new ReadOnlySpan<byte>((void*)resolveFunction, 0x100);
+                if (animationBody.IndexOf(new byte[] { 0xf3, 0x0f, 0x10, 0x89, 0x54, 2, 0, 0 }) < 0 ||
+                    animationBody.IndexOf(new byte[] { 0x48, 0x8b, 0x81, 0xf8, 1, 0, 0 }) < 0 ||
+                    animationBody.IndexOf(new byte[] { 0x0f, 0xb7, 0x90, 0xa8, 4, 0, 0 }) < 0 ||
+                    animationBody.IndexOf(new byte[] { 0x66, 0xc1, 0xea, 0x0d }) < 0 ||
+                    animationBody.IndexOf(new byte[] { 0x48, 0x8b, 0x98, 0x70, 2, 0, 0 }) < 0 ||
+                    animationBody.IndexOf(new byte[] { 0xff, 0x50, 8 }) < 0 ||
+                    acquireBody.IndexOf(new byte[] { 0x48, 0x8b, 0xbe, 0x28, 2, 0, 0 }) < 0 ||
+                    acquireBody.IndexOf(new byte[] { 0xc6, 0x47, 0x24, 1 }) < 0 ||
+                    resolveBody.IndexOf(new byte[] { 0x39, 0x77, 0x38 }) < 0)
+                    throw new NotSupportedException("SFX caster/slot layout is unsupported.");
+                if (characterFunction > end - 0x580 || new ReadOnlySpan<byte>((void*)characterFunction, 0x580)
+                    .IndexOf(new byte[] { 0x48, 0x8b, 0x49, 8, 0x48, 0x8b, 1 }) < 0)
+                    throw new NotSupportedException("Character sound owner layout is unsupported.");
+                // The sound-clip updater calls this lazy timeline resolver before any
+                // sound emission. Observe that existing call so first-use clips work too.
+                if (clipFunction > end - 0x400 || timelineFunction > end - 0x60 ||
+                    *(byte*)(clipFunction + 15) != 0xE8 || clipFunction + 20 + *(int*)(clipFunction + 16) != timelineFunction ||
+                    new ReadOnlySpan<byte>((void*)timelineFunction, 0x60).IndexOf(new byte[] { 0x48, 0x89, 0x43, 0x38 }) < 0)
+                    throw new NotSupportedException("Sound timeline ownership layout is unsupported.");
+                // A layout entry forwards position through its controller at +8;
+                // the validated SoundController ID getter reads +8 again (entry+0x10).
+                // Multiple positional setter variants share this exact field access.
+                // It is a layout check, not a hook target that needs a unique match.
+                if (scanner.ScanAllText("48 8D 4F 08 0F 10 03 0F 11 40 20 48 8B 97 68 01 00 00 48 83 C2 20").Length == 0)
+                    throw new NotSupportedException("SFX positional controller layout is unsupported.");
+                Unique("8B 49 08 83 F9 01 7C 09 E8 ?? ?? ?? ?? 85 C0 75 03 8B 43 08");
+                // RootSound vfunc 63 is the SoundController's full, playback-specific ID.
+                Unique("8B 41 0C C3 CC CC CC CC CC CC CC CC CC CC CC CC 0F B6 81 88 02 00 00 C3");
+                var manager = Marshal.ReadIntPtr(Relative("48 89 35 ?? ?? ?? ?? 48 83 C4 20", 3, 7));
+                var pool = manager == 0 ? 0 : Marshal.ReadIntPtr(manager + 0x220);
+                if (pool == 0 || ((nuint)pool & 7) != 0) throw new NotSupportedException("SFX sound pool is unavailable.");
+                ownership = new GameAudioLayout.PlayerSoundOwnership((GameAudioLayout.SoundData*)pool, EnemySoundCueFilter.Read);
+                nativeTrace = new SfxNativeTrace(moduleStart, moduleEnd, (GameAudioLayout.SoundData*)pool);
+                try
+                {
+                    var playback = new SpecialSoundPlayback(scanner);
+                    if (playback.Error != null) arenaSoundError = playback.Error;
+                    else arenaSounds = new ArenaSoundEffects(scanner, data, pool, playback);
+                }
+                catch (Exception error) { arenaSoundError = error.Message; }
+                acquire = interop.HookFromAddress<AcquireSoundDelegate>(acquireFunction, AcquireSound);
+                resolve = interop.HookFromAddress<ResolveSoundDelegate>(resolveFunction, ResolveSound);
+                characterSound = interop.HookFromAddress<CharacterSoundDelegate>(characterFunction, CharacterSound);
+                getTimeline = interop.HookFromAddress<GetTimelineDelegate>(timelineFunction, GetTimeline);
+                clipUpdate = interop.HookFromAddress<ClipUpdateDelegate>(clipFunction, ClipUpdate);
+                animation = interop.HookFromAddress<AnimationSoundDelegate>(animationFunction, AnimationSound);
+                acquire.Enable();
+                resolve.Enable();
+                characterSound.Enable();
+                getTimeline.Enable();
+                clipUpdate.Enable();
+                animation.Enable();
             }
-            catch (Exception error) { arenaSoundError = error.Message; }
-            acquire = interop.HookFromAddress<AcquireSoundDelegate>(acquireFunction, AcquireSound);
-            resolve = interop.HookFromAddress<ResolveSoundDelegate>(resolveFunction, ResolveSound);
-            characterSound = interop.HookFromAddress<CharacterSoundDelegate>(characterFunction, CharacterSound);
-            getTimeline = interop.HookFromAddress<GetTimelineDelegate>(timelineFunction, GetTimeline);
-            clipUpdate = interop.HookFromAddress<ClipUpdateDelegate>(clipFunction, ClipUpdate);
-            animation = interop.HookFromAddress<AnimationSoundDelegate>(animationFunction, AnimationSound);
-            acquire.Enable();
-            resolve.Enable();
-            characterSound.Enable();
-            getTimeline.Enable();
-            clipUpdate.Enable();
-            animation.Enable();
-        }
-        catch (Exception error)
-        {
-            arenaSounds?.Dispose(); arenaSounds = null;
-            animation?.Dispose(); animation = null;
-            acquire?.Dispose(); acquire = null;
-            resolve?.Dispose(); resolve = null;
-            characterSound?.Dispose(); characterSound = null;
-            clipUpdate?.Dispose(); clipUpdate = null;
-            getTimeline?.Dispose(); getTimeline = null;
-            ownership = null; // The existing All combat option remains usable.
-            PlayerFilterError = error.Message;
-        }
-        if (ownership != null)
-        {
-            try { enemySkills = new EnemySkillFilter(interop, scanner, data, ownership); }
-            catch (Exception error) { enemySkillError = error.Message; }
-            try { npcSpawns = new NpcSpawnObserver(interop, scanner); }
-            catch (Exception error) { spawnTraceError = error.Message; }
-        }
-        try
-        {
-            var instances = Relative("48 83 EC 28 48 63 D1 48 8D 0D ?? ?? ?? ??", 10, 14);
-            var mix = Unique("48 8B C4 53 55 56 48 81 EC 80 00 00 00 80 B9 3C 01 00 00 00 48 8B DA");
-            if (instances > end - 15 * 8 || body.IndexOf(new byte[] { 0x48, 0x8d, 0x9f, 0x48, 9, 0, 0 }) < 0 ||
-                body.IndexOf(new byte[] { 0x41, 0xff, 0x51, 0x78 }) < 0)
-                throw new NotSupportedException("Native vibration routing layout is unsupported.");
-            Haptics = new NativeHapticOutput((nint*)instances, mix, moduleStart, moduleEnd);
-        }
-        catch (Exception error)
-        {
-            HapticsError = error.Message;
-            // Ordinary rumble shares classification and distance logic, but does
-            // not require a native DualSense vibration destination.
-            Haptics = new NativeHapticOutput(null, 0, moduleStart, moduleEnd);
-        }
-        if (Haptics != null)
-        {
+            catch (Exception error)
+            {
+                try { ResourceCleanup.Run(() => arenaSounds?.Dispose(), () => animation?.Dispose(),
+                    () => acquire?.Dispose(), () => resolve?.Dispose(), () => characterSound?.Dispose(),
+                    () => clipUpdate?.Dispose(), () => getTimeline?.Dispose()); }
+                catch { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(error); }
+                arenaSounds = null; animation = null; acquire = null; resolve = null;
+                characterSound = null; clipUpdate = null; getTimeline = null;
+                ownership = null; // The existing All combat option remains usable.
+                PlayerFilterError = error.Message;
+            }
+            if (ownership != null)
+            {
+                try { enemySkills = new EnemySkillFilter(interop, scanner, data, ownership); }
+                catch (Exception error) { enemySkillError = error.Message; }
+                try { npcSpawns = new NpcSpawnObserver(interop, scanner); }
+                catch (Exception error) { spawnTraceError = error.Message; }
+            }
             try
             {
-                // Validated against the native mix pass: this function runs once
-                // per submix, after source voices and before effects/sends.
-                var submixRender = Unique("48 89 5C 24 20 56 57 41 55 41 56 41 57 48 83 EC 70 0F B7 81 22 01 00 00");
-                if (submixRender > end - 0x480 ||
-                    new ReadOnlySpan<byte>((void*)submixRender, 0x40).IndexOf(new byte[] { 0x66, 0x89, 0x81, 0x24, 0x01, 0, 0 }) < 0 ||
-                    new ReadOnlySpan<byte>((void*)submixRender, 0x80).IndexOf(new byte[] { 0x48, 0x8B, 0x8B, 0x80, 0, 0, 0 }) < 0)
-                    throw new NotSupportedException("Confirmation vibration mixer layout is unsupported.");
-                sampleRate = (int*)Relative("44 89 0D ?? ?? ?? ?? 44 89 25 ?? ?? ?? ??", 3, 7);
-                // Mix current screen feedback at the existing final submix stage.
-                confirmationRender = interop.HookFromAddress<SubmixRenderDelegate>(submixRender, RenderConfirmation);
+                var instances = Relative("48 83 EC 28 48 63 D1 48 8D 0D ?? ?? ?? ??", 10, 14);
+                var mix = Unique("48 8B C4 53 55 56 48 81 EC 80 00 00 00 80 B9 3C 01 00 00 00 48 8B DA");
+                if (instances > end - 15 * 8 || body.IndexOf(new byte[] { 0x48, 0x8d, 0x9f, 0x48, 9, 0, 0 }) < 0 ||
+                    body.IndexOf(new byte[] { 0x41, 0xff, 0x51, 0x78 }) < 0)
+                    throw new NotSupportedException("Native vibration routing layout is unsupported.");
+                Haptics = new NativeHapticOutput((nint*)instances, mix, moduleStart, moduleEnd);
             }
-            catch (Exception error) { ConfirmationError = error.Message; }
-            try { screenEffects = new GameScreenEffects(interop, scanner, Haptics); }
-            catch (Exception error) { ScreenEffectsError = error.Message; }
-            try
+            catch (Exception error)
             {
-                var control = Relative("4C 8D 35 ?? ?? ?? ?? 48 8B 09", 3, 7);
-                var getCamera = Relative("E8 ?? ?? ?? ?? 45 32 FF 40 32 FF", 1, 5);
-                var matrixBuilder = Unique("48 8B C4 53 48 81 EC F0 00 00 00 F3 0F 10 05 ?? ?? ?? ?? 48 8B D9");
-                var playSound = Relative("E8 ?? ?? ?? ?? 83 FB ?? 41 BF", 1, 5);
-                if (control > end - 0x190 || getCamera > end - 0x30 || playSound > end - 0x300 ||
-                    new ReadOnlySpan<byte>((void*)playSound, 0x300).IndexOf(new byte[] { 0xf3, 0x0f, 0x11, 0x7b, 0x68 }) < 0 ||
-                    new ReadOnlySpan<byte>((void*)playSound, 0x300).IndexOf(new byte[] { 0x88, 0x83, 0xb9, 0, 0, 0 }) < 0 ||
-                    !new ReadOnlySpan<byte>((void*)getCamera, 8).SequenceEqual(
-                    new byte[] { 0xf3, 0x0f, 0x10, 0x89, 0x80, 1, 0, 0 }))
-                    throw new NotSupportedException("Camera or positional sound layout is unsupported.");
-                hapticCamera = new GameHapticCamera(control, getCamera);
-                Haptics.SetSpatialMatrices(GameHapticCamera.StereoMatrix(matrixBuilder, 8), GameHapticCamera.StereoMatrix(matrixBuilder, 16));
+                HapticsError = error.Message;
+                // Ordinary rumble shares classification and distance logic, but does
+                // not require a native DualSense vibration destination.
+                Haptics = new NativeHapticOutput(null, 0, moduleStart, moduleEnd);
             }
-            catch (Exception error) { SpatialError = error.Message; }
-        }
-        Hook<RenderDelegate>? newRender = null;
-        try
-        {
-            newRender = interop.HookFromAddress<RenderDelegate>(function, Render);
-            render = newRender;
+            if (Haptics != null)
+            {
+                try
+                {
+                    // Validated against the native mix pass: this function runs once
+                    // per submix, after source voices and before effects/sends.
+                    var submixRender = Unique("48 89 5C 24 20 56 57 41 55 41 56 41 57 48 83 EC 70 0F B7 81 22 01 00 00");
+                    if (submixRender > end - 0x480 ||
+                        new ReadOnlySpan<byte>((void*)submixRender, 0x40).IndexOf(new byte[] { 0x66, 0x89, 0x81, 0x24, 0x01, 0, 0 }) < 0 ||
+                        new ReadOnlySpan<byte>((void*)submixRender, 0x80).IndexOf(new byte[] { 0x48, 0x8B, 0x8B, 0x80, 0, 0, 0 }) < 0)
+                        throw new NotSupportedException("Confirmation vibration mixer layout is unsupported.");
+                    sampleRate = (int*)Relative("44 89 0D ?? ?? ?? ?? 44 89 25 ?? ?? ?? ??", 3, 7);
+                    // Mix current screen feedback at the existing final submix stage.
+                    confirmationRender = interop.HookFromAddress<SubmixRenderDelegate>(submixRender, RenderConfirmation);
+                }
+                catch (Exception error) { ConfirmationError = error.Message; }
+                try { screenEffects = new GameScreenEffects(interop, scanner, Haptics); }
+                catch (Exception error) { ScreenEffectsError = error.Message; }
+                try
+                {
+                    var control = Relative("4C 8D 35 ?? ?? ?? ?? 48 8B 09", 3, 7);
+                    var getCamera = Relative("E8 ?? ?? ?? ?? 45 32 FF 40 32 FF", 1, 5);
+                    var matrixBuilder = Unique("48 8B C4 53 48 81 EC F0 00 00 00 F3 0F 10 05 ?? ?? ?? ?? 48 8B D9");
+                    var playSound = Relative("E8 ?? ?? ?? ?? 83 FB ?? 41 BF", 1, 5);
+                    if (control > end - 0x190 || getCamera > end - 0x30 || playSound > end - 0x300 ||
+                        new ReadOnlySpan<byte>((void*)playSound, 0x300).IndexOf(new byte[] { 0xf3, 0x0f, 0x11, 0x7b, 0x68 }) < 0 ||
+                        new ReadOnlySpan<byte>((void*)playSound, 0x300).IndexOf(new byte[] { 0x88, 0x83, 0xb9, 0, 0, 0 }) < 0 ||
+                        !new ReadOnlySpan<byte>((void*)getCamera, 8).SequenceEqual(
+                        new byte[] { 0xf3, 0x0f, 0x10, 0x89, 0x80, 1, 0, 0 }))
+                        throw new NotSupportedException("Camera or positional sound layout is unsupported.");
+                    hapticCamera = new GameHapticCamera(control, getCamera);
+                    Haptics.SetSpatialMatrices(GameHapticCamera.StereoMatrix(matrixBuilder, 8), GameHapticCamera.StereoMatrix(matrixBuilder, 16));
+                }
+                catch (Exception error) { SpatialError = error.Message; }
+            }
+            render = interop.HookFromAddress<RenderDelegate>(function, Render);
             render.Enable();
         }
         catch
         {
-            arenaSounds?.Dispose();
-            screenEffects?.Dispose();
-            confirmationRender?.Dispose(); enemySkills?.Dispose(); npcSpawns?.Dispose();
-            newRender?.Dispose(); animation?.Dispose(); acquire?.Dispose(); resolve?.Dispose(); characterSound?.Dispose();
-            clipUpdate?.Dispose(); getTimeline?.Dispose(); throw;
+            // Includes failures between optional observers and the final render hook.
+            // Keep the original initialization error after releasing every acquired hook.
+            try { Dispose(); } catch { }
+            throw;
         }
     }
 
@@ -809,20 +805,12 @@ internal sealed unsafe class SfxAudioCapture : IDisposable
     public void Dispose()
     {
         if (Interlocked.Exchange(ref disposed, 1) != 0) return;
-        Loudness.SetActive(false);
-        Haptics?.Configure(new HapticSettings(), false, false);
-        screenEffects?.Dispose();
-        enemySkills?.Dispose();
-        arenaSounds?.Dispose();
-        npcSpawns?.Dispose();
-        confirmationRender?.Dispose();
         Volatile.Write(ref tracing, 0);
-        animation?.Dispose();
-        acquire?.Dispose();
-        resolve?.Dispose();
-        characterSound?.Dispose();
-        clipUpdate?.Dispose();
-        getTimeline?.Dispose();
-        render.Dispose();
+        ResourceCleanup.Run(() => Loudness.SetActive(false),
+            () => Haptics?.Configure(new HapticSettings(), false, false),
+            () => screenEffects?.Dispose(), () => enemySkills?.Dispose(), () => arenaSounds?.Dispose(),
+            () => npcSpawns?.Dispose(), () => confirmationRender?.Dispose(), () => animation?.Dispose(),
+            () => acquire?.Dispose(), () => resolve?.Dispose(), () => characterSound?.Dispose(),
+            () => clipUpdate?.Dispose(), () => getTimeline?.Dispose(), () => render?.Dispose());
     }
 }

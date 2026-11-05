@@ -4,6 +4,14 @@ Version: **0.18.0.0** · Checked: **2026-11-05** · Target: **Windows x64, USB/B
 
 The local release build and automated checks pass. This report separates those results from earlier in-game observations and the checks still needed before a public release. It does not establish compatibility with every regional client or game patch.
 
+## Current source: reliability and maintainability optimization
+
+The follow-up refactor and verification are documented in
+[the optimization report](optimization/verification.md). Its results supersede
+older assertion counts and selected-helper performance figures below. The
+historical in-game observations remain historical; they are not new hardware
+validation of this refactor.
+
 ## Current candidate: Dalamud SDK and Windowing migration (0.18.0)
 
 The plugin now uses **Dalamud.NET.Sdk/15.0.0** and its DalamudPackager.

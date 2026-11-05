@@ -34,8 +34,19 @@ public sealed class LightingSession : IRumbleDevices, IDisposable
         public RumbleMotors Motors;
         public double Seconds;
         public byte Sequence;
+        public bool NeedsMotorSync;
+        public bool MotorRequested;
     }
     private readonly Dictionary<string, OutputState> sent = new(StringComparer.OrdinalIgnoreCase);
+    // Reserve before claiming output. Failed or absent paths never evict an
+    // obligation; capacity exhaustion pauses new ownership instead.
+    private const int OwnershipCapacity = 32;
+    private sealed class Ownership
+    {
+        public bool Lighting, Motors, NeedsClear;
+    }
+    private readonly Dictionary<string, Ownership> owned = new(StringComparer.OrdinalIgnoreCase);
+    private bool releasePending;
     private string? bluetoothPath;
     private RumbleMotors bluetoothMotors;
     private bool bluetoothRequested;
@@ -97,7 +108,8 @@ public sealed class LightingSession : IRumbleDevices, IDisposable
         cancellationToken.ThrowIfCancellationRequested();
         if ((!settings.Enabled && !bluetoothRequested) || !isForeground())
         {
-            await ReleaseAsync(!settings.Enabled, cancellationToken).ConfigureAwait(false);
+            if (open.Count != 0 || releasePending)
+                await ReleaseAsync(!settings.Enabled, cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -112,7 +124,24 @@ public sealed class LightingSession : IRumbleDevices, IDisposable
             var bluetooth = open[path].ReportLength == DualSenseReport.BluetoothLength;
             var desiredLighting = settings.Enabled ? frame : (LightingFrame?)null;
             var motors = bluetooth && path == bluetoothPath ? bluetoothMotors : default;
-            if (!sent.TryGetValue(path, out var previous)) previous = new OutputState();
+            var previous = sent[path];
+            try
+            {
+                if (owned.TryGetValue(path, out var cleanup) && cleanup.NeedsClear)
+                {
+                    await ClearAsync(path, cleanup, cancellationToken).ConfigureAwait(false);
+                    previous.Lighting = null; previous.Motors = default;
+                    previous.Seconds = double.NegativeInfinity;
+                }
+                if (bluetooth && previous.NeedsMotorSync && previous.MotorRequested)
+                {
+                    await WriteAsync(path, null, default(RumbleMotors), cancellationToken).ConfigureAwait(false);
+                    previous.NeedsMotorSync = false;
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { MarkUncertain(path); throw; }
+            catch (Exception error) { Remove(path); Report(error); continue; }
+            if (!isForeground()) { await ReleaseAsync(false, cancellationToken).ConfigureAwait(false); return; }
             // Static light/rumble refresh also recovers another app's one-shot update.
             if (previous.Lighting == desiredLighting && previous.Motors == motors &&
                 (desiredLighting == null && motors == default || seconds - previous.Seconds < 1)) continue;
@@ -121,10 +150,9 @@ public sealed class LightingSession : IRumbleDevices, IDisposable
             if (lights == null && vibration == null) continue;
             try
             {
-                using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                deadline.CancelAfter(500);
-                var report = DualSenseReport.Create(open[path].ReportLength, lights, vibration, previous.Sequence++, open[path].ImprovedRumble);
-                await open[path].WriteAsync(report, deadline.Token).ConfigureAwait(false);
+                if ((desiredLighting.HasValue || motors != default) && !Reserve(path, desiredLighting.HasValue, motors != default)) continue;
+                var report = await WriteAsync(path, lights, vibration, cancellationToken).ConfigureAwait(false);
+                Acknowledge(path, desiredLighting == null && lights.HasValue, vibration.HasValue && motors == default);
                 if (path == bluetoothPath && vibration.HasValue)
                 {
                     Volatile.Write(ref bluetoothCommand, (motors.Low >> 8) | (motors.High >> 8 << 8));
@@ -156,15 +184,10 @@ public sealed class LightingSession : IRumbleDevices, IDisposable
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                // Cancellation can race successful delivery. Retain possible
-                // ownership so the worker's final release still stops that output.
-                previous.Lighting ??= lights;
-                if (motors != default) previous.Motors = motors;
-                previous.Seconds = double.NegativeInfinity;
-                sent[path] = previous;
+                MarkUncertain(path);
                 throw;
             }
-            catch (Exception error) { Remove(path); onError(error); }
+            catch (Exception error) { Remove(path); Report(error); }
         }
         Volatile.Write(ref deviceCount, open.Count);
     }
@@ -176,7 +199,7 @@ public sealed class LightingSession : IRumbleDevices, IDisposable
         if ((!lighting && !bluetoothRumble) || !isForeground() || seconds < nextScan) return;
         nextScan = seconds + 1;
         try { Scan(); }
-        catch (Exception error) { Dispose(); nextScan = seconds + 1; onError(error); }
+        catch (Exception error) { Report(error); } // A failed snapshot proves no device disconnected.
     }
 
     public bool IsConnected(int slot) => slot == 0 && bluetoothPath != null && isForeground();
@@ -184,6 +207,7 @@ public sealed class LightingSession : IRumbleDevices, IDisposable
     public bool SetVibration(int slot, RumbleMotors motors, RumbleMotors screen)
     {
         if (slot != 0 || bluetoothPath == null) return false;
+        sent[bluetoothPath].MotorRequested = true;
         bluetoothMotors = isForeground() ? RumbleMotors.Merge(default, motors, screen) : default;
         return true;
     }
@@ -196,8 +220,16 @@ public sealed class LightingSession : IRumbleDevices, IDisposable
         {
             if (open.ContainsKey(path)) continue;
             if (!isForeground()) break;
-            var device = devices.Open(path);
-            if (device != null) open.Add(path, device);
+            try
+            {
+                var device = devices.Open(path);
+                if (device != null)
+                {
+                    open.Add(path, device);
+                    sent[path] = new OutputState { NeedsMotorSync = device.ReportLength == DualSenseReport.BluetoothLength };
+                }
+            }
+            catch (Exception error) { Report(error); }
         }
         PublishDevices();
     }
@@ -225,41 +257,138 @@ public sealed class LightingSession : IRumbleDevices, IDisposable
 
     private void Remove(string path)
     {
-        if (open.Remove(path, out var device)) device.Dispose();
+        MarkUncertain(path);
+        if (open.Remove(path, out var device)) Close(device);
         sent.Remove(path);
         PublishDevices();
     }
 
+    private void Report(Exception error)
+    {
+        // Diagnostics must never interrupt another device's release/retirement.
+        try { onError(error); } catch { }
+    }
+
+    private void Close(ILightingDevice device)
+    {
+        try { device.Dispose(); } catch (Exception error) { Report(error); }
+    }
+
+    private bool Reserve(string path, bool lighting, bool motors)
+    {
+        if (!owned.TryGetValue(path, out var ownership))
+        {
+            if (owned.Count >= OwnershipCapacity)
+            {
+                Report(new InvalidOperationException("Controller output paused: pending cleanup capacity is full; reconnect earlier controllers to clear their output."));
+                return false;
+            }
+            owned.Add(path, ownership = new Ownership());
+        }
+        ownership.Lighting |= lighting;
+        ownership.Motors |= motors;
+        releasePending = true;
+        return true;
+    }
+
+    private void MarkUncertain(string path)
+    {
+        if (owned.TryGetValue(path, out var ownership)) { ownership.NeedsClear = true; releasePending = true; }
+    }
+
+    private void Acknowledge(string path, bool lighting, bool motors)
+    {
+        if (!owned.TryGetValue(path, out var ownership)) return;
+        if (lighting) ownership.Lighting = false;
+        if (motors) ownership.Motors = false;
+        if (!ownership.Lighting && !ownership.Motors) owned.Remove(path);
+    }
+
+    private async ValueTask<byte[]> WriteAsync(string path, LightingFrame? lights, RumbleMotors? motors, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var device = open[path];
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(500);
+        var report = DualSenseReport.Create(device.ReportLength, lights, motors, sent[path].Sequence++, device.ImprovedRumble);
+        await device.WriteAsync(report, deadline.Token).ConfigureAwait(false);
+        return report;
+    }
+
+    private async Task ClearAsync(string path, Ownership ownership, CancellationToken cancellationToken)
+    {
+        await WriteAsync(path, ownership.Lighting ? new LightingFrame(0, 0, 0, 0) : null,
+            ownership.Motors ? default(RumbleMotors) : null, cancellationToken).ConfigureAwait(false);
+        CompleteClear(path, ownership);
+    }
+
+    private void CompleteClear(string path, Ownership ownership)
+    {
+        if (ownership.Motors)
+        {
+            sent[path].NeedsMotorSync = false;
+            if (path == bluetoothPath) Volatile.Write(ref bluetoothCommand, 0);
+        }
+        Acknowledge(path, ownership.Lighting, ownership.Motors);
+        Interlocked.Increment(ref releaseCount);
+    }
+
     public async Task ReleaseAsync(bool allowForeground, CancellationToken cancellationToken)
+    {
+        // Launch independent stop writes before waiting. A stalled controller
+        // cannot spend every other controller's deadline before their stop starts.
+        var writes = new List<(string Path, Ownership Ownership, Task<Exception?> Result)>();
+        try
+        {
+            foreach (var path in owned.Keys.ToArray())
+            {
+                // Clear only the light/rumble fields this session actually wrote.
+                if (!allowForeground && isForeground()) break;
+                try
+                {
+                    MarkUncertain(path);
+                    if (!open.ContainsKey(path))
+                    {
+                        var device = devices.Open(path);
+                        if (device == null) continue;
+                        open.Add(path, device);
+                        sent[path] = new OutputState(); // A reopened handle starts a fresh wire sequence.
+                    }
+                    var ownership = owned[path];
+                    writes.Add((path, ownership, TryWriteAsync(path, ownership, cancellationToken)));
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { break; }
+                catch (Exception error) { Report(error); }
+            }
+            await Task.WhenAll(writes.Select(write => write.Result)).ConfigureAwait(false);
+            // Only this worker acknowledges ownership; no continuation mutates
+            // the dictionaries while another device is still writing.
+            foreach (var write in writes)
+            {
+                var error = await write.Result.ConfigureAwait(false);
+                if (error == null) CompleteClear(write.Path, write.Ownership);
+                else if (error is not OperationCanceledException || !cancellationToken.IsCancellationRequested) Report(error);
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+        finally { Dispose(); releasePending = false; } // Retain metadata, never native handles or retry loops.
+    }
+
+    private async Task<Exception?> TryWriteAsync(string path, Ownership ownership, CancellationToken cancellationToken)
     {
         try
         {
-            foreach (var path in open.Keys.ToArray())
-            {
-                // Clear only the light/rumble fields this session actually wrote.
-                if (!sent.TryGetValue(path, out var previous)) continue;
-                if (!allowForeground && isForeground()) break;
-                var lights = previous.Lighting.HasValue ? new LightingFrame(0, 0, 0, 0) : (LightingFrame?)null;
-                var motors = previous.Motors != default ? default(RumbleMotors) : (RumbleMotors?)null;
-                if (lights == null && motors == null) continue;
-                try
-                {
-                    using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                    deadline.CancelAfter(500);
-                    await open[path].WriteAsync(DualSenseReport.Create(open[path].ReportLength, lights, motors,
-                        previous.Sequence++, open[path].ImprovedRumble), deadline.Token).ConfigureAwait(false);
-                    Interlocked.Increment(ref releaseCount);
-                }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-                catch (Exception error) { onError(error); }
-            }
+            await WriteAsync(path, ownership.Lighting ? new LightingFrame(0, 0, 0, 0) : null,
+                ownership.Motors ? default(RumbleMotors) : null, cancellationToken).ConfigureAwait(false);
+            return null;
         }
-        finally { Dispose(); } // No polling/retries or retained handles after release.
+        catch (Exception error) { return error; }
     }
 
     public void Dispose()
     {
-        foreach (var device in open.Values) device.Dispose();
+        foreach (var path in open.Keys) MarkUncertain(path);
+        foreach (var device in open.Values) Close(device);
         open.Clear();
         sent.Clear();
         PublishDevices();

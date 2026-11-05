@@ -24,6 +24,9 @@ internal static class BluetoothChecks
         await CheckRumbleOnly(check);
         await CheckFailures(check);
         await CheckCancellation(check);
+        await CheckRecovery(check);
+        await CheckAdmission(check);
+        await CheckConcurrentRelease(check);
     }
 
     private static void CheckReports(Action<bool, string> check)
@@ -291,7 +294,7 @@ internal static class BluetoothChecks
             await session.TickAsync(settings, index * 0.033, default);
             var actual = devices.Opened.Single(d => d.Path == "bt").Reports[^1];
             var preview = LightingEffects.Render(settings, index * 0.033);
-            check(actual[1] == ((index & 15) << 4) && actual[47] == preview.Red && actual[48] == preview.Green &&
+            check(actual[1] == (((index + 1) & 15) << 4) && actual[47] == preview.Red && actual[48] == preview.Green &&
                 actual[49] == preview.Blue && (actual[46] & 31) == preview.PlayerLights &&
                 actual[5] == 0x12 && actual[6] == 0xab && DualSenseReport.HasValidChecksum(actual),
                 "Combined Bluetooth animation, rumble, sequence wrap or preview diverged");
@@ -339,26 +342,26 @@ internal static class BluetoothChecks
         rumble.Select(HapticOutputMode.XInput, 0, true, 0);
         signal.Observe(new float[] { 0.5f }); rumble.Tick(signal, settings, true, 0);
         await hid.TickAsync(lights, 0, default);
-        var device = devices.Opened.Single(); var first = device.Reports.Single();
+        var device = devices.Opened.Single(); var first = device.Reports[^1];
         check(first[3] == 3 && first[4] == 0 && first[5] == 64 && first[6] == 9 && first[41] == 0,
             "The default +85% balance or SFX rumble envelope did not reach Bluetooth independently of lighting");
         signal.Observe(new float[] { 0.5f }); rumble.Tick(signal, settings, true, 0.06);
         await hid.TickAsync(lights, 0.06, default);
-        check(device.Reports.Count == 1, "An unchanged impact sent duplicate Bluetooth commands");
+        check(device.Reports.Count == 2, "An unchanged impact sent duplicate Bluetooth commands");
         signal.Observe(new float[] { 0.5f }); rumble.Tick(signal, settings, true, 0.15);
         await hid.TickAsync(lights, 0.15, default);
-        check(device.Reports.Count == 2 && device.Reports[^1][3] == 3 && device.Reports[^1][5] == 0 && device.Reports[^1][6] == 0,
+        check(device.Reports.Count == 3 && device.Reports[^1][3] == 3 && device.Reports[^1][5] == 0 && device.Reports[^1][6] == 0,
             "A sustained SFX did not stop at the configured pulse deadline");
         signal.Observe(new float[] { 0.5f }); rumble.Tick(signal, settings, true, 0.5);
         await hid.TickAsync(lights, 0.5, default);
-        check(device.Reports.Count == 2, "A steady SFX retriggered rumble without another impact");
+        check(device.Reports.Count == 3, "A steady SFX retriggered rumble without another impact");
         // The transport still supports keepalive for a sustained command; pulse shaping belongs to RumbleSession.
         hid.SetVibration(0, new(32768, 32768));
         await hid.TickAsync(lights, 1, default);
         await hid.TickAsync(lights, 1.5, default);
-        check(device.Reports.Count == 3, "Unchanged Bluetooth motor state was sent every worker tick");
+        check(device.Reports.Count == 4, "Unchanged Bluetooth motor state was sent every worker tick");
         await hid.TickAsync(lights, 2.1, default);
-        check(device.Reports.Count == 4, "Sustained Bluetooth motor state lost its keepalive");
+        check(device.Reports.Count == 5, "Sustained Bluetooth motor state lost its keepalive");
         hid.SetVibration(0, default); rumble.Release(); await hid.TickAsync(lights, 2.2, default);
         check(device.Reports[^1][3] == 3 && device.Reports[^1][5] == 0 && device.Reports[^1][6] == 0 &&
             !rumble.UsesRumble, "Disabling basic rumble did not send a real motor stop");
@@ -377,7 +380,7 @@ internal static class BluetoothChecks
         devices.Paths.Add("bt", 78); hid.Discover(false, true, 5.6);
         await hid.TickAsync(lights, 5.6, default);
         check(devices.Opened[^1].Reports.Count == 0 && hid.HasBluetooth,
-            "Reconnect replayed a previous Bluetooth rumble command");
+            "Reconnect without pending ownership or a new request took over Bluetooth motors");
     }
 
     private static async Task CheckFailures(Action<bool, string> check)
@@ -391,7 +394,8 @@ internal static class BluetoothChecks
         check(errors == 1 && session.DeviceCount == 0 && !session.IsConnected(0) && devices.Opened[0].Disposed,
             "Bluetooth write failure retained rumble availability or a stale handle");
         session.Discover(true, true, 1); await session.TickAsync(LightingSettings.Default, 1, default);
-        check(devices.Opened[^1].Reports[^1][3] == 0 && devices.Opened[^1].Reports[^1][1] == 0,
+        check(devices.Opened[^1].Reports[0][3] == 3 && devices.Opened[^1].Reports[0][1] == 0 &&
+            devices.Opened[^1].Reports[0][5] == 0 && devices.Opened[^1].Reports[0][6] == 0 && devices.Opened[^1].Reports[^1][3] == 0,
             "Bluetooth write recovery replayed stale motors or sequence state");
         session.SetVibration(0, new(30000, 40000));
         await session.TickAsync(LightingSettings.Default, 1.1, default);
@@ -412,7 +416,9 @@ internal static class BluetoothChecks
             var devices = new Devices();
             using var session = new LightingSession(devices, () => true, e => throw e);
             using var cancelled = new CancellationTokenSource();
-            session.Discover(true, true, 0); session.SetVibration(0, new(30000, 40000));
+            session.Discover(true, true, 0); session.SetVibration(0, default);
+            await session.TickAsync(LightingSettings.Default with { Enabled = false }, 0, default);
+            session.SetVibration(0, new(30000, 40000));
             var device = devices.Opened.Single();
             if (cancellingStop)
             {
@@ -429,10 +435,216 @@ internal static class BluetoothChecks
             device.AfterWrite = null;
             await session.ReleaseAsync(true, default);
             var final = device.Reports[^1];
-            check(device.Reports.Count == (cancellingStop ? 3 : 2) && final[3] == 3 && final[4] == 0x14 &&
+            check(device.Reports.Count == (cancellingStop ? 4 : 3) && final[3] == 3 && final[4] == 0x14 &&
                 final[5] == 0 && final[6] == 0 && final.AsSpan(46, 4).ToArray().All(b => b == 0) &&
                 DualSenseReport.HasValidChecksum(final) && device.Disposed,
                 "Cancelling a possibly delivered Bluetooth start/stop left owned rumble or lights unreleased");
         }
+    }
+
+    private sealed class RecoveryDevices : ILightingDevices
+    {
+        public readonly Dictionary<string, int> Paths = new() { ["bt"] = 78 };
+        public readonly HashSet<string> Denied = new();
+        public readonly List<RecoveryDevice> Opened = new();
+        public bool EnumerationFails;
+        public Action<RecoveryDevice>? OnOpen;
+        public IReadOnlyCollection<string> GetPaths() => EnumerationFails ? throw new IOException("Discovery failed") : Paths.Keys;
+        public ILightingDevice? Open(string path)
+        {
+            if (Denied.Contains(path)) throw new IOException("Open failed");
+            if (!Paths.TryGetValue(path, out var length)) return null;
+            var device = new RecoveryDevice(length); Opened.Add(device); OnOpen?.Invoke(device); return device;
+        }
+    }
+
+    private sealed class RecoveryDevice(int length) : ILightingDevice
+    {
+        public int ReportLength => length;
+        public readonly List<byte[]> Reports = new();
+        public bool Disposed, FailClear, ThrowDispose;
+        public Func<byte[], CancellationToken, Task>? AfterAccept;
+        public async Task WriteAsync(byte[] report, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (FailClear && report[5] == 0 && report[6] == 0) throw new IOException("Stop failed");
+            Reports.Add((byte[])report.Clone());
+            if (AfterAccept != null) await AfterAccept(report, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+        public void Dispose() { Disposed = true; if (ThrowDispose) throw new IOException("Close failed"); }
+    }
+
+    private static async Task CheckRecovery(Action<bool, string> check)
+    {
+        var lights = LightingSettings.Default;
+        var dark = lights with { Enabled = false };
+        // Opening for lighting or diagnostics never grants motor ownership.
+        {
+            var devices = new RecoveryDevices();
+            using var session = new LightingSession(devices, () => true, _ => { });
+            session.Discover(true, false, 0);
+            await session.TickAsync(lights, 0, default);
+            await session.ReleaseAsync(true, default);
+            check(devices.Opened.SelectMany(d => d.Reports).All(r => r[3] == 0 && r[5] == 0 && r[6] == 0),
+                "Lighting-only discovery or release took over Bluetooth motors");
+            session.Discover(false, true, 2);
+            session.SetVibration(0, default);
+            await session.TickAsync(dark, 2, default);
+            check(devices.Opened[^1].Reports.Single()[3] == 3 && devices.Opened[^1].Reports.Single()[4] == 0,
+                "An explicit zero on a fresh Bluetooth handle skipped real motor synchronization or claimed lighting");
+        }
+        // Discovery errors retain healthy handles, generation and accepted output.
+        {
+            var devices = new RecoveryDevices(); var errors = 0;
+            using var session = new LightingSession(devices, () => true, _ => errors++);
+            session.Discover(false, true, 0); session.SetVibration(0, new(65535, 65535));
+            await session.TickAsync(dark, 0, default);
+            var live = devices.Opened.Single(); var generation = session.BluetoothGeneration;
+            devices.EnumerationFails = true; session.Discover(false, true, 2);
+            check(errors == 1 && !live.Disposed && session.HasBluetooth && session.BluetoothGeneration == generation,
+                "Enumeration failure retired a healthy Bluetooth connection");
+            await session.ReleaseAsync(true, default);
+            check(live.Reports[^1][3] == 3 && live.Reports[^1][5] == 0 && live.Reports[^1][6] == 0,
+                "Enumeration failure discarded the owned stop command");
+        }
+        foreach (var stopping in new[] { false, true })
+        {
+            var devices = new RecoveryDevices(); var errors = 0;
+            using var session = new LightingSession(devices, () => true, _ => errors++);
+            session.Discover(false, true, 0); session.SetVibration(0, default);
+            await session.TickAsync(dark, 0, default); // Complete initial sync, then time out the actual owned write.
+            var live = devices.Opened.Single();
+            session.SetVibration(0, new(65535, 65535));
+            if (stopping) { await session.TickAsync(dark, 0.1, default); session.SetVibration(0, default); }
+            live.AfterAccept = (_, token) => Task.Delay(Timeout.Infinite, token);
+            await session.TickAsync(dark, 0.2, default);
+            check(errors == 1 && live.Disposed && !session.HasBluetooth,
+                "The local deadline fixture did not retire an accepted uncertain write");
+            devices.OnOpen = d => d.FailClear = true;
+            await session.ReleaseAsync(true, default);
+            await session.ReleaseAsync(true, default); // Repeated failed cleanup must not retire ownership.
+            devices.Paths.Clear(); session.Discover(true, false, 2);
+            devices.Paths.Add("bt", 78); devices.OnOpen = null;
+            session.Discover(true, false, 3.1);
+            await session.TickAsync(lights, 3.1, default); // No new rumble request at all.
+            var recovered = devices.Opened[^1].Reports;
+            check(recovered.Count == 2 && recovered[0][3] == 3 && recovered[0][5] == 0 && recovered[0][6] == 0 &&
+                recovered[0][4] == 0 && recovered[0][1] == 0 && DualSenseReport.HasValidChecksum(recovered[0]) &&
+                recovered[1][3] == 0,
+                "Repeated failed cleanup plus disabled rumble lost stop intent on lighting-only reappearance");
+        }
+        // Unknown completion of a zero synchronization is safe to retry and must
+        // not start the queued nonzero effect on that uncertain handle.
+        {
+            var devices = new RecoveryDevices();
+            using var session = new LightingSession(devices, () => true, _ => { });
+            session.Discover(false, true, 0); session.SetVibration(0, new(65535, 65535));
+            devices.Opened[0].AfterAccept = (_, _) => throw new IOException("Unknown sync completion");
+            await session.TickAsync(dark, 0, default);
+            check(devices.Opened[0].Reports.All(r => r[5] == 0 && r[6] == 0),
+                "Failed initial zero synchronization continued with a nonzero effect");
+            devices.Paths.Clear(); devices.Paths.Add("changed-path", 78);
+            session.Discover(false, true, 2); session.SetVibration(0, default);
+            await session.TickAsync(dark, 2, default);
+            check(devices.Opened[^1].Reports.Single()[3] == 3,
+                "A changed Bluetooth path lost explicit-zero synchronization");
+        }
+        // A throwing open/close/error observer cannot skip another device.
+        {
+            var devices = new RecoveryDevices(); devices.Paths.Add("bt2", 78); devices.Paths.Add("bad", 78);
+            devices.Denied.Add("bad"); devices.OnOpen = d => d.ThrowDispose = true;
+            using var session = new LightingSession(devices, () => true, _ => throw new IOException("Observer failed"));
+            session.Discover(true, false, 0); await session.TickAsync(lights, 0, default);
+            check(session.DeviceCount == 2, "One failed Open prevented healthy devices from being discovered");
+            devices.Opened[0].FailClear = true;
+            await session.ReleaseAsync(true, default);
+            check(devices.Opened.All(d => d.Disposed) && session.DeviceCount == 0 &&
+                devices.Opened[1].Reports.Count == 2,
+                "A failing clear/close/diagnostic callback skipped another controller's cleanup");
+        }
+    }
+
+    private static async Task CheckAdmission(Action<bool, string> check)
+    {
+        var devices = new RecoveryDevices(); devices.Paths.Clear();
+        var errors = 0;
+        using var session = new LightingSession(devices, () => true, _ => errors++);
+        var dark = LightingSettings.Default with { Enabled = false };
+        for (var index = 0; index < 32; index++)
+        {
+            devices.Paths.Clear(); var path = "owned-" + index; devices.Paths.Add(path, 78);
+            session.Discover(false, true, index * 2); session.SetVibration(0, new(65535, 65535));
+            await session.TickAsync(dark, index * 2, default);
+            check(devices.Opened[^1].Reports[^1][5] == 255, "Ownership capacity refused an admitted controller");
+        }
+        devices.Paths.Clear(); devices.Paths.Add("new", 78);
+        session.Discover(false, true, 65); session.SetVibration(0, new(65535, 65535));
+        await session.TickAsync(dark, 65, default);
+        var denied = devices.Opened[^1];
+        check(errors == 1 && denied.Reports.All(r => r[5] == 0 && r[6] == 0),
+            "Capacity exhaustion accepted nonzero output before tracking ownership");
+        // A matching old path returns with rumble disabled and frees a slot only
+        // after its remembered stop is acknowledged.
+        devices.Paths.Clear(); devices.Paths.Add("owned-0", 78);
+        session.Discover(true, false, 67); await session.TickAsync(LightingSettings.Default with { Enabled = false }, 67, default);
+        check(devices.Opened.Any(d => d.Reports.Any(r => r[3] == 3 && r[5] == 0 && r[6] == 0)),
+            "Capacity pressure evicted a pending stop");
+        devices.Paths.Clear(); devices.Paths.Add("new", 78);
+        session.Discover(false, true, 69); session.SetVibration(0, new(65535, 65535));
+        await session.TickAsync(dark, 69, default);
+        check(devices.Opened[^1].Reports[^1][5] == 255,
+            "An acknowledged cleanup did not free ownership admission capacity");
+    }
+
+    private static async Task CheckConcurrentRelease(Action<bool, string> check)
+    {
+        var devices = new RecoveryDevices(); devices.Paths.Clear();
+        for (var index = 0; index < 32; index++) devices.Paths.Add("release-" + index, 78);
+        using var session = new LightingSession(devices, () => true, _ => throw new IOException("Observer failed"));
+        await session.TickAsync(LightingSettings.Default, 0, default);
+        var started = 0; var startedAtFirstDeadline = 0;
+        for (var index = 0; index < devices.Opened.Count; index++)
+        {
+            var healthy = index == 31;
+            devices.Opened[index].AfterAccept = async (_, token) =>
+            {
+                Interlocked.Increment(ref started);
+                if (healthy) return;
+                try { await Task.Delay(Timeout.Infinite, token); }
+                catch (OperationCanceledException)
+                {
+                    Interlocked.CompareExchange(ref startedAtFirstDeadline, Volatile.Read(ref started), 0);
+                    throw;
+                }
+            };
+        }
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        await session.ReleaseAsync(true, default);
+        Console.WriteLine($"Bluetooth release: 32 paths, 31 stalled writes, elapsed={clock.Elapsed.TotalMilliseconds:F1} ms");
+        check(startedAtFirstDeadline == 32 && devices.Opened.All(d => d.Disposed) && session.ReleaseCount == 1,
+            "A stalled controller delayed healthy stop submission or cleanup acknowledgement");
+        // Every failed path remains owned. Returning one later must still clear
+        // it even though the initial parallel release retired every handle.
+        devices.Paths.Clear(); devices.Paths.Add("release-0", 78);
+        session.Discover(true, false, 2);
+        await session.TickAsync(LightingSettings.Default, 2, default);
+        check(devices.Opened[^1].Reports.Count == 2 && devices.Opened[^1].Reports[0][4] == 0x14,
+            "Parallel release failure lost an unacknowledged lighting obligation");
+
+        var cancelledDevices = new RecoveryDevices(); cancelledDevices.Paths.Add("bt2", 78);
+        using var cancelledSession = new LightingSession(cancelledDevices, () => true, _ => { });
+        using var cancellation = new CancellationTokenSource();
+        await cancelledSession.TickAsync(LightingSettings.Default, 0, default);
+        cancelledDevices.Opened[0].AfterAccept = (_, _) => { cancellation.Cancel(); return Task.CompletedTask; };
+        var cancelled = false;
+        try { await cancelledSession.ReleaseAsync(true, cancellation.Token); }
+        catch (OperationCanceledException) { cancelled = true; }
+        check(cancelled && cancelledDevices.Opened.All(d => d.Disposed) && cancelledSession.DeviceCount == 0,
+            "Caller cancellation bypassed parallel release closure or was swallowed");
+        cancelledSession.Discover(true, false, 2);
+        await cancelledSession.TickAsync(LightingSettings.Default, 2, default);
+        check(cancelledDevices.Opened.Skip(2).All(d => d.Reports.Count == 2 && d.Reports[0][4] == 0x14),
+            "Caller-cancelled release acknowledged uncertain device output");
     }
 }

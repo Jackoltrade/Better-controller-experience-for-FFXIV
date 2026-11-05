@@ -21,10 +21,9 @@ internal sealed unsafe class NativeHapticOutput
     private HapticSettings screenSettings = new();
     public bool UsesRumble => Volatile.Read(ref settings).RegularRumble;
     public SfxLoudness RumbleSignal { get; } = new();
-    public SfxLoudness RumbleLeft { get; } = new();
-    public SfxLoudness RumbleRight { get; } = new();
+    public StereoRumbleSignal RumbleStereo { get; } = new();
     public void ResetRumbleSignals()
-    { RumbleSignal.SetActive(false); RumbleLeft.SetActive(false); RumbleRight.SetActive(false); }
+    { RumbleSignal.SetActive(false); RumbleStereo.SetActive(false); }
     private readonly HapticImpactTracker impacts = new();
     private object impactEpoch = new();
     private sealed record ActiveImpact(object Epoch, HapticImpactCue Cue);
@@ -143,25 +142,16 @@ internal sealed unsafe class NativeHapticOutput
         if (useRumble || !enabled && !footsteps && !boss && !regular && !hits && !screen) CancelEnableCue();
         var current = Volatile.Read(ref settings);
         var bluetooth = useRumble && stereoRumble;
-        if (current.RegularRumble != useRumble || current.BluetoothRumble != bluetooth || current.OutputMode != requested.OutputMode ||
-            current.RumbleController != requested.RumbleController || current.Enabled != enabled ||
-            current.Strength != requested.Strength || current.Spatial != requested.Spatial ||
-            current.DistanceFalloff != requested.DistanceFalloff || current.NearDistance != requested.NearDistance ||
-            current.FarDistance != requested.FarDistance || current.ImpactBias != requested.ImpactBias ||
-            current.AutomaticDistance != requested.AutomaticDistance || current.DistanceOrigin != requested.DistanceOrigin ||
-            current.FollowImpact != requested.FollowImpact || current.FootstepAmplifier != footsteps ||
-            current.FootstepMultiplier != requested.FootstepMultiplier || current.BossEnabled != boss ||
-            current.RegularEnemyEnabled != regular || current.EnemyStrength != requested.EnemyStrength || current.HitReactions != hits ||
-            current.RumbleStrength != requested.RumbleStrength || current.RumblePulseMilliseconds != requested.RumblePulseMilliseconds ||
-            current.BluetoothMotorBalance != requested.BluetoothMotorBalance ||
-            current.ScreenEffects != screen || current.ScreenStrength != requested.ScreenStrength)
+        var screenChanged = ScreenOutputKey(current) !=
+            (screen, requested.ScreenStrength, useRumble, bluetooth, requested.OutputMode, requested.RumbleController);
+        if (screenChanged || ShapeKey(current) != ShapeKey(requested) ||
+            (current.Enabled, current.FootstepAmplifier, current.BossEnabled, current.RegularEnemyEnabled, current.HitReactions) !=
+            (enabled, footsteps, boss, regular, hits))
         {
             var effective = requested with { Enabled = enabled, FootstepAmplifier = footsteps,
                 BossEnabled = boss, RegularEnemyEnabled = regular, HitReactions = hits, RegularRumble = useRumble,
                 BluetoothRumble = bluetooth, ScreenEffects = screen };
-            if (current.ScreenEffects != screen || current.ScreenStrength != requested.ScreenStrength ||
-                current.RegularRumble != useRumble || current.BluetoothRumble != bluetooth || current.OutputMode != requested.OutputMode ||
-                current.RumbleController != requested.RumbleController)
+            if (screenChanged)
             {
                 Volatile.Write(ref screenSettings, effective);
                 Volatile.Write(ref screenFrame, null);
@@ -172,12 +162,23 @@ internal sealed unsafe class NativeHapticOutput
             ResetRumbleSignals();
         }
         RumbleSignal.SetActive(useRumble && Active);
-        RumbleLeft.SetActive(bluetooth && Active); RumbleRight.SetActive(bluetooth && Active);
+        RumbleStereo.SetActive(bluetooth && Active);
         var epoch = Volatile.Read(ref impactEpoch);
         if (enabled && requested.Spatial && requested.FollowImpact &&
             impacts.TryTake(epoch, Stopwatch.GetTimestamp(), out var cue))
             Volatile.Write(ref activeImpact, new ActiveImpact(epoch, cue));
     }
+
+    // Screen timing has an independent snapshot: player/spatial/attribution
+    // changes reset combat frames without restarting the screen waveform.
+    private static (bool, float, bool, bool, HapticOutputMode, int) ScreenOutputKey(HapticSettings value) =>
+        (value.ScreenEffects, value.ScreenStrength, value.RegularRumble, value.BluetoothRumble, value.OutputMode, value.RumbleController);
+
+    private static (float, bool, bool, float, float, float, bool, HapticDistanceOrigin, bool, float, float, float, int, float)
+        ShapeKey(HapticSettings value) =>
+        (value.Strength, value.Spatial, value.DistanceFalloff, value.NearDistance, value.FarDistance, value.ImpactBias,
+            value.AutomaticDistance, value.DistanceOrigin, value.FollowImpact, value.FootstepMultiplier,
+            value.EnemyStrength, value.RumbleStrength, value.RumblePulseMilliseconds, value.BluetoothMotorBalance);
 
     public bool HasEnableCue => Volatile.Read(ref enableCue) is { } cue && !cue.Finished(Stopwatch.GetTimestamp());
 
@@ -309,7 +310,7 @@ internal sealed unsafe class NativeHapticOutput
         HapticSpatialFrame Spatial = default, HapticRoute Route = HapticRoute.None,
         Vector3? Source = null, int SoundId = 0, object? Epoch = null, bool Biased = false,
         EnemySoundKind Enemy = EnemySoundKind.None, bool HitReaction = false,
-        bool Rumble = false, uint RumbleGeneration = 0, uint LeftGeneration = 0, uint RightGeneration = 0)
+        bool Rumble = false, uint RumbleGeneration = 0, StereoRumbleSignal.Epoch? StereoEpoch = null)
     {
         public bool HasOutput => Destination != 0 || Rumble;
     }
@@ -369,7 +370,7 @@ internal sealed unsafe class NativeHapticOutput
             }
             return new(destination, current, combatGain, spatial, spatial.Valid ? HapticRoute.Spatial : HapticRoute.Original,
                 position, soundId, epoch, biased, enemy, hitReaction, rumble, RumbleSignal.Generation,
-                RumbleLeft.Generation, RumbleRight.Generation);
+                RumbleStereo.CurrentEpoch);
         }
         Volatile.Write(ref available, 0);
         return default;
@@ -397,8 +398,7 @@ internal sealed unsafe class NativeHapticOutput
                 if (frame.Settings?.BluetoothRumble == true)
                 {
                     var sides = RumbleMotors.MeasureStereo(rms, frame.Gain, frame.Spatial);
-                    level[0] = sides.Left; RumbleLeft.Observe(level, frame.LeftGeneration);
-                    level[0] = sides.Right; RumbleRight.Observe(level, frame.RightGeneration);
+                    if (frame.StereoEpoch is { } epoch) RumbleStereo.Observe(sides.Left, sides.Right, epoch);
                 }
             }
             if (frame.Spatial.Valid)

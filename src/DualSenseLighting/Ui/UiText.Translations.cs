@@ -9,6 +9,10 @@ internal sealed partial class UiText
     internal static readonly IReadOnlyDictionary<string, (string Chinese, string Japanese)> Translations =
         new Dictionary<string, (string Chinese, string Japanese)>
     {
+        ["Could not save settings; retrying automatically: {0}"] = ("无法保存设置；将自动重试：{0}", "設定を保存できませんでした。自動的に再試行します：{0}"),
+        ["Measure framework updates"] = ("测量框架更新耗时", "フレームワーク更新の時間を計測"),
+        ["Framework timing: not collected"] = ("框架耗时：尚未采集", "フレームワーク時間：未計測"),
+        ["Framework updates: {0}; average {1:F3} ms; maximum {2:F3} ms"] = ("框架更新：{0} 次；平均 {1:F3} 毫秒；最大 {2:F3} 毫秒", "フレームワーク更新：{0} 回、平均 {1:F3} ms、最大 {2:F3} ms"),
         ["Player SFX based"] = ("玩家技能音效联动", "自分の効果音に連動"),
         ["Enemy SFX based"] = ("敌方音效联动", "敵の効果音に連動"),
         ["Boss skills"] = ("Boss 技能", "ボスのスキル"),

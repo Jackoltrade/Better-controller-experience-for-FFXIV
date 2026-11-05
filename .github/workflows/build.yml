@@ -59,9 +59,35 @@ jobs:
       - name: Build with the locked Dalamud SDK, check and verify binary metadata
         shell: pwsh
         run: ./tools/build.ps1 -DalamudLibPath $env:DALAMUD_HOME -LockedRestore
-      - name: Check hot-path allocations
+      - name: Verify complete failure reporting and process exit status
         shell: pwsh
-        run: dotnet ./artifacts/checks/LightingChecks.dll --benchmark
+        run: ./tests/CheckRunnerProcessChecks.ps1
+      - name: Audit all build dependencies against the official vulnerability feed
+        shell: pwsh
+        run: ./tools/audit-dependencies.ps1
+      - name: Measure uninstrumented helper and device loops
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts/performance | Out-Null
+          dotnet ./artifacts/checks/LightingChecks.dll --benchmark | Tee-Object artifacts/performance/current.json
+          if ($LASTEXITCODE -ne 0) { throw 'Performance checks failed.' }
+      - name: Collect structural coverage separately from performance
+        shell: pwsh
+        run: |
+          ./tools/measure-coverage.ps1 -PluginPath ./artifacts/plugin/DualSenseLighting.dll -DalamudLibPath $env:DALAMUD_HOME
+          python ./tools/summarize-coverage.py ./artifacts/coverage/coverage.cobertura.xml --output ./artifacts/coverage/summary.json --require-plugin
+          if ($LASTEXITCODE -ne 0) { throw 'Coverage summary failed.' }
+      - name: Preserve verification evidence including failed runs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: verification-evidence
+          path: |
+            artifacts/performance/
+            artifacts/coverage/
+            artifacts/dependency-audit/
+          if-no-files-found: warn
+          retention-days: 30
       - name: Verify offline enemy boss catalog
         run: python tools/generate-enemy-bosses.py --check
       - name: Check package boundaries

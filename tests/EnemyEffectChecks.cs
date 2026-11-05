@@ -66,7 +66,9 @@ internal static unsafe class EnemyEffectChecks
         for (var i = 0; i < 2000; i++) { cache.Observe(collision, 2000, caster, execution); cache.Resolve(collision, 2000, caster); }
         var before = GC.GetAllocatedBytesForCurrentThread();
         for (var i = 0; i < 10000; i++) { cache.Observe(collision, 2000, caster, execution); cache.Resolve(collision, 2000, caster); }
-        check(GC.GetAllocatedBytesForCurrentThread() == before, "Repeated effect observation/lookup allocated in native callbacks");
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        check(allocated == 0, $"Repeated effect observation/lookup allocated {allocated} bytes in native callbacks " +
+            $"(warmup=2000, iterations=10000, thread={Environment.CurrentManagedThreadId}, runtime={Environment.Version})");
         CheckNativeLink(check);
     }
 

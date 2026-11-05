@@ -65,6 +65,21 @@ public sealed class BossEncounterState
         WasRegular(actor) ? actor with { Kind = EnemySoundKind.Regular, Role = EnemyActorRole.Combatant } :
         actor with { Kind = EnemySoundKind.Boss, Role = EnemyActorRole.BossEncounter };
 
+    // Call after exclusions and Update: independently regular actors enroll
+    // before active boss rules classify the remaining roster.
+    public int SelectRoster(Span<GameAudioLayout.EnemyActor> candidates, Span<GameAudioLayout.EnemyActor> selected)
+    {
+        var count = GameAudioLayout.SelectEnemyActors(candidates, selected);
+        for (var i = 0; i < count; i++)
+            if (selected[i].Kind == EnemySoundKind.Regular) RememberRegular(selected[i]);
+        if (Active)
+        {
+            for (var i = 0; i < candidates.Length; i++) candidates[i] = Classify(candidates[i]);
+            count = GameAudioLayout.SelectEnemyActors(candidates, selected);
+        }
+        return count;
+    }
+
     /// <summary>Compacts supported NPC candidates, excluding players and every proven player-owned descendant.</summary>
     public int ExcludePlayerOwned(Span<GameAudioLayout.EnemyActor> actors, ReadOnlySpan<uint> playerAndPetIds)
     {

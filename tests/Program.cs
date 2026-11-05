@@ -21,63 +21,90 @@ internal static class Program
         checks++;
     }
 
-    public static async Task Main(string[] args)
+    public static async Task<int> Main(string[] args)
     {
-        if (args.Contains("--probe")) { Probe(); return; }
-        if (args.Contains("--benchmark")) { PerformanceChecks.Run(); return; }
-        CheckReports();
-        CheckEffects();
-        CheckRgbAnimations();
-        CheckSfxLoudness();
-        CheckSfxColors();
-        CheckSfxAudioLayout();
-        CheckHaptics();
-        HapticEnableCueChecks.Run(Assert);
-        ScreenEffectHapticChecks.Run(Assert);
-        RumbleChecks.Run(Assert);
-        RumblePulseChecks.Run(Assert);
-        await BluetoothChecks.Run(Assert);
-        BluetoothStereoChecks.Run(Assert);
-        FootstepHapticChecks.Run(Assert);
-        EnemyHapticChecks.Run(Assert);
-        EnemyEncounterChecks.Run(Assert);
-        BossEncounterStateChecks.Run(Assert);
-        BossNpcSoundChecks.Run(Assert);
-        EnemySkillChecks.Run(Assert);
-        HapticConfigurationChecks.Run(Assert);
-        await UserConsentChecks.Run(Assert);
-        CheckSpatialHaptics();
-        CheckImpactBias();
-        CheckNativeStereoMatrices();
-        CheckPlayerAnimations();
-        LimitBreakChecks.Run(Assert);
-        UiTextChecks.Run(Assert);
-        PluginInfoChecks.Run(Assert);
-        PluginCommandChecks.Run(Assert);
-        TraceArchiveChecks.Run(Assert);
-        EnemyTargetingCueChecks.Run(Assert);
-        SfxNativeTraceChecks.Run(Assert);
-        var pluginArgument = Array.IndexOf(args, "--plugin");
-        var dalamudArgument = Array.IndexOf(args, "--dalamud");
-        if (pluginArgument >= 0 && dalamudArgument >= 0)
+        if (args.Contains("--runner-self-test")) return await RunnerSelfTest(args);
+        if (args.Contains("--probe")) { Probe(); return 0; }
+        if (args.Contains("--benchmark")) { await PerformanceChecks.Run(); return 0; }
+        Console.WriteLine($"Runtime: {RuntimeInformation.FrameworkDescription}; {RuntimeInformation.OSDescription}; {RuntimeInformation.ProcessArchitecture}; tiering={Environment.GetEnvironmentVariable("DOTNET_TieredCompilation") ?? "default"}; PGO={Environment.GetEnvironmentVariable("DOTNET_TieredPGO") ?? "default"}");
+        var runner = new CheckRunner(Console.Out, () => checks);
+        await runner.Run(nameof(GameObjectLayoutChecks), () => GameObjectLayoutChecks.Run(Assert));
+        await runner.Run(nameof(ConfigurationSaveChecks), () => ConfigurationSaveChecks.Run(Assert));
+        await runner.Run(nameof(PluginLifecycleChecks), () => PluginLifecycleChecks.Run(Assert));
+        await runner.Run(nameof(CheckRunnerChecks), () => CheckRunnerChecks.Run(Assert));
+        await runner.Run(nameof(CheckReports), CheckReports);
+        await runner.Run(nameof(CheckEffects), CheckEffects);
+        await runner.Run(nameof(CheckRgbAnimations), CheckRgbAnimations);
+        await runner.Run(nameof(CheckSfxLoudness), CheckSfxLoudness);
+        await runner.Run(nameof(CheckSfxColors), CheckSfxColors);
+        await runner.Run(nameof(CheckSfxAudioLayout), CheckSfxAudioLayout);
+        await runner.Run(nameof(CheckHaptics), CheckHaptics);
+        await runner.Run(nameof(HapticEnableCueChecks), () => HapticEnableCueChecks.Run(Assert));
+        await runner.Run(nameof(ScreenEffectHapticChecks), () => ScreenEffectHapticChecks.Run(Assert));
+        await runner.Run(nameof(RumbleChecks), () => RumbleChecks.Run(Assert));
+        await runner.Run(nameof(RumblePulseChecks), () => RumblePulseChecks.Run(Assert));
+        await runner.Run(nameof(BluetoothChecks), () => BluetoothChecks.Run(Assert));
+        await runner.Run(nameof(BluetoothStereoChecks), () => BluetoothStereoChecks.Run(Assert));
+        await runner.Run(nameof(FootstepHapticChecks), () => FootstepHapticChecks.Run(Assert));
+        await runner.Run(nameof(EnemyHapticChecks), () => EnemyHapticChecks.Run(Assert));
+        await runner.Run(nameof(EnemyEncounterChecks), () => EnemyEncounterChecks.Run(Assert));
+        await runner.Run(nameof(BossEncounterStateChecks), () => BossEncounterStateChecks.Run(Assert));
+        await runner.Run(nameof(BossNpcSoundChecks), () => BossNpcSoundChecks.Run(Assert));
+        await runner.Run(nameof(EnemySkillChecks), () => EnemySkillChecks.Run(Assert));
+        await runner.Run(nameof(EnemyEffectChecks), () => EnemyEffectChecks.Run(Assert));
+        await runner.Run(nameof(HapticConfigurationChecks), () => HapticConfigurationChecks.Run(Assert));
+        await runner.Run(nameof(UserConsentChecks), () => UserConsentChecks.Run(Assert));
+        await runner.Run(nameof(CheckSpatialHaptics), CheckSpatialHaptics);
+        await runner.Run(nameof(CheckImpactBias), CheckImpactBias);
+        await runner.Run(nameof(CheckNativeStereoMatrices), CheckNativeStereoMatrices);
+        await runner.Run(nameof(CheckPlayerAnimations), CheckPlayerAnimations);
+        await runner.Run(nameof(LimitBreakChecks), () => LimitBreakChecks.Run(Assert));
+        await runner.Run(nameof(UiTextChecks), () => UiTextChecks.Run(Assert));
+        await runner.Run(nameof(PluginInfoChecks), () => PluginInfoChecks.Run(Assert));
+        await runner.Run(nameof(PluginCommandChecks), () => PluginCommandChecks.Run(Assert));
+        await runner.Run(nameof(TraceArchiveChecks), () => TraceArchiveChecks.Run(Assert));
+        await runner.Run(nameof(EnemyTargetingCueChecks), () => EnemyTargetingCueChecks.Run(Assert));
+        await runner.Run(nameof(SfxNativeTraceChecks), () => SfxNativeTraceChecks.Run(Assert));
+        if (!args.Contains("--plugin") && !args.Contains("--dalamud"))
+            runner.Skip("Plugin trace metadata arguments", "Requires --plugin <current candidate DLL> and --dalamud <library directory>; linked-source checks do not cover the compiled plugin.");
+        else await runner.Run("Plugin trace metadata arguments", () =>
+        {
+            var pluginArgument = Array.IndexOf(args, "--plugin");
+            var dalamudArgument = Array.IndexOf(args, "--dalamud");
+            if (pluginArgument < 0 && dalamudArgument < 0) return;
+            if (pluginArgument < 0 || dalamudArgument < 0 || pluginArgument + 1 >= args.Length || dalamudArgument + 1 >= args.Length ||
+                args[pluginArgument + 1].StartsWith("--", StringComparison.Ordinal) || args[dalamudArgument + 1].StartsWith("--", StringComparison.Ordinal))
+                throw new ArgumentException("Provide both --plugin <DLL path> and --dalamud <library directory>.");
             SfxTraceChecks.Run(Assert, args[pluginArgument + 1], args[dalamudArgument + 1]);
-        CheckControllerPreview();
-        await CheckOwnership();
-        await CheckSolidRefresh();
-        await CheckFocusRace();
-        await CheckMultipleControllers();
-        await CheckReconnectAndFailure();
-        await CheckScanBackoff();
-        await CheckWriteTimeout();
-        await CheckCancellation();
-        await CheckGlobalRelease();
-        await CheckReleaseRegainFocus();
-        await CheckReleaseFailure();
-        await CheckAnimatedIndicatorSession();
-        await CheckLimitBreakSession();
-        await CheckAnimatedRgbSessions();
-        await CheckSfxSession();
-        Console.WriteLine($"Passed {checks:N0} controller and UI checks: native report preservation, haptic routing, background guard, effects, focus transitions, reconnect, cancellation and localization.");
+        });
+        await runner.Run(nameof(CheckControllerPreview), CheckControllerPreview);
+        await runner.Run(nameof(CheckOwnership), CheckOwnership);
+        await runner.Run(nameof(CheckSolidRefresh), CheckSolidRefresh);
+        await runner.Run(nameof(CheckFocusRace), CheckFocusRace);
+        await runner.Run(nameof(CheckMultipleControllers), CheckMultipleControllers);
+        await runner.Run(nameof(CheckReconnectAndFailure), CheckReconnectAndFailure);
+        await runner.Run(nameof(CheckScanBackoff), CheckScanBackoff);
+        await runner.Run(nameof(CheckWriteTimeout), CheckWriteTimeout);
+        await runner.Run(nameof(CheckCancellation), CheckCancellation);
+        await runner.Run(nameof(CheckGlobalRelease), CheckGlobalRelease);
+        await runner.Run(nameof(CheckReleaseRegainFocus), CheckReleaseRegainFocus);
+        await runner.Run(nameof(CheckReleaseFailure), CheckReleaseFailure);
+        await runner.Run(nameof(CheckAnimatedIndicatorSession), CheckAnimatedIndicatorSession);
+        await runner.Run(nameof(CheckLimitBreakSession), CheckLimitBreakSession);
+        await runner.Run(nameof(CheckAnimatedRgbSessions), CheckAnimatedRgbSessions);
+        await runner.Run(nameof(CheckSfxSession), CheckSfxSession);
+        return runner.Complete();
+    }
+
+    private static async Task<int> RunnerSelfTest(string[] args)
+    {
+        var mode = args.Last();
+        var runner = new CheckRunner(Console.Out, () => 0);
+        if (mode == "sync") await runner.Run("injected sync failure", (Action)(() => throw new InvalidOperationException("sync sentinel")));
+        else if (mode == "async") await runner.Run("injected async failure", (Func<Task>)(async () => { await Task.Yield(); throw new InvalidOperationException("async sentinel"); }));
+        else if (mode != "pass") throw new ArgumentException("Self-test mode must be sync, async or pass.");
+        await runner.Run("later independent sentinel", () => Console.WriteLine("LATER_GROUP_EXECUTED"));
+        return runner.Complete();
     }
 
     private static async Task CheckLimitBreakSession()
@@ -1080,15 +1107,21 @@ internal static class Program
         Assert(resumed[45] == baseline && resumed[46] == 0 && resumed[47] == 0, "SFX did not return to its own quiet state after focus return");
         devices.Paths = []; await session.TickAsync(settings, 2, default, 0);
         devices.Paths = ["controller"]; await session.TickAsync(settings, 3, default, 0.5f);
-        var reconnect = devices.Opened.Last().Reports.Last();
+        var reconnectedReports = devices.Opened.Last().Reports;
+        Assert(reconnectedReports.Count == 2 && reconnectedReports[0][1] == 0 && reconnectedReports[0][2] == 0x14 &&
+            reconnectedReports[0].Skip(3).Take(36).All(b => b == 0) && reconnectedReports[0].Skip(44).Take(4).All(b => b == 0),
+            "Replug did not clear only previously owned lighting before restoring SFX output");
+        var reconnect = reconnectedReports.Last();
         Assert(reconnect[45] == 128 && reconnect[46] == 0 && reconnect[47] == (mode == LightingEffect.SfxColorBlend ? 128 : 0) && reconnect[44] == 10,
             "The selected SFX mode did not recover after replugging");
         var switched = settings with { Effect = mode == LightingEffect.SfxColorBlend ? LightingEffect.SfxLoudness : LightingEffect.SfxColorBlend };
         await session.TickAsync(switched, 3.033, default, 0.5f);
         Assert(devices.Opened.Last().Reports.Last()[47] == (switched.Effect == LightingEffect.SfxColorBlend ? 128 : 0),
             "Switching between the separate SFX options did not change controller output");
+        var releasesBeforeDisable = session.ReleaseCount;
         await session.TickAsync(settings with { Enabled = false }, 3.1, default, 1);
-        Assert(session.ReleaseCount == 2 && session.DeviceCount == 0, "Disabling SFX did not perform lights-off release");
+        Assert(session.ReleaseCount == releasesBeforeDisable + 1 && session.DeviceCount == 0 && devices.Opened.All(d => d.Disposed) &&
+            reconnectedReports.Last().Skip(44).Take(4).All(b => b == 0), "Disabling SFX did not clear lighting exactly once and close devices");
         foreach (var device in devices.Opened)
         foreach (var sent in device.Reports)
             Assert(sent[1] == 0 && sent.Skip(3).Take(36).All(b => b == 0), "SFX session wrote native haptic or audio controls");

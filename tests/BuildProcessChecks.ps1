@@ -10,11 +10,14 @@ function Check([bool]$Condition, [string]$Message) {
 $tokens = $null; $parseErrors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($BuildScriptPath, [ref]$tokens, [ref]$parseErrors)
 Check ($parseErrors.Count -eq 0) 'Build script failed to parse'
-$functions = @($ast.FindAll({ param($node)
+$helperPath = Join-Path (Split-Path $BuildScriptPath) 'Invoke-Dotnet.ps1'
+$helperAst = [System.Management.Automation.Language.Parser]::ParseFile($helperPath, [ref]$tokens, [ref]$parseErrors)
+Check ($parseErrors.Count -eq 0) 'Process helper failed to parse'
+$functions = @($helperAst.FindAll({ param($node)
     $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-Dotnet'
 }, $true))
 Check ($functions.Count -eq 1) 'Expected the actual Invoke-Dotnet helper'
-. ([scriptblock]::Create($functions[0].Extent.Text))
+. $helperPath
 $manifestFunctions = @($ast.FindAll({ param($node)
     $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Write-DevelopmentManifest'
 }, $true))

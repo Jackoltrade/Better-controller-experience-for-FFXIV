@@ -15,10 +15,42 @@ internal static class BossEncounterStateChecks
         CheckContextLifetime(check);
         CheckBounds(check);
         CheckClassification(check);
+        CheckRosterPipeline(check);
         CheckPlayerOwnedClosure(check);
         CheckOwnershipCyclesAndInvalids(check);
         CheckAllocation(check);
         CheckOwnershipAllocation(check);
+    }
+
+    private static void CheckRosterPipeline(Action<bool, string> check)
+    {
+        var state = new BossEncounterState(1);
+        var known = Regular(1) with { Role = EnemyActorRole.Combatant };
+        var fresh = Regular(2) with { Role = EnemyActorRole.Combatant };
+        var owned = Regular(3) with { Role = EnemyActorRole.Combatant, OwnerId = 12345 };
+        var candidates = new[] { known, owned };
+        var selected = new GameAudioLayout.EnemyActor[3];
+        var kept = state.ExcludePlayerOwned(candidates, new uint[] { 12345 });
+        state.Update(100, 263, 12345, false, false);
+        check(state.SelectRoster(candidates.AsSpan(0, kept), selected) == 1 && selected[0] == known && state.Count == 1,
+            "Roster pipeline enrolled player-owned actors or lost independently regular enemies");
+        candidates = new[] { known, fresh };
+        state.Update(100, 263, 12345, true, true);
+        check(state.SelectRoster(candidates, selected) == 2 && selected[0].Kind == EnemySoundKind.Regular &&
+            selected[1].Kind == EnemySoundKind.Boss && selected[1].Role == EnemyActorRole.BossEncounter && state.Count == 1,
+            "Active roster pipeline changed regular memory or failed to classify new boss performers");
+        state.Update(100, 263, 12345, false, false);
+        candidates = new[] { known, fresh };
+        state.SelectRoster(candidates, selected);
+        state.Update(100, 263, 12345, true, true);
+        candidates = new[] { known, fresh };
+        check(state.Saturated && state.SelectRoster(candidates, selected) == 2 && selected[1].Kind == EnemySoundKind.Regular,
+            "Saturated roster pipeline enabled uncertain boss remapping");
+        state.Update(101, 263, 12345, true, true);
+        candidates = new[] { known };
+        check(state.SelectRoster(candidates, selected) == 1 && selected[0].Kind == EnemySoundKind.Boss && state.Count == 0 &&
+            state.SelectRoster(Span<GameAudioLayout.EnemyActor>.Empty, selected) == 0,
+            "Roster pipeline retained old-scene regular memory or failed on an empty roster");
     }
 
     private static void CheckEnrollment(Action<bool, string> check)

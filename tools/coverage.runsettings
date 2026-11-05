@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Configuration>
+  <CodeCoverage>
+    <ModulePaths>
+      <Include><ModulePath>.*(LightingChecks|DualSenseLighting)\.dll$</ModulePath></Include>
+    </ModulePaths>
+    <Sources>
+      <Exclude>
+        <Source>.*[\\/]tests[\\/].*</Source>
+        <Source>.*[\\/]obj[\\/].*</Source>
+        <Source>.*[\\/]EnemyBossCatalog(\.Generated)?\.cs$</Source>
+      </Exclude>
+    </Sources>
+    <EnableStaticManagedInstrumentation>False</EnableStaticManagedInstrumentation>
+  </CodeCoverage>
+</Configuration>

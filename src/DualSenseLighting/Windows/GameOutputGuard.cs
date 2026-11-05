@@ -45,7 +45,7 @@ internal sealed class GameOutputGuard : IDisposable
             setOutput = output;
             SetEnabled(enabled);
         }
-        catch { output?.Dispose(); writeFile.Dispose(); throw; }
+        catch { try { ResourceCleanup.Run(() => output?.Dispose(), () => writeFile.Dispose()); } catch { } throw; }
     }
 
     public void SetEnabled(bool enabled)
@@ -65,8 +65,9 @@ internal sealed class GameOutputGuard : IDisposable
         }
         catch
         {
-            if (writeFile.IsEnabled) writeFile.Disable();
-            if (setOutput.IsEnabled) setOutput.Disable();
+            try { ResourceCleanup.Run(
+                () => { if (writeFile.IsEnabled) writeFile.Disable(); },
+                () => { if (setOutput.IsEnabled) setOutput.Disable(); }); } catch { }
             throw;
         }
     }
@@ -99,7 +100,6 @@ internal sealed class GameOutputGuard : IDisposable
 
     public void Dispose()
     {
-        setOutput.Dispose();
-        writeFile.Dispose();
+        ResourceCleanup.Run(() => setOutput.Dispose(), () => writeFile.Dispose());
     }
 }
