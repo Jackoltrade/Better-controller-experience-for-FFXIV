@@ -103,8 +103,16 @@ class ReleaseReferenceChecks(unittest.TestCase):
         # checkout prefers a matching branch for unqualified names, so a release tag must retain its namespace.
         workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
         build = workflow.split("  build:\n", 1)[1].split("  publish:\n", 1)[0]
-        self.assertIn("      ref: refs/tags/${{ inputs.tag }}\n", build)
-        self.assertIn("      tag: ${{ inputs.tag }}\n", build)
+        self.assertIn("      ref: refs/tags/${{ inputs.tag || github.ref_name }}\n", build)
+        self.assertIn("      tag: ${{ inputs.tag || github.ref_name }}\n", build)
+        self.assertIn("          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}\n", workflow)
+
+    def test_tag_push_and_manual_dispatch_are_both_supported(self):
+        workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+        triggers = workflow.split("\non:\n", 1)[1].split("\npermissions:\n", 1)[0]
+        self.assertIn("  push:\n    tags: ['v[0-9]+.[0-9]+.[0-9]+']\n", triggers)
+        self.assertIn("  workflow_dispatch:\n", triggers)
+        self.assertNotIn("branches:", triggers, "Ordinary branch pushes must not publish a release")
 
 
 @unittest.skipUnless(os.name == "posix" and shutil.which("bash"), "Publish block targets Ubuntu Bash")

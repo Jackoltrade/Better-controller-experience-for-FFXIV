@@ -1,6 +1,6 @@
 # Public test QA report
 
-Version: **0.19.8.0** · Checked: **2026-11-07** · Target: **Windows x64, USB/Bluetooth DualSense, Dalamud API 15**
+Version: **0.19.8.0** · Checked: **2026-11-08** · Target: **Windows x64, USB/Bluetooth DualSense, Dalamud API 15**
 
 ## Current verification: 0.19.8 review follow-up
 
@@ -70,11 +70,19 @@ overall frame-time improvement or absence of unrelated frame gaps.
 | Real-allocation negative control | Private mutant fails the zero-byte assertion at **640,000 bytes**, exit 1; other 59 groups pass |
 | Coverage process checks | **49 pass**, including collector failure, missing/empty reports, changed/deleted originals and combined failures |
 | Build/runner process checks | **107 build assertions pass**; synchronous/async/malformed-argument failures retain later groups and nonzero exit status |
-| Python regressions | **44 pass** |
+| Python regressions | **45 pass**, including version-tag and manual release entry points |
 | Uninstrumented helper benchmarks | Five cases report zero managed allocation; synthetic scope only |
 | Standard/Japanese packaging | Pass; original release binary hashes unchanged by coverage |
 | Fresh live activation/smoke | Recording verifies the stage timings above; user confirms feedback, native vibration/sound and Alt-Tab release |
 | Workflow/catalog/whitespace | Pass |
+
+The November 8 release preflight repeats the locked Release and coverage suites
+after updating packaging, metadata, icon and feedback destinations to the renamed
+repository. Both suites retain the counts above. Default and Japanese packages
+are checked for the canonical URLs; version-tag publication runs the same gated
+build as the manual release workflow. The earlier native smoke test remains the
+hardware evidence for this release; the URL changes do not constitute another
+hardware test.
 
 Assertion totals include repeated checks, not independent cases. Coverage maps
 authored lines from loaded managed assemblies; it does not cover every plugin

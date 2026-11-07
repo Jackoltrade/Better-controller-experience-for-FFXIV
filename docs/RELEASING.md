@@ -75,8 +75,8 @@ download destinations or executable content.
 These workflows are prepared in source; editing them does not publish a release.
 
 1. Review and commit the intended source, user guides and workflows, then push them to `main`.
-2. Create and push the matching version tag, for example `v0.19.8`.
-3. Run **Publish an opt-in public test release** from GitHub Actions with that existing tag and a compatible Dalamud library URL.
+2. Create and push the matching version tag, for example `v0.19.8`. This starts **Publish an opt-in public test release** automatically; ordinary branch pushes do not publish.
+3. For a manual retry or a different compatible Dalamud library URL, run that workflow from GitHub Actions with the existing tag.
 4. The reusable build job checks out the tag, compiles and runs the tests, validates the DLL, and uploads the public package artifact.
 5. Only after all checks pass does the publishing job create a **prerelease**, upload the ZIP/checksum/summary, and update the `plugin-repository` release's `pluginmaster.json` asset.
 
