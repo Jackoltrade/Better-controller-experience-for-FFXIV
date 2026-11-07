@@ -1343,7 +1343,7 @@ internal sealed class SettingsUi : IDisposable
         var enabled = configuration.HapticScreenEffects;
         if (ImGui.Checkbox(Label("Enable screen effect haptics"), ref enabled))
         { configuration.HapticScreenEffects = enabled; Changed(); }
-        Help("Follows camera shake, blur and color-fringe effects. Pauses in PvP.");
+        Help("Follows camera shake, blur and color-fringe effects. Filters known repeating motion. Pauses in PvP.");
         ImGui.BeginDisabled(!enabled);
         try
         {
@@ -1352,8 +1352,6 @@ internal sealed class SettingsUi : IDisposable
             { configuration.HapticScreenStrength = strength / 100; Changed(); }
         }
         finally { ImGui.EndDisabled(); }
-        ImGui.TextDisabled(T("Plays alongside other vibration; combined strength is limited."));
-        ImGui.TextDisabled(T("Centered feedback; no distance fade."));
     }
 
     private void DrawFootstepHaptics()

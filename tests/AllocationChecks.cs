@@ -15,9 +15,25 @@ internal static class AllocationChecks
     internal static long MeasureAllocations(Action step, int warmup, int iterations)
     {
         for (var i = 0; i < warmup; i++) step();
-        var before = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 0; i < iterations; i++) step();
-        return GC.GetAllocatedBytesForCurrentThread() - before;
+        // These serial tests reserve a process-wide no-GC interval to isolate
+        // callback allocations from context retirement. Setup stays outside the
+        // counters; reservation failure or budget exhaustion must fail the check.
+        if (!GC.TryStartNoGCRegion(16 * 1024 * 1024, disallowFullBlockingGC: true))
+            throw new InvalidOperationException("Cannot reserve the allocation measurement's no-GC region.");
+        Exception? failure = null;
+        try
+        {
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            for (var i = 0; i < iterations; i++) step();
+            return GC.GetAllocatedBytesForCurrentThread() - before;
+        }
+        catch (Exception error) { failure = error; throw; }
+        finally
+        {
+            try { GC.EndNoGCRegion(); }
+            catch (Exception cleanup) when (failure != null)
+            { throw new AggregateException("Allocation measurement and region cleanup failed.", failure, cleanup); }
+        }
     }
 
     internal static void Run(Action<bool, string> check)
@@ -40,5 +56,38 @@ internal static class AllocationChecks
         var changedBytes = MeasureAllocations(changeAssociation, warmup, iterations);
         check(changedBytes > 0 && cache.Resolve(100, instance, caster).IsReleasedEffect,
             $"Real changing cache associations were lost or their allocations hidden ({changedBytes} bytes)");
+
+        var calls = 0;
+        Action firstExecution = () =>
+        {
+            if (calls++ == 0) allocationSink = new byte[37];
+        };
+        var firstBytes = MeasureAllocations(firstExecution, warmup: 0, iterations: 1);
+        check(firstBytes == 64 && calls == 1,
+            $"Allocation setup executed the callback or hid its first allocation ({firstBytes} bytes, {calls} calls)");
+        GC.KeepAlive(allocationSink);
+
+        var propagated = false;
+        try { MeasureAllocations(static () => throw new InvalidOperationException("allocation callback sentinel"), 0, 1); }
+        catch (InvalidOperationException error) when (error.Message == "allocation callback sentinel") { propagated = true; }
+        check(propagated && MeasureAllocations(noop, 0, 1) == 0,
+            "Allocation measurement swallowed callback failure or retained its no-GC region");
+
+        var retainedBoth = false;
+        try
+        {
+            MeasureAllocations(static () =>
+            {
+                GC.EndNoGCRegion(); // Deliberately invalidate the owned region.
+                throw new InvalidOperationException("callback and cleanup sentinel");
+            }, 0, 1);
+        }
+        catch (AggregateException errors)
+        {
+            retainedBoth = errors.InnerExceptions.Count == 2 &&
+                errors.InnerExceptions[0].Message == "callback and cleanup sentinel";
+        }
+        check(retainedBoth && MeasureAllocations(noop, 0, 1) == 0,
+            "Region cleanup hid the callback failure or left later measurements unusable");
     }
 }

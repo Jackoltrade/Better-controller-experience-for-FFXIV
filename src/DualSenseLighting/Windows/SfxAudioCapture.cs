@@ -104,6 +104,7 @@ internal sealed unsafe class SfxAudioCapture : IDisposable
     [ThreadStatic] private static int sourceTimelineOwnerIndex;
     [ThreadStatic] private static EnemyActionTag soundTimelineTag;
     [ThreadStatic] private static uint sourceEffectGetter;
+    [ThreadStatic] private static bool soundSelfTargetedExecution;
 
     public SfxLoudness Loudness { get; } = new();
     public long MatchedBlocks => Interlocked.Read(ref matchedBlocks);
@@ -126,9 +127,11 @@ internal sealed unsafe class SfxAudioCapture : IDisposable
     public string[] EnemyTimelineKeys => enemySkills?.RecordedKeys ?? Array.Empty<string>();
     public EnemySkillFilter.EffectOwner[] EffectOwners => enemySkills?.EffectOwners ?? Array.Empty<EnemySkillFilter.EffectOwner>();
     public EnemySkillFilter.EffectClip[] EffectClips => enemySkills?.EffectClips ?? Array.Empty<EnemySkillFilter.EffectClip>();
+    public EnemySkillFilter.ActionResult[] ActionResults => enemySkills?.ActionResults ?? Array.Empty<EnemySkillFilter.ActionResult>();
     public void SetTracing(bool value)
     {
         if (value) enemySkills?.ClearRecordedKeys();
+        enemySkills?.SetTracing(value);
         if (value) nativeTrace?.Start();
         else nativeTrace?.Stop();
         npcSpawns?.SetTracing(value);
@@ -178,6 +181,7 @@ internal sealed unsafe class SfxAudioCapture : IDisposable
     public void SetPlayer(nint actor, uint entityId, nint drawObject, Vector3? characterPosition, bool mounted = false)
     {
         Haptics?.SetFootstepContext(actor != 0, mounted);
+        enemySkills?.SetImpactDistance(Haptics is { Active: true, CurrentSettings.DistanceFalloff: true });
         if (ownership == null) return;
         try
         {
@@ -277,7 +281,8 @@ internal sealed unsafe class SfxAudioCapture : IDisposable
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
     private delegate nint GetTimelineDelegate(nint clip);
 
-    public SfxAudioCapture(IGameInteropProvider interop, ISigScanner scanner, IDataManager data)
+    public SfxAudioCapture(IGameInteropProvider interop, ISigScanner scanner, IDataManager data,
+        Func<ulong, Vector3?>? targetPosition = null, bool developmentInstall = false)
     {
         try
         {
@@ -394,7 +399,7 @@ internal sealed unsafe class SfxAudioCapture : IDisposable
             }
             if (ownership != null)
             {
-                try { enemySkills = new EnemySkillFilter(interop, scanner, data, ownership); }
+                try { enemySkills = new EnemySkillFilter(interop, scanner, data, ownership, targetPosition); }
                 catch (Exception error) { enemySkillError = error.Message; }
                 try { npcSpawns = new NpcSpawnObserver(interop, scanner); }
                 catch (Exception error) { spawnTraceError = error.Message; }
@@ -431,7 +436,7 @@ internal sealed unsafe class SfxAudioCapture : IDisposable
                     confirmationRender = interop.HookFromAddress<SubmixRenderDelegate>(submixRender, RenderConfirmation);
                 }
                 catch (Exception error) { ConfirmationError = error.Message; }
-                try { screenEffects = new GameScreenEffects(interop, scanner, Haptics); }
+                try { screenEffects = new GameScreenEffects(interop, scanner, Haptics, developmentInstall); }
                 catch (Exception error) { ScreenEffectsError = error.Message; }
                 try
                 {
@@ -597,8 +602,10 @@ internal sealed unsafe class SfxAudioCapture : IDisposable
         try
         {
             var action = enemySkills?.Classify(soundCaster, soundTimelineTag, soundOrigin) ?? default;
+            var impact = enemySkills?.ImpactForSound(soundCaster, soundTimelineTag, soundOrigin);
             ownership?.Acquired(sound, soundCaster, soundOrigin, sourceActor, sourceDraw,
-                activeSoundClip == 0 ? -1 : sourceTimelineOwnerIndex, action, soundOrigin == 1 ? sourceEffectGetter : 0);
+                activeSoundClip == 0 ? -1 : sourceTimelineOwnerIndex, action, soundOrigin == 1 ? sourceEffectGetter : 0, impact,
+                soundOrigin == 3 && soundSelfTargetedExecution);
             if (sound != null && soundCaster != null && ReferenceEquals(soundCaster, ownership?.Player))
                 Interlocked.Increment(ref ownedReservations);
         }
@@ -608,6 +615,7 @@ internal sealed unsafe class SfxAudioCapture : IDisposable
 
     private void ClipUpdate(nint clip)
     {
+        var previousSelfTargeted = soundSelfTargetedExecution; soundSelfTargetedExecution = false;
         var previous = soundCaster;
         var previousTag = soundTimelineTag; soundTimelineTag = default;
         var previousClip = activeSoundClip;
@@ -620,6 +628,7 @@ internal sealed unsafe class SfxAudioCapture : IDisposable
         {
             soundCaster = previous; soundTimelineTag = previousTag; activeSoundClip = previousClip;
             sourceTimelineOwnerIndex = previousIndex;
+            soundSelfTargetedExecution = previousSelfTargeted;
             soundOrigin = previousOrigin; sourceActor = previousActor; sourceDraw = previousDraw;
         }
     }
@@ -632,12 +641,14 @@ internal sealed unsafe class SfxAudioCapture : IDisposable
         var observeEffect = clip != activeSoundClip && (Volatile.Read(ref tracing) != 0 ||
             enemySkills?.EffectBindingSupported == true && GameAudioLayout.IsEffectClip(clip));
         var previousCaster = soundCaster; var previousTag = soundTimelineTag;
+        var previousSelfTargeted = soundSelfTargetedExecution;
         var previousActor = sourceActor; var previousIndex = sourceTimelineOwnerIndex;
         if (clip != 0 && (clip == activeSoundClip || observeEffect) && PlayerFilterSupported && Volatile.Read(ref disposed) == 0)
         {
             try
             {
                 soundCaster = null; soundTimelineTag = default; sourceActor = 0;
+                soundSelfTargetedExecution = false;
                 sourceTimelineOwnerIndex = -1;
                 if (timeline != 0)
                 {
@@ -657,7 +668,11 @@ internal sealed unsafe class SfxAudioCapture : IDisposable
                             soundCaster = ownership!.ResolveTimelineCaster(ownerIndex, Volatile.Read(ref localObjectIndex));
                             sourceActor = soundCaster?.Actor ?? 0;
                             if (soundCaster != null)
-                                soundTimelineTag = enemySkills?.Timeline(timeline, table, soundCaster, Volatile.Read(ref tracing) != 0, clip) ?? default;
+                            {
+                                if (enemySkills != null)
+                                    soundTimelineTag = enemySkills.Timeline(timeline, table, soundCaster, Volatile.Read(ref tracing) != 0,
+                                        out soundSelfTargetedExecution, ownerIndex, clip);
+                            }
                             if (observeEffect)
                             {
                                 enemySkills?.ObserveEffect(clip, soundCaster, soundTimelineTag);
@@ -673,6 +688,7 @@ internal sealed unsafe class SfxAudioCapture : IDisposable
                 if (observeEffect)
                 {
                     soundCaster = previousCaster; soundTimelineTag = previousTag;
+                    soundSelfTargetedExecution = previousSelfTargeted;
                     sourceActor = previousActor; sourceTimelineOwnerIndex = previousIndex;
                 }
             }
@@ -760,13 +776,18 @@ internal sealed unsafe class SfxAudioCapture : IDisposable
                     if (hapticsActive && samples > 0 && (PlayerFilterSupported || Haptics!.FootstepsActive))
                     {
                         Vector3? position = null;
+                        Vector3? distancePosition = null;
                         if (inspectPosition)
                         {
                             if (arena.HasValue) position = arena.Value.Position;
-                            else position = attribution.Position;
+                            else
+                            {
+                                position = attribution.Position;
+                                distancePosition = attribution.Impact?.DistancePosition(position);
+                            }
                         }
                         hapticFrame = Haptics!.Prepare(voice, owned, sound->BusId, sound->ExtendedFlags, position, sound->SoundId,
-                            enemy, hitReaction, arena.HasValue);
+                            enemy, hitReaction, arena.HasValue, distancePosition, attribution.SelfTargetedExecution && !arena.HasValue);
                         if (hapticFrame.HasOutput) { hapticCount = samples; hapticFormat = voice->OutputFormat; }
                     }
                 }

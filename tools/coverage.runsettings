@@ -11,6 +11,7 @@
         <Source>.*[\\/]EnemyBossCatalog(\.Generated)?\.cs$</Source>
       </Exclude>
     </Sources>
-    <EnableStaticManagedInstrumentation>False</EnableStaticManagedInstrumentation>
+    <EnableStaticManagedInstrumentation>True</EnableStaticManagedInstrumentation>
+    <EnableDynamicManagedInstrumentation>False</EnableDynamicManagedInstrumentation>
   </CodeCoverage>
 </Configuration>

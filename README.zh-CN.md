@@ -16,6 +16,14 @@
 
 界面支持简体中文、英语和日语，设置自动保存。
 
+## 振动曲线
+
+玩家和敌方音效按声音强弱调整振动，画面特效则会适当放大轻微变化。**画面特效曲线体现了对较弱效果的刻意增强。** 曲线展示的是数字信号目标值，不是手柄实际振动力度的测量结果。
+
+![默认设置下的振动响应曲线](docs/assets/haptics-curves.svg)
+
+[下载交互曲线](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/raw/refs/heads/main/docs/haptics-curves.html)，用浏览器打开 HTML 文件，就能用图表下方的滑块试试强度、脚步增强、距离衰减、左右手感和振动时长。页面为英文，支持离线使用，不会改动插件设置。GitHub 的 README 不支持直接操作这些滑块。
+
 ## 支持的手柄
 
 | 连接方式 | 灯光 | 额外振动 |
@@ -53,7 +61,7 @@ DualSense 触觉反馈和手柄扬声器效果需要 **USB** 连接，并在 FFX
 
 本项目仍在测试，兼容性可能随客户端、补丁和手柄而变化。详见[使用指南](docs/USER-GUIDE.zh-CN.md)、[覆盖范围](docs/ENEMY-HAPTICS-COVERAGE.md)和 [QA 报告](docs/QA-REPORT.md)。
 
-[提交问题](https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-/issues/new)时，请附插件／客户端版本、手柄型号、连接方式和复现步骤。音效归类问题可附一段简短记录。
+[提交问题](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/issues/new)时，请附插件／客户端版本、手柄型号、连接方式和复现步骤。音效归类问题可附一段简短记录。
 
 插件完全免费，放心用。[Ko-fi](https://ko-fi.com/K7C122MEWU) · [爱发电](https://afdian.com/a/jackoltrade)
 

@@ -1,6 +1,6 @@
 # Screen effect haptics
 
-Checked on 2026-11-04. Turn on **Haptics → Enable haptics**, then
+Updated on 2026-11-06 for v0.19.4. Turn on **Haptics → Enable haptics**, then
 **Screen effects → Enable screen effect haptics**. New installations and Reset to
 defaults enable the category at 25% strength after you opt into haptics during
 setup. It follows the full haptics master
@@ -69,6 +69,58 @@ texture tables are prepared once (about 188 KiB total), with no allocation or
 trigonometric calculation during audio rendering. Physical synchronization and
 feel still need in-game validation. Bluetooth and XInput follow the same measured
 intensity at the worker update rate, without the USB DualSense audio texture.
+
+## Built-in vehicle-motion filter
+
+Screen-effect haptics automatically filters the fixed vehicle-motion patterns
+stored in `Core/KnownMotionPatterns.cs`. The purpose is to remove vehicle-related
+screen vibration observed in duties such as Hell on Rails, Sigmascape V1.0 /
+Sigmascape V1.0 (Savage) (O5/O5S), and Lapis Manalis. These are examples, not a
+duty allowlist: the same known waveform can match wherever it appears.
+
+The bank contains one recorded rotational cycle, one vertical cycle and four
+short vertical overlays. Matching uses their native XYZ offsets and timing.
+A plausible first sample
+stays quiet while following observations confirm phase/direction. A mismatch
+restores full output immediately; ordinary reseeding cannot repeatedly rearm
+this provisional suppression. There is no runtime learning, wait for a complete
+cycle, fade timer, saved pattern, duty cache, additional switch or strength
+setting. Added screen vibration is suppressed while it fits a stored profile.
+Earlier experimental preferences are ignored.
+
+Unknown or changed sequences keep full output. Invalid/unscoped observations,
+missing updates, capacity loss and aggregate mismatch also keep full feedback.
+The latest writes to the native slots must exactly account for the current
+secondary camera offsets. Primary camera shake, blur/chromatic effects and
+scripted shake protect the whole screen layer while active and for 100 ms
+afterward. Native vibration, combat SFX, footsteps, controller sound and visual
+camera motion are unchanged.
+
+This is fixed waveform matching, not a semantic vehicle detector. A skill that
+produces the same stored waveform can match too; different vehicle motion is
+not automatically excluded. No confirmation window is played at full strength.
+A native loop reset
+realigns matching on the next setter without disturbing the still-current
+filtered sample; it does not identify a new playback or classify unknown motion.
+Background observation stops with foreground-only feedback; returning to the game simply
+matches the stored signatures again.
+
+Normal matching uses fixed-size state without diagnostic buffers or file IO.
+Helper timings and software replay exclude native hook/copy cost and do not
+establish overall game performance or physical controller feel.
+
+v0.19.4 also tolerates a small difference between native evaluation time and
+callback time. If a predicted point narrowly misses, it can align to a nearby
+point on the same stored profile by at most 10% of that update's phase advance.
+Amplitude bounds remain unchanged. This allowance can accommodate sustained
+modest tempo drift as well as isolated jitter; it is not an absolute bound on
+cumulative phase correction.
+
+The user confirmed general filtering works, then reported brief pulses on
+v0.19.3. The two newer recordings contained 6,590 frames and two two-frame leaks.
+v0.19.4 suppresses every frame of both in offline replay, while the regression
+suite and independent-effect checks pass. On 2026-11-06, the user confirmed the
+v0.19.4 live check: "No pulses; intended effects still work."
 
 ## Authored effect inventory
 
@@ -201,14 +253,22 @@ successful native audio mix for each observed sample. `FirstMixMilliseconds`
 measures software capture-to-mix delay. Suppressed/expired samples have no first
 mix time. The first successful result is preserved even if later audio blocks
 are suppressed. Storage contention drops trace records instead of waiting on
-the audio thread; `Dropped` reports those drops. Saving runs off the audio thread.
+the audio thread; `Dropped` reports those drops. `Overwritten` reports camera
+frames replaced by the bounded ring during long recordings. Saving runs off the audio thread.
 
-The current `camera-haptics-timing-v4` format records `Policy: Independent`.
+The current `camera-haptics-timing-v5` format records `Policy: Independent`.
 `ShakeLevel`, `ManagerShakeLevel` and `ScriptedShakeLevel` identify the actual
 shake signals; `Effects` and `DominantEffect` distinguish blur/chromatic effects.
 `CameraLevel` is the aggregate screen-effect level. `ScriptedObservedClock` and
 `ScriptedSampleState` distinguish missing, different-camera, stale, consumed and
 applied scripted samples. Binding status and errors are in the header.
+`PatternAmplitudeMultiplier` records the automatic repeating-motion factor;
+target amplitude includes that factor.
+
+Developer recordings also include a bounded AVFX quake-source identity trace.
+It observes construction and sampling, with explicit gaps and truncation; it
+does not infer source ends or change vibration. See
+[source investigation and capture protocol](SCREEN-EFFECT-SOURCES.md).
 
 `Output` records the current native grip/other-channel peaks, minimum available
 headroom, number of limited frames, actual generated `OutputPeak`, target gain

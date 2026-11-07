@@ -98,6 +98,15 @@ internal static unsafe class ScreenEffectHapticChecks
             ScreenEffectHaptics.Measure(shake, flags, mode, strength, weight,
                 chromatic, new(0.2f, 0.4f, 1), now);
         check(Measure().Effects == ScreenEffectKind.None && Measure().Level == 0, "An idle camera generated feedback");
+        var full = Measure(shake: 0.16f);
+        var faded = full with { AmplitudeMultiplier = 0.5f };
+        check(ScreenEffectHaptics.Amplitude(full, now, 0.25f) == ScreenEffectHaptics.Response(0.16f, 0.25f) &&
+            ScreenEffectHaptics.Amplitude(faded, now, 0.25f) == ScreenEffectHaptics.Amplitude(full, now, 0.25f) * 0.5f,
+            "Pattern fade changed the unmodified response or failed to halve amplitude after its square-root mapping");
+        check(ScreenEffectHaptics.Amplitude(full with { AmplitudeMultiplier = 2 }, now, 0.25f) ==
+                ScreenEffectHaptics.Amplitude(full, now, 0.25f) &&
+            ScreenEffectHaptics.Amplitude(faded, now + ScreenEffectHaptics.FreshTicks + 1, 0.25f) == 0,
+            "Pattern multiplier amplified feedback or bypassed sample expiry");
         foreach (var pair in new[] { (0, ScreenEffectKind.RadialBlur), (1, ScreenEffectKind.GaussianBlur), (2, ScreenEffectKind.DirectionalBlur) })
         {
             var sample = Measure(1u << 9, pair.Item1, 0.8f, 0.5f);
@@ -127,6 +136,8 @@ internal static unsafe class ScreenEffectHapticChecks
         check(new HapticSettings(ScreenEffects: true).NeedsAudio &&
             new HapticSettings(ScreenStrength: float.NaN).Normalize().ScreenStrength == 0.25f &&
             new HapticSettings(ScreenStrength: 2).Normalize().ScreenStrength == 1, "Screen settings were not bounded");
+        CheckPatternAmplitudeIntegration(check);
+        CheckScreenSettingsEpoch(check);
         CheckCurrentBlockMix(check);
         CheckHeadroom(check);
         CheckGuardsAndLifecycle(check);
@@ -135,6 +146,110 @@ internal static unsafe class ScreenEffectHapticChecks
         CheckNonSpatialOutput(check);
         CheckTextureAndStrength(check);
         CameraShakeChecks.Run(check);
+    }
+
+    private static void CheckPatternAmplitudeIntegration(Action<bool, string> check)
+    {
+        var now = Stopwatch.GetTimestamp();
+        var sample = new ScreenEffectSample(ScreenEffectKind.Shake, 0.36f, now);
+        check(sample.AmplitudeMultiplier == 1, "Existing screen samples no longer default to full amplitude");
+        var requested = new HapticSettings(ScreenEffects: true, ScreenStrength: 0.4f);
+        // Start both renderers at full gain so their fixed-step attack ramps and
+        // oscillator phases match before testing attenuation of a steady effect.
+        // Copy the capture before the second fixture overwrites the static buffer.
+        using var fullFixture = new NativeFixture(requested);
+        using var halfFixture = new NativeFixture(requested);
+        fullFixture.SetNative(1, 0.02f, -0.03f, 0.17f);
+        halfFixture.SetNative(1, 0.02f, -0.03f, 0.17f);
+        fullFixture.Output.SetScreenEffects(sample, fullFixture.Output.ScreenSettings);
+        halfFixture.Output.SetScreenEffects(sample, halfFixture.Output.ScreenSettings);
+        fullFixture.Output.MixScreenEffects((nint)fullFixture.Destination, true, true, now);
+        halfFixture.Output.MixScreenEffects((nint)halfFixture.Destination, true, true, now);
+        fullFixture.SetNative(1, 0.02f, -0.03f, 0.17f);
+        halfFixture.SetNative(1, 0.02f, -0.03f, 0.17f);
+        var native = fullFixture.Samples.ToArray();
+        var before = calls;
+        fullFixture.Output.MixScreenEffects((nint)fullFixture.Destination, true, true, now);
+        check(calls == before + 1 && fullFixture.Output.LastScreenMix.Mixed,
+            "The full-amplitude integration fixture did not reach native mixing");
+        var fullPcm = mixed.ToArray();
+        halfFixture.Output.SetScreenEffects(sample with { AmplitudeMultiplier = 0.5f }, halfFixture.Output.ScreenSettings);
+        before = calls;
+        halfFixture.Output.MixScreenEffects((nint)halfFixture.Destination, true, true, now);
+        check(calls == before + 1 && halfFixture.Output.LastScreenMix.Mixed,
+            "The half-amplitude integration fixture did not reach native mixing");
+        var halfPcm = mixed.ToArray();
+        check(fullPcm.Any(value => value != 0), "The amplitude comparison passed with silent screen PCM");
+        for (var index = 0; index < fullPcm.Length; index++)
+        {
+            if (index % 8 < 2)
+                check(Math.Abs(halfPcm[index] - fullPcm[index] * 0.5f) < 0.000001f,
+                    "Pattern attenuation did not halve the actual plugin grip PCM after the response curve");
+            else
+                check(fullPcm[index] == 0 && halfPcm[index] == 0,
+                    "Pattern attenuation introduced output into a non-grip channel");
+        }
+        check(native.AsSpan().SequenceEqual(fullFixture.Samples) && native.AsSpan().SequenceEqual(halfFixture.Samples),
+            "Pattern attenuation changed the game's original native bed or other channels");
+        check(Math.Abs(halfFixture.Output.LastScreenMix.EffectiveLevel - fullFixture.Output.LastScreenMix.EffectiveLevel * 0.5f) < 0.000001f,
+            "Screen mix diagnostics disagree with the actual half-amplitude output");
+        halfFixture.Output.SetScreenEffects(sample with { AmplitudeMultiplier = 0 }, halfFixture.Output.ScreenSettings);
+        before = calls;
+        halfFixture.Output.MixScreenEffects((nint)halfFixture.Destination, true, true, now);
+        check(calls == before && halfFixture.Output.ScreenEffectLevel(now) == 0 &&
+            native.AsSpan().SequenceEqual(halfFixture.Samples),
+            "A fully filtered pattern still submitted screen vibration or changed native PCM");
+        halfFixture.Output.SetScreenEffects(sample, halfFixture.Output.ScreenSettings);
+        halfFixture.Output.MixScreenEffects((nint)halfFixture.Destination, true, true, now);
+        check(calls == before + 1 && halfFixture.Output.LastScreenMix.Mixed && halfFixture.Output.ScreenEffectLevel(now) > 0,
+            "A fresh full-gain attack did not resume immediately after a fully filtered pattern");
+        foreach (var rumble in new[] { false, true })
+        {
+            using var full = new NativeFixture(requested);
+            using var half = new NativeFixture(requested);
+            full.Output.Configure(requested, true, false, useRumble: rumble);
+            half.Output.Configure(requested, true, false, useRumble: rumble);
+            full.Output.SetScreenEffects(sample, full.Output.ScreenSettings);
+            half.Output.SetScreenEffects(sample with { AmplitudeMultiplier = 0.5f }, half.Output.ScreenSettings);
+            var fullLevel = full.Output.ScreenEffectLevel(now);
+            var halfLevel = half.Output.ScreenEffectLevel(now);
+            check(fullLevel > 0 && Math.Abs(fullLevel - 0.24f) < 0.000001f && Math.Abs(halfLevel - fullLevel * 0.5f) < 0.000001f,
+                "USB or regular-rumble screen level bypassed the post-response amplitude multiplier");
+        }
+    }
+
+    private static void CheckScreenSettingsEpoch(Action<bool, string> check)
+    {
+        var now = Stopwatch.GetTimestamp();
+        var sample = new ScreenEffectSample(ScreenEffectKind.Shake, 0.36f, now);
+        var requested = new HapticSettings(ScreenEffects: true, ScreenStrength: 0.4f);
+        foreach (var rumble in new[] { false, true })
+        {
+            using var fixture = new NativeFixture(requested);
+            var output = fixture.Output;
+            output.Configure(requested, true, false, useRumble: rumble);
+            var initial = output.ScreenSettings;
+            output.SetScreenEffects(sample, initial);
+            output.Configure(requested, true, false, useRumble: rumble);
+            check(ReferenceEquals(initial, output.ScreenSettings) && ReferenceEquals(sample, output.ScreenSample) &&
+                Math.Abs(output.ScreenEffectLevel(now) - 0.24f) < 0.000001f,
+                "Unchanged screen settings interrupted existing full-strength behavior");
+            foreach (var next in new[] { requested with { ScreenStrength = 0.3f },
+                requested with { ScreenEffects = false }, requested })
+            {
+                var previous = output.ScreenSettings;
+                output.SetScreenEffects(sample, previous);
+                output.Configure(next, true, false, useRumble: rumble);
+                check(!ReferenceEquals(previous, output.ScreenSettings) && output.ScreenSample == null && output.ScreenEffectLevel(now) == 0,
+                    "Changing screen strength or enable state retained a sample from the old output epoch");
+                output.SetScreenEffects(sample, previous);
+                check(output.ScreenSample == null, "An old screen-settings epoch republished a screen sample");
+                output.SetScreenEffects(sample, output.ScreenSettings);
+                check(next.ScreenEffects ? ReferenceEquals(output.ScreenSample, sample) && output.ScreenEffectLevel(now) > 0 :
+                    output.ScreenSample == null && output.ScreenEffectLevel(now) == 0,
+                    "The new screen-settings epoch rejected its own sample or accepted output while disabled");
+            }
+        }
     }
 
     private static void CheckCurrentBlockMix(Action<bool, string> check)

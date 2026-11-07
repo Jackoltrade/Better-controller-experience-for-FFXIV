@@ -61,6 +61,101 @@ NPC SFX; environmental audio still needs its separate arena proof.
 - Outside active duty boss context, legacy ambiguous skill/effect metadata and
   unlinked ownerless helpers can still be skipped.
 
+## Impact-aware distance fade (0.19.5)
+
+Combat audio keeps its native positional emitter. A sound created synchronously
+inside a confirmed action result can also retain a copied impact position:
+an explicitly area-targeted action's position, its confirmed animation target,
+or its sole affected target. Multiple targets without a confirmed primary target
+do not select an arbitrary nearby player.
+
+The correction requires the same live caster and matching action/execution
+timeline inside that native callback. Explicitly caster-attached execution sounds
+use the impact for distance while preserving the emitter's left/right bearing.
+Independently positioned VFX retain their actual position; a sound with no native
+position can use a proven impact. Unknown links keep existing distance behavior.
+The copied value follows the sound reservation's generation through asynchronous
+loading and is discarded on reuse or actor replacement. There is no recent-hit
+window, per-boss exception, new output delay, or audio-thread object-table lookup.
+
+The recommended character-origin fade still reaches zero at 25 yalms **from the
+resolved distance point**. Custom ranges and the existing camera-origin option
+remain in effect. Native vibration sends, controller sound, footsteps and the
+screen-motion filter follow their existing paths.
+
+Validation: synthetic geometry, target-selection, ownership-generation and native
+output fixtures cover the correction and the 25-yalm boundary. The existing Engels
+recordings prove distant arm emitters but contain no action-result target-position
+capture and mostly have action-ID-zero animation sounds. They do **not** establish
+that the arm sounds have a usable impact link. New traces include bounded action
+results and per-reservation impact provenance to verify that remaining case.
+
+## Self-targeted execution fallback (0.19.6)
+
+Some attacks play their sound on a self-targeted animation while a separate helper
+applies the hit. The sound has no recoverable impact point. These sounds retain
+their existing strength and directional balance instead of receiving extra
+distance attenuation. This intentionally allows an admitted animation sound from
+a distant emitter; it does not establish that its impact was nearby.
+
+Eligibility requires an unambiguous skill execution timeline, a validated C063
+caster/caster-origin attachment, and the same timeline's sole target equaling its
+resolved owner. The pinned owner/count/target getters are validated before reading
+that relationship. Cast-only, unknown, basic-attack and non-caster-bound tracks do
+not qualify. Existing audio admission and targeting-cue exclusions still apply.
+The evidence follows the sound reservation's generation, with no recent-action
+window, new hook, boss-specific entry or additional runtime cache.
+
+A known impact position always retains the configured fade, including the
+recommended 25-yalm cutoff. Native-position and listener requirements remain in
+place; self-targeting is not itself an impact position. Traces mark the admitted
+fallback as `SelfTargetedExecution` and route `Animation`. The temporary raw
+actor/timeline diagnostic dumps used in v0.19.5 were removed after investigation.
+
+Automated checks cover eligibility, native-layout bounds, reuse, native vibration
+preservation and known-impact cutoff precedence. Replaying the recorded headers
+against installed action data admits 19 captured Engels tracks, including three
+detached-arm tracks. The user subsequently confirmed arm feedback works on
+v0.19.6. That confirms this attack path, rather than every self-targeted animation.
+
+## Friendly NPCs and regular-enemy effects (0.19.7–0.19.8)
+
+Combat NPCs enter enemy routing only when the game's action-target classifier
+returns `Enemy`. Self, party, alliance, friendly and pet categories are excluded
+before regular history or boss promotion; unavailable/unknown classification is
+also excluded. Their identities seed the existing ownership exclusion, keeping
+their descendants out of enemy audio. Dedicated neutral effect helpers and NPC
+parts retain their separate paths. The bundled FFXIVClientStructs API is queried
+on the framework thread, with no new hook, faction cache or NPC allowlist.
+
+The earlier v0.19.7 guard used the `Hostile` status flag. A subsequent Trust-party
+recording showed four friendly NPCs with that flag set, so that guard was
+insufficient and has been removed. The game classifier instead uses the
+player-relative targeting relationship, including native battalion relationships.
+
+The existing exact effect-instance tracker now handles registered regular enemies
+as well as bosses. Delayed C012/AVFX sounds can retain confirmed skill ownership
+after the creating timeline returns. Dedicated helpers can inherit the category
+of a matching live regular enemy; an independently recognized boss anchor retains
+priority. Fresh helpers of remembered regular enemies stay regular during boss
+combat. Unknown, basic-attack and marker sounds retain their admission guards.
+
+The Copied Factory recordings establish three different issues: friendly 2P
+entered broad boss routing; the tank's expanding rings lost delayed regular-skill
+provenance; missile launch feedback worked while separate hit helpers were absent
+from the regular roster. Automated fixtures cover these registration/provenance
+paths and their exclusions. Live v0.19.8 Trust recordings confirm all four allies
+classify as `Friendly` and stay out of the enemy roster, while actual enemies
+classify as `Enemy`. The isolated check produced no added vibration from allies.
+An earlier check had Screen effects enabled and recorded radial-blur feedback;
+that independent visual-effect path does not use enemy-SFX classification.
+The isolated recording contained enemy basic attacks, not a confirmed enemy
+skill, so it does not establish positive skill feedback. Live checks of the
+expanding rings and missile impact remain pending; the actual missile-impact
+asset was not conclusively identified in the old trace. Recordings include
+`TargetCategory` alongside the older `Hostile` diagnostic and regular-enemy
+effect metadata for follow-up.
+
 ## How future trials should broaden coverage
 
 1. Classify a miss using the trace: boss identification, actor ownership,

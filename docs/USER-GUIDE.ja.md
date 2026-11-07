@@ -10,7 +10,7 @@ DualSenseのライトと振動をFFXIVに合わせて楽しめる、Dalamud用�
 
 このガイドの診断タブと診断コマンドは、開発用プラグインとして読み込んだ場合のみ利用できます。
 
-[ソースコード](https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-) · [リリース](https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-/releases) · [不具合を報告](https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-/issues) · [Ko-fiで応援](https://ko-fi.com/K7C122MEWU)
+[ソースコード](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV) · [リリース](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/releases) · [不具合を報告](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/issues) · [Ko-fiで応援](https://ko-fi.com/K7C122MEWU)
 
 ![コントローラーのライトプレビュー](../src/DualSenseLighting/Assets/dualsense-preview.png)
 
@@ -52,7 +52,7 @@ DualSenseのライトと振動をFFXIVに合わせて楽しめる、Dalamud用�
 1. `/xlsettings` → **Experimental** → **Custom Plugin Repositories**を開きます。
 2. 次のURLを追加します。
    ```text
-   https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-/releases/download/plugin-repository/pluginmaster-ja.json
+   https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/releases/download/plugin-repository/pluginmaster-ja.json
    ```
 
    日本語の説明文を表示するためのリポジトリです。通常版と同時に登録せず、どちらか一方を使ってください。設定画面の言語とは別の仕組みです。既存の英語版は、日本語版から更新または入れ直すと説明文も切り替わります。
@@ -63,7 +63,7 @@ DualSenseのライトと振動をFFXIVに合わせて楽しめる、Dalamud用�
 
 ### 手動・開発用プラグインとして導入する
 
-1. リリース公開後に[リリースページ](https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-/releases)から `latest-ja.zip` をダウンロードするか、ローカルでビルドした `artifacts/plugin/` を使います。
+1. リリース公開後に[リリースページ](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/releases)から `latest-ja.zip` をダウンロードするか、ローカルでビルドした `artifacts/plugin/` を使います。
 2. ZIPを使う場合は、全体を専用フォルダーに展開します。
 3. `/xlsettings` → **Experimental** → **Dev Plugin Locations**に、そのフォルダーの `DualSenseLighting.dll` を追加します。
 4. `/xlplugins` → **Dev Tools**で有効にします。
@@ -244,7 +244,7 @@ Bluetoothでは、戦闘の方向設定による左右の強さを維持しま�
 
 ## お問い合わせ・応援
 
-[GitHubのIssue](https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-/issues/new)、または[メール](mailto:jackzhou.work@protonmail.com?subject=%5BBetter%20controller%20experience%20for%20FFXIV%5D%20Feedback)でお知らせください。プラグイン、クライアントのビルド・リージョン、Dalamudのバージョン、コントローラーの機種・ファームウェア、USB・Bluetooth・XInputの出力方式、設定、再現手順を添えると調べやすくなります。必要に応じて短い記録も添付してください。プラグインについてのタブのボタンは下書き・入力フォームを開くだけで、送信はご自身で行います。
+[GitHubのIssue](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/issues/new)、または[メール](mailto:jackzhou.work@protonmail.com?subject=%5BBetter%20controller%20experience%20for%20FFXIV%5D%20Feedback)でお知らせください。プラグイン、クライアントのビルド・リージョン、Dalamudのバージョン、コントローラーの機種・ファームウェア、USB・Bluetooth・XInputの出力方式、設定、再現手順を添えると調べやすくなります。必要に応じて短い記録も添付してください。プラグインについてのタブのボタンは下書き・入力フォームを開くだけで、送信はご自身で行います。
 
 このプラグインは完全無料で使えます。気に入っていただけたら、[Ko-fi](https://ko-fi.com/K7C122MEWU)や[愛発電](https://afdian.com/a/jackoltrade)で応援していただけるとうれしいです。
 

@@ -16,6 +16,14 @@ FFXIVのコントローラーに、好みのライトと振動を。スキルや
 
 表示言語は日本語・英語・簡体字中国語。設定は自動保存されます。
 
+## 振動のカーブ
+
+自分や敵の効果音は音の強さに応じて振動し、画面エフェクトは小さな変化も感じやすいように調整しています。**画面エフェクトのカーブには、弱い効果を意図的に強める補正が表れています。** 数値はデジタル信号の目標値で、実際の振動の強さを測定したものではありません。
+
+![初期設定の振動カーブ](docs/assets/haptics-curves.svg)
+
+[操作できるカーブをダウンロード](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/raw/refs/heads/main/docs/haptics-curves.html)して、HTMLファイルをブラウザーで開いてください。グラフの下のスライダーで、強さ・足音・距離減衰・左右の振り分け・振動時間を試せます。ページは英語で、オフラインでも使えます。プラグインの設定は変更しません。GitHubのREADME上では、スライダーを直接操作できません。
+
 ## 対応コントローラー
 
 | 接続 | ライト | 追加の振動 |
@@ -53,7 +61,7 @@ FFXIVのコントローラーに、好みのライトと振動を。スキルや
 
 テスト中のため、クライアント・パッチ・コントローラーによって対応状況が異なる場合があります。[ユーザーガイド](docs/USER-GUIDE.ja.md)、[対応範囲](docs/ENEMY-HAPTICS-COVERAGE.md)、[QAレポート](docs/QA-REPORT.md)をご覧ください。
 
-[Issue](https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-/issues/new)には、プラグイン／クライアントのバージョン、機種、接続方法、再現手順を添えてください。効果音の分類に関する問題は、短い記録があると調べやすくなります。
+[Issue](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/issues/new)には、プラグイン／クライアントのバージョン、機種、接続方法、再現手順を添えてください。効果音の分類に関する問題は、短い記録があると調べやすくなります。
 
 このプラグインは完全無料で使えます。[Ko-fi](https://ko-fi.com/K7C122MEWU) · [愛発電](https://afdian.com/a/jackoltrade)
 

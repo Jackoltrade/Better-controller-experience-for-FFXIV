@@ -42,6 +42,9 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
+      - name: Verify coverage isolation and failure handling
+        shell: powershell
+        run: ./tests/CoverageProcessChecks.ps1
       - name: Get Dalamud API libraries
         shell: pwsh
         env:
@@ -73,10 +76,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Performance checks failed.' }
       - name: Collect structural coverage separately from performance
         shell: pwsh
-        run: |
-          ./tools/measure-coverage.ps1 -PluginPath ./artifacts/plugin/DualSenseLighting.dll -DalamudLibPath $env:DALAMUD_HOME
-          python ./tools/summarize-coverage.py ./artifacts/coverage/coverage.cobertura.xml --output ./artifacts/coverage/summary.json --require-plugin
-          if ($LASTEXITCODE -ne 0) { throw 'Coverage summary failed.' }
+        run: ./tools/measure-coverage.ps1 -PluginPath ./artifacts/plugin/DualSenseLighting.dll -DalamudLibPath $env:DALAMUD_HOME
       - name: Preserve verification evidence including failed runs
         if: always()
         uses: actions/upload-artifact@v7

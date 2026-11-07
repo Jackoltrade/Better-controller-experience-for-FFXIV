@@ -59,9 +59,11 @@ internal static unsafe class EnemyEncounterChecks
         check(GameAudioLayout.SelectEnemyActors(new[] { helper, boss }, selected) == 2 &&
             GameAudioLayout.SelectEnemyActors(new[] { helper }, selected) == 0,
             "An open-world boss helper was missed or registered without its live boss");
-        check(GameAudioLayout.SelectEnemyActors(new[] { helper, boss with { NameId = 13007 } }, selected) == 1 &&
-            GameAudioLayout.SelectEnemyActors(new[] { helper, boss with { Kind = EnemySoundKind.Regular } }, selected) == 1,
-            "A helper inherited an unrelated NPC or ordinary enemy as its boss anchor");
+        check(GameAudioLayout.SelectEnemyActors(new[] { helper, boss with { NameId = 13007 } }, selected) == 1,
+            "A helper inherited an unrelated NPC as its anchor");
+        check(GameAudioLayout.SelectEnemyActors(new[] { helper, boss with { Kind = EnemySoundKind.Regular } }, selected) == 2 &&
+            selected[0].Kind == EnemySoundKind.Regular,
+            "A matching ordinary enemy failed to anchor its helper in the regular category");
         var pool = (GameAudioLayout.SoundData*)NativeMemory.AllocZeroed((nuint)(GameAudioLayout.PlayerSoundOwnership.Capacity * sizeof(GameAudioLayout.SoundData)));
         try
         {

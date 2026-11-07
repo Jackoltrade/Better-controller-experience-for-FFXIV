@@ -130,6 +130,24 @@ public static unsafe class GameAudioLayout
     }
     public const string ActionEffectSignature = "E8 ?? ?? ?? ?? 48 8B 8D ?? ?? ?? ?? 48 33 CC E8 ?? ?? ?? ?? 48 81 C4 00 05 00 00";
 
+    public const int TargetedTimelineBytes = 0x198;
+
+    public static bool SelfTargetedTimelineLayout(ReadOnlySpan<byte> ownerGetter, ReadOnlySpan<byte> countGetter,
+        ReadOnlySpan<byte> targetGetter)
+    {
+        ReadOnlySpan<byte> owner = [0x8b, 0x81, 0x8c, 0x01, 0, 0, 0xc3];
+        ReadOnlySpan<byte> count = [0x8b, 0x81, 0x90, 0x01, 0, 0, 0xc3];
+        ReadOnlySpan<byte> target = [0x3b, 0x91, 0x90, 0x01, 0, 0, 0x72, 0x07,
+            0x8b, 0x81, 0x8c, 0x01, 0, 0, 0xc3, 0x8b, 0xc2, 0x8b, 0x84, 0x81, 0x94, 0x01, 0, 0, 0xc3];
+        return ownerGetter.SequenceEqual(owner) && countGetter.SequenceEqual(count) && targetGetter.SequenceEqual(target);
+    }
+
+    public static bool IsSelfTargetedTimeline(ReadOnlySpan<byte> timeline, int ownerIndex) =>
+        ownerIndex >= 0 && timeline.Length >= TargetedTimelineBytes &&
+        BinaryPrimitives.ReadInt32LittleEndian(timeline[0x18C..]) == ownerIndex &&
+        BinaryPrimitives.ReadInt32LittleEndian(timeline[0x190..]) == 1 &&
+        BinaryPrimitives.ReadInt32LittleEndian(timeline[0x194..]) == ownerIndex;
+
     // SigScanner returns live addresses, but its SearchBase can hold the original
     // module copy. Validate that copy: legitimate hooks replace live prologues.
     public static nint InspectionAddress(nint address, nint module, nint search, int size, int length)
@@ -217,12 +235,14 @@ public static unsafe class GameAudioLayout
         nint ResourceHandle, uint SoundNumber, byte Origin, nint SourceActor, nint SourceDraw, int TimelineOwnerIndex,
         bool IsPositional = false, Vector3? Position = null, EnemySoundKind Enemy = EnemySoundKind.None,
         EnemyActionTag Action = default, EnemyActorRole? EnemyRole = null, uint NameId = 0, uint BaseId = 0,
-        uint OwnerId = 0, uint BossOwnerNameId = 0, uint EffectOwnerGetterRva = 0);
+        uint OwnerId = 0, uint BossOwnerNameId = 0, uint EffectOwnerGetterRva = 0, HapticImpactPosition? Impact = null,
+        bool SelfTargetedExecution = false);
 
     public readonly record struct EnemyActor(nint Actor, uint EntityId, nint DrawObject, int ObjectIndex, EnemySoundKind Kind,
         EnemyActorRole Role = EnemyActorRole.Combatant, uint NameId = 0, uint BaseId = 0,
         uint OwnerId = 0, uint BossOwnerNameId = 0, uint EventId = 0, uint LayoutId = 0);
-    public readonly record struct VoiceOwnership(bool Owned, bool HitReaction, EnemySoundKind Enemy, Vector3? Position);
+    public readonly record struct VoiceOwnership(bool Owned, bool HitReaction, EnemySoundKind Enemy, Vector3? Position,
+        HapticImpactPosition? Impact = null, bool SelfTargetedExecution = false);
     private sealed record EnemyIdentity(EnemyActor Actor, PlayerIdentity Identity);
 
     public static int SelectEnemyActors(ReadOnlySpan<EnemyActor> candidates, Span<EnemyActor> selected)
@@ -238,10 +258,17 @@ public static unsafe class GameAudioLayout
             var allowed = actor.Role == EnemyActorRole.Combatant ||
                 actor.Role == EnemyActorRole.BossEncounter && actor.Kind == EnemySoundKind.Boss;
             if (actor.Role == EnemyActorRole.BossMechanic && actor.Kind == EnemySoundKind.Boss && actor.NameId != 0 && actor.BaseId != 0)
+            {
+                var anchor = EnemySoundKind.None;
                 foreach (var root in candidates)
-                    if (root.Role == EnemyActorRole.Combatant && root.Kind == EnemySoundKind.Boss && root.Actor != 0 &&
+                    if (root.Role == EnemyActorRole.Combatant && root.Kind is EnemySoundKind.Boss or EnemySoundKind.Regular && root.Actor != 0 &&
                         root.EntityId is not (0 or 0xE0000000) && root.NameId == actor.NameId)
-                    { allowed = true; break; }
+                    {
+                        anchor = root.Kind;
+                        if (anchor == EnemySoundKind.Boss) break;
+                    }
+                if (anchor != EnemySoundKind.None) { actor = actor with { Kind = anchor }; allowed = true; }
+            }
             if (actor.Role != EnemyActorRole.BossEncounter &&
                 (BossMechanics.HasOwner(actor.OwnerId) || actor.BossOwnerNameId != 0))
                 foreach (var root in candidates)
@@ -295,6 +322,8 @@ public static unsafe class GameAudioLayout
         private readonly nint[] sourceActors = new nint[Capacity], sourceDraws = new nint[Capacity];
         private readonly int[] timelineOwners = new int[Capacity];
         private readonly EnemyActionTag[] enemyActions = new EnemyActionTag[Capacity];
+        private readonly HapticImpactPosition?[] impacts = new HapticImpactPosition?[Capacity];
+        private readonly bool[] selfTargetedExecutions = new bool[Capacity];
         private readonly Func<nint, bool?>? targetingCue;
         private readonly int[] cueGenerations = new int[Capacity], cueLocks = new int[Capacity];
         private readonly CueCache[] cueCache = new CueCache[Capacity];
@@ -397,7 +426,8 @@ public static unsafe class GameAudioLayout
         }
 
         public void Acquired(SoundData* sound, PlayerIdentity? caster, byte origin = 0, nint sourceActor = 0, nint sourceDraw = 0,
-            int timelineOwnerIndex = -1, EnemyActionTag action = default, uint effectOwnerGetterRva = 0)
+            int timelineOwnerIndex = -1, EnemyActionTag action = default, uint effectOwnerGetterRva = 0,
+            HapticImpactPosition? impact = null, bool selfTargetedExecution = false)
         {
             var offset = (nuint)sound - (nuint)pool;
             if (pool == null || offset >= (nuint)(Capacity * sizeof(SoundData)) || offset % (nuint)sizeof(SoundData) != 0) return;
@@ -414,6 +444,8 @@ public static unsafe class GameAudioLayout
             timelineOwners[slot] = timelineOwnerIndex;
             effectOwnerGetters[slot] = effectOwnerGetterRva;
             enemyActions[slot] = action;
+            impacts[slot] = impact is { IsValid: true } ? impact : null;
+            selfTargetedExecutions[slot] = selfTargetedExecution;
             Volatile.Write(ref owners[slot], own ? caster : null);
         }
 
@@ -472,6 +504,8 @@ public static unsafe class GameAudioLayout
                 var handle = sound->ResourceHandle;
                 var number = sound->SoundNumber;
                 var action = enemyActions[slot];
+                var impact = includePosition ? impacts[slot] : null;
+                var selfTargetedExecution = includePosition && selfTargetedExecutions[slot];
                 var positional = sound->IsPositional;
                 var position = includePosition && positional == 1 ? sound->Position : default;
                 var role = default(EnemyActorRole);
@@ -487,7 +521,8 @@ public static unsafe class GameAudioLayout
                     !ReferenceEquals(owner, Volatile.Read(ref owners[slot])) || !ReferenceEquals(local, Player) ||
                     !owned && !ReferenceEquals(roster, Volatile.Read(ref enemies))) continue;
                 return new(owned, owned && action.IsHitReaction, kind,
-                    includePosition && positional == 1 && HapticSpatializer.ValidPosition(position) ? position : null);
+                    includePosition && positional == 1 && HapticSpatializer.ValidPosition(position) ? position : null,
+                    impact, selfTargetedExecution);
             }
             return default;
         }
@@ -575,7 +610,7 @@ public static unsafe class GameAudioLayout
                     origins[slot], sourceActors[slot], sourceDraws[slot], timelineOwners[slot], sound->IsPositional == 1,
                     HapticSpatializer.ValidPosition(sound->Position) ? sound->Position : null, enemy?.Kind ?? EnemySoundKind.None,
                     enemyActions[slot], enemy?.Role, enemy?.NameId ?? 0, enemy?.BaseId ?? 0,
-                    enemy?.OwnerId ?? 0, enemy?.BossOwnerNameId ?? 0, effectOwnerGetters[slot]);
+                    enemy?.OwnerId ?? 0, enemy?.BossOwnerNameId ?? 0, effectOwnerGetters[slot], impacts[slot], selfTargetedExecutions[slot]);
             }
             Array.Resize(ref result, count);
             return result;

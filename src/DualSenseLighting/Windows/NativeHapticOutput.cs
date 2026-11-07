@@ -205,7 +205,7 @@ internal sealed unsafe class NativeHapticOutput
         var frame = Volatile.Read(ref screenFrame);
         if (frame == null || !ScreenEffectsActive ||
             !ReferenceEquals(frame.Settings, Volatile.Read(ref screenSettings))) return 0;
-        return ScreenEffectHaptics.Response(ScreenEffectHaptics.Level(frame.Sample, now), frame.Settings.ScreenStrength);
+        return ScreenEffectHaptics.Amplitude(frame.Sample, now, frame.Settings.ScreenStrength);
     }
 
     public void MixScreenEffects(nint destination, bool foreground, bool layoutSupported, long now)
@@ -224,7 +224,7 @@ internal sealed unsafe class NativeHapticOutput
             !ReferenceEquals(frame.Settings, current) ? "settings-changed" : null;
         if (guard != null) { screenRenderer.Reset(); Record(guard); return; }
         var sample = frame!.Sample;
-        var level = ScreenEffectHaptics.Response(ScreenEffectHaptics.Level(sample, now), current.ScreenStrength);
+        var level = ScreenEffectHaptics.Amplitude(sample, now, current.ScreenStrength);
         if (level <= 0)
         {
             screenRenderer.Reset();
@@ -316,7 +316,8 @@ internal sealed unsafe class NativeHapticOutput
     }
 
     public Frame Prepare(GameAudioLayout.SourceVoice* voice, bool owned, byte bus, uint flags, Vector3? position = null, int soundId = 0,
-        EnemySoundKind enemy = EnemySoundKind.None, bool hitReaction = false, bool arenaEffect = false)
+        EnemySoundKind enemy = EnemySoundKind.None, bool hitReaction = false, bool arenaEffect = false,
+        Vector3? distancePosition = null, bool allowUnlocatedExecution = false)
     {
         var current = Volatile.Read(ref settings);
         if (owned || !EnemiesActive) enemy = EnemySoundKind.None;
@@ -345,6 +346,7 @@ internal sealed unsafe class NativeHapticOutput
                     SoundId: soundId, Epoch: epoch) : new(0, current, 0, Route: HapticRoute.Native);
             }
             if (combatGain <= 0) return default; // A footstep without a native vibration send stays unmodified.
+            position ??= distancePosition;
             if (current.DistanceFalloff && (!SpatialSupported || !position.HasValue ||
                 !HapticSpatializer.ValidPosition(position.Value) || pose == null))
             {
@@ -352,8 +354,11 @@ internal sealed unsafe class NativeHapticOutput
                 return new(0, current, 0, Route: !SpatialSupported ? HapticRoute.SpatialUnavailable :
                     !position.HasValue || !HapticSpatializer.ValidPosition(position.Value) ? HapticRoute.MissingPosition : HapticRoute.MissingListener);
             }
+            // Self-targeted animation audio has no recoverable contact point.
+            // Preserve its strength; proven impact positions always retain fade.
+            var animation = current.DistanceFalloff && allowUnlocatedExecution && !distancePosition.HasValue;
             var spatial = (current.Spatial || current.DistanceFalloff) && SpatialSupported && position.HasValue
-                ? HapticSpatializer.Evaluate(current, pose, position.Value, Stopwatch.GetTimestamp()) : default;
+                ? HapticSpatializer.Evaluate(current, pose, position.Value, Stopwatch.GetTimestamp(), distancePosition, animation) : default;
             if (current.DistanceFalloff && !spatial.Valid)
             { Interlocked.Increment(ref suppressedBlocks); return new(0, current, 0, Route: HapticRoute.MissingListener); }
             var biased = false;
@@ -368,7 +373,8 @@ internal sealed unsafe class NativeHapticOutput
                 Interlocked.Increment(ref cutoffBlocks);
                 return new(0, current, 0, spatial, HapticRoute.DistanceCutoff);
             }
-            return new(destination, current, combatGain, spatial, spatial.Valid ? HapticRoute.Spatial : HapticRoute.Original,
+            return new(destination, current, combatGain, spatial, spatial.Valid
+                ? animation ? HapticRoute.Animation : HapticRoute.Spatial : HapticRoute.Original,
                 position, soundId, epoch, biased, enemy, hitReaction, rumble, RumbleSignal.Generation,
                 RumbleStereo.CurrentEpoch);
         }

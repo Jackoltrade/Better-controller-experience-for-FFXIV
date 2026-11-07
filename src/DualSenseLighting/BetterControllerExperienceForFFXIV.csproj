@@ -1,9 +1,9 @@
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>0.18.0</Version>
+    <Version>0.19.8</Version>
     <Title>Better controller experience for FFXIV</Title>
     <Product>Better controller experience for FFXIV</Product>
-    <RepositoryUrl>https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-</RepositoryUrl>
+    <RepositoryUrl>https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <AssemblyName>DualSenseLighting</AssemblyName>
     <RootNamespace>DualSenseLighting</RootNamespace>

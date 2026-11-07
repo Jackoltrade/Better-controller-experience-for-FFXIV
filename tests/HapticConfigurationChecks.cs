@@ -153,6 +153,7 @@ internal static class HapticConfigurationChecks
             check(!config.SetFeature(feature, config.IsFeatureEnabled(feature) ? FeatureSwitch.On : FeatureSwitch.Off),
                 "Reapplying the current feature state reported a change");
         }
+        CheckLegacyPatternPreferences(check);
         commands.HapticEnabled = false;
         commands.CombatHaptics = false;
         commands.Language = UiLanguage.Chinese;
@@ -165,5 +166,16 @@ internal static class HapticConfigurationChecks
         commands.CombatHaptics = false;
         commands.ResetLightingToDefaults();
         check(!commands.HapticEnabled && !commands.CombatHaptics, "Resetting lighting changed a haptic group switch");
+    }
+
+    private static void CheckLegacyPatternPreferences(Action<bool, string> check)
+    {
+        var old = JsonSerializer.Deserialize<Configuration>(
+            "{\"HapticScreenPatternFade\":false,\"HapticScreenPatternMinimum\":0.5}")!;
+        check(old.HapticsSnapshot() == new Configuration().HapticsSnapshot(),
+            "Removed experimental filter settings changed current haptic configuration");
+        var saved = JsonSerializer.Serialize(old);
+        check(!saved.Contains("HapticScreenPattern", StringComparison.Ordinal),
+            "Removed experimental filter settings remained in saved configuration");
     }
 }

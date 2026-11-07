@@ -7,7 +7,7 @@ For official main-repository review, see [Official Dalamud listing](OFFICIAL-LIS
 ## Before a release
 
 1. Finish the [QA checks](QA-REPORT.md), including an in-game load/unload and focus/reconnect smoke test on the intended client build. Record what was actually tested; a native-mixer fixture does not establish compatibility with a different game patch.
-2. Update version in the project, `Plugin.cs`'s assembly attribute and `DualSenseLighting.json`. They must agree. Version `0.18.0.0` uses tag `v0.18.0`.
+2. Update version in the project, `Plugin.cs`'s assembly attribute and `DualSenseLighting.json`. They must agree. Version `0.19.8.0` uses tag `v0.19.8`.
 3. Add Afdian/Ko-fi profile URLs to `Core/PluginInfo.cs` when the maintainer supplies them. Empty URLs intentionally keep those buttons disabled; do not invent profiles. Test each real destination when adding it.
 4. Confirm source and all third-party licenses are included in the repository. Do not add `work/`, user configuration, diagnostic traces, native research binaries or private screenshots to a release.
 5. Use matching **Dalamud API 15** libraries and .NET 10 SDK. The CI default is Dalamud's official staging ZIP; override `DALAMUD_DOWNLOAD_URL` or the manual workflow input if that feed has moved to another API. The metadata verifier rejects API mismatches.
@@ -20,7 +20,7 @@ The checked-in JSON is the standard packager's metadata source. DalamudPackager 
 ./tools/build.ps1 -DalamudLibPath 'C:\path\to\Dalamud' -LockedRestore
 dotnet ./artifacts/checks/LightingChecks.dll --benchmark
 python -m unittest discover -s tests -p "test_*.py" -v
-python tools/package-release.py --tag v0.18.0
+python tools/package-release.py --tag v0.19.8
 ```
 
 On WSL, `python3 tools/build-wsl.py --locked-restore` runs the same Windows .NET 10 SDK build and verification. Pass `--dotnet-path /mnt/c/path/to/sdk/dotnet.exe` for a portable SDK. The offline Roslyn fallback is no longer used.
@@ -75,7 +75,7 @@ download destinations or executable content.
 These workflows are prepared in source; editing them does not publish a release.
 
 1. Review and commit the intended source, user guides and workflows, then push them to `main`.
-2. Create and push the matching version tag, for example `v0.18.0`.
+2. Create and push the matching version tag, for example `v0.19.8`.
 3. Run **Publish an opt-in public test release** from GitHub Actions with that existing tag and a compatible Dalamud library URL.
 4. The reusable build job checks out the tag, compiles and runs the tests, validates the DLL, and uploads the public package artifact.
 5. Only after all checks pass does the publishing job create a **prerelease**, upload the ZIP/checksum/summary, and update the `plugin-repository` release's `pluginmaster.json` asset.
@@ -94,7 +94,7 @@ differ even at the same source tag; use a new version when the bytes differ.
 The persistent installer URL is:
 
 ```text
-https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-/releases/download/plugin-repository/pluginmaster.json
+https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/releases/download/plugin-repository/pluginmaster.json
 ```
 
 It becomes valid after the first successful publishing run. Subsequent runs replace that JSON asset after uploading the new versioned ZIP; users opt into testing plugins in Dalamud. An initial GitHub repository or an uploaded Actions artifact alone does not make this feed live.

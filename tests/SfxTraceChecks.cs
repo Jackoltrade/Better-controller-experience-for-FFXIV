@@ -31,11 +31,15 @@ internal static class SfxTraceChecks
         try
         {
             var assembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(Path.GetFullPath(pluginPath));
+            ImpactAdapterChecks.Run(check, assembly);
+            RegularEffectAdapterChecks.Run(check, assembly);
+            GameTargetRelationChecks.Run(check, assembly);
             WindowingChecks.Run(check, assembly);
             SpecialSoundPlaybackChecks.Run(check, assembly);
             ArenaCatalogLifecycleChecks.Run(check, assembly);
             HookOriginalLifecycleChecks.Run(check, assembly);
             OwnerLifecycleChecks.Run(check, assembly);
+            ScreenObserverActivationChecks.Run(check, assembly);
             RecordingCoordinatorChecks.Run(check, assembly);
             SettingsConsentChecks.Run(check, assembly);
             GameObjectLayoutChecks.CheckInstalledLayout(check, assembly);

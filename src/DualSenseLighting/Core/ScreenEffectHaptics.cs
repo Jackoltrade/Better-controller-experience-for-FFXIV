@@ -13,6 +13,13 @@ public sealed record ScreenEffectSample(ScreenEffectKind Effects, float Level, l
     ScreenEffectKind DominantEffect = ScreenEffectKind.None, long ExpiresAt = 0)
 {
     internal ScreenEffectKind Texture => DominantEffect != ScreenEffectKind.None ? DominantEffect : Effects;
+    public float AmplitudeMultiplier { get; init; } = 1;
+}
+
+internal readonly record struct ScreenEffectMeasurement(ScreenEffectKind Effects, float Level, ScreenEffectKind DominantEffect)
+{
+    internal ScreenEffectSample At(long clock, float multiplier = 1, long expiresAt = 0) =>
+        new(Effects, Level, clock, DominantEffect, expiresAt) { AmplitudeMultiplier = multiplier };
 }
 
 /// <summary>Maps the current authored camera effect to bounded controller samples.</summary>
@@ -36,7 +43,12 @@ internal sealed class ScreenEffectHaptics
 
     public static ScreenEffectSample Measure(float shakeLevel,
         uint flags, int blurMode, float blurStrength, float blurWeight, float chromaticWeight,
-        Vector3 chromaticParameters, long now)
+        Vector3 chromaticParameters, long now) =>
+        Analyze(shakeLevel, flags, blurMode, blurStrength, blurWeight, chromaticWeight, chromaticParameters).At(now);
+
+    internal static ScreenEffectMeasurement Analyze(float shakeLevel,
+        uint flags, int blurMode, float blurStrength, float blurWeight, float chromaticWeight,
+        Vector3 chromaticParameters)
     {
         var effects = ScreenEffectKind.None;
         var dominant = ScreenEffectKind.None;
@@ -56,7 +68,7 @@ internal sealed class ScreenEffectHaptics
         if ((flags & (1u << 18)) != 0 && float.IsFinite(chromaticWeight) && chromaticWeight is > 0 and <= 1 && Valid(chromaticParameters))
             Include(ScreenEffectKind.ChromaticAberration,
                 chromaticWeight * Math.Max(0, chromaticParameters.Z) * Math.Max(Math.Abs(chromaticParameters.X), Math.Abs(chromaticParameters.Y)));
-        return new(effects, level, now, dominant);
+        return new(effects, level, dominant);
     }
 
     private static bool Valid(Vector3 value) => float.IsFinite(value.X) && float.IsFinite(value.Y) && float.IsFinite(value.Z) &&
@@ -72,6 +84,13 @@ internal sealed class ScreenEffectHaptics
 
     public static float Response(float level, float strength) => float.IsFinite(level) && float.IsFinite(strength)
         ? MathF.Sqrt(Math.Clamp(level, 0, 1)) * Math.Clamp(strength, 0, 1) : 0;
+
+    public static float Amplitude(ScreenEffectSample? sample, long now, float strength)
+    {
+        var multiplier = sample != null && float.IsFinite(sample.AmplitudeMultiplier)
+            ? Math.Clamp(sample.AmplitudeMultiplier, 0, 1) : 1;
+        return Response(Level(sample, now), strength) * multiplier;
+    }
 
     // Only the audio thread advances this oscillator. No allocations or queued effects.
     public bool Render(Span<float> output, float level, ScreenEffectKind effect = ScreenEffectKind.Shake,

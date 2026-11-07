@@ -16,6 +16,14 @@ Custom controller lighting and vibration for Final Fantasy XIV. Feel skills, ene
 
 The interface supports English, Simplified Chinese and Japanese. Settings save automatically.
 
+## Vibration curves
+
+Player and enemy effects scale with their sound; screen effects use a stronger response for subtle movement. **The screen-effect curve shows the deliberate boost to weak effects.** These curves show digital signal targets, not measured vibration force.
+
+![Vibration response curves at default settings](docs/assets/haptics-curves.svg)
+
+[Download the interactive curves](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/raw/refs/heads/main/docs/haptics-curves.html), then open the HTML file in your browser. Choose a curve and use the sliders below it to explore strength, footsteps, distance fade, grip separation and rumble duration. It works offline and does not change your plugin settings. GitHub READMEs cannot run interactive controls directly.
+
 ## Controllers
 
 | Connection | Lighting | Added vibration |
@@ -53,7 +61,7 @@ Features: `lighting`, `haptics`, `combathaptics`, `playersfx`, `footsteps`, `spa
 
 This is a testing project; support can vary by client, patch and controller. See the [user guide](docs/USER-GUIDE.md), [coverage limits](docs/ENEMY-HAPTICS-COVERAGE.md) and [QA report](docs/QA-REPORT.md).
 
-[Report an issue](https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-/issues/new) with your plugin/client version, controller, connection type and reproduction steps. A short recording helps with sound-routing issues.
+[Report an issue](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/issues/new) with your plugin/client version, controller, connection type and reproduction steps. A short recording helps with sound-routing issues.
 
 The plugin is completely free to use. [Ko-fi](https://ko-fi.com/K7C122MEWU) · [Afdian](https://afdian.com/a/jackoltrade)
 

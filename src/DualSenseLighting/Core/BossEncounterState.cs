@@ -74,10 +74,28 @@ public sealed class BossEncounterState
             if (selected[i].Kind == EnemySoundKind.Regular) RememberRegular(selected[i]);
         if (Active)
         {
-            for (var i = 0; i < candidates.Length; i++) candidates[i] = Classify(candidates[i]);
+            for (var i = 0; i < candidates.Length; i++)
+            {
+                var actor = candidates[i];
+                candidates[i] = FollowsRememberedRegular(actor, selected[..count])
+                    ? actor with { Kind = EnemySoundKind.Regular, Role = EnemyActorRole.Combatant }
+                    : Classify(actor);
+            }
             count = GameAudioLayout.SelectEnemyActors(candidates, selected);
         }
         return count;
+    }
+
+    private bool FollowsRememberedRegular(GameAudioLayout.EnemyActor actor, ReadOnlySpan<GameAudioLayout.EnemyActor> selected)
+    {
+        if (actor.Role != EnemyActorRole.BossMechanic) return false;
+        foreach (var helper in selected)
+            if (helper.Actor == actor.Actor && helper.EntityId == actor.EntityId && helper.Kind == EnemySoundKind.Regular &&
+                helper.Role == EnemyActorRole.BossMechanic)
+                foreach (var root in selected)
+                    if (root.Role == EnemyActorRole.Combatant && root.Kind == EnemySoundKind.Regular &&
+                        root.NameId == actor.NameId && WasRegular(root)) return true;
+        return false;
     }
 
     /// <summary>Compacts supported NPC candidates, excluding players and every proven player-owned descendant.</summary>

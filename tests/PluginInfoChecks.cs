@@ -9,7 +9,7 @@ internal static class PluginInfoChecks
     {
         var repository = new Uri(PluginInfo.RepositoryUrl);
         check(repository.Scheme == "https" && repository.Host == "github.com" &&
-            repository.AbsolutePath == "/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-", "About source link points to the wrong project");
+            repository.AbsolutePath == "/Jackoltrade/Better-controller-experience-for-FFXIV", "About source link points to the wrong project");
         var feedback = new Uri(PluginInfo.FeedbackUrl);
         check(feedback.Scheme == "mailto" && feedback.GetLeftPart(UriPartial.Path) == "mailto:" + PluginInfo.FeedbackEmail,
             "Feedback email has the wrong recipient");

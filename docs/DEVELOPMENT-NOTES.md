@@ -2,7 +2,7 @@
 
 DualSense controller customization for Final Fantasy XIV using Dalamud.
 
-[GitHub repository](https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-)
+[GitHub repository](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV)
 
 ## First-run and recording choices (0.17.8, 2026-11-05)
 

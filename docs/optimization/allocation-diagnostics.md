@@ -1,5 +1,58 @@
 # Bounded allocation investigation
 
+## Current follow-up: 0.19.8 (2026-11-07)
+
+The review's failing coverage result (6,168 bytes in `BossNpcSoundChecks`) and
+its later reproductions remain preserved under `artifacts/review-20261107` and
+`artifacts/review-followup-20261107`. A normal Release pass did not clear them.
+Startup allocation tracing and JIT diagnostics changed which failures occurred;
+their passing runs are not retrospective allocation attribution.
+
+A separate failing probe pinned an anchor immediately before the counter window
+and copied the following heap bytes afterward. With a 7,816-byte counter delta,
+the next object had the runtime allocation-context filler layout: base 24 bytes,
+length 7,816, total 7,840. It had no managed RuntimeType. This supports an unused
+context/accounting interaction, not a lookup-created managed object. However,
+CoreCLR's normal `fix_allocation_context` accounting should remain neutral, so
+the exact counter transition is still **unresolved**. The unsafe heap reader is
+an ignored diagnostic artifact, not part of the plugin or test suite.
+
+Explicit delegate preparation allocated outside one probe's window but did not
+solve the complete coverage run. Static instrumentation alone also failed a later
+run. Neither is claimed as a causal fix; no threshold, original warmup or
+measured iteration count was relaxed.
+
+The final test-only harness instead reserves a bounded no-GC interval around
+each serial allocation measurement, after its existing warmup. This isolates
+the callback contract from allocation-context retirement. Reservation failure,
+budget exhaustion or invalidated-region cleanup fails rather than falling back
+or retrying. The region is process-wide; the requested 16 MiB is not a total
+process-memory cap. `disallowFullBlockingGC: true` prevents the full-blocking
+fallback, not all GC-related setup work. Setup is outside the byte counters.
+Production code, default tiering and plugin GC behavior are unchanged.
+
+Both final normal and coverage suites pass 60/60 groups and 519,872 assertions.
+Six detector controls retain zero, cold 64-byte first execution, recurring
+640,000-byte execution and real cache-allocation sensitivity, and verify cleanup
+after callback and combined callback/cleanup failures. A private mutant adding
+an escaping byte[37] per lookup fails at exactly 640,000 bytes, with all other
+59 groups passing and exit 1 propagated. This validates the measurement contract;
+it does not establish zero allocations on every unconstrained production path.
+
+Coverage now uses the collector's supported static mode on shadow copies. It
+retains the same source exclusions and a populated compiled-plugin gate. Each
+run has separate reports and original-input before/after hashes; 49 process
+checks verify failure propagation and preservation of evidence. The final
+source-union coverage is 4,287/7,107 mapped lines (60.32%), with 2,330 compiled
+plugin lines hit (32.78%); neither is whole-plugin or game-native coverage.
+
+Primary references: [CoreCLR counter implementation](https://github.com/dotnet/runtime/blob/v10.0.14/src/coreclr/vm/comsysthread.cpp),
+[allocation-context handling](https://github.com/dotnet/runtime/blob/v10.0.14/src/coreclr/gc/gc.cpp),
+[no-GC region contract](https://learn.microsoft.com/en-us/dotnet/api/system.gc.trystartnogcregion?view=net-10.0),
+[Microsoft static instrumentation](https://github.com/microsoft/codecoverage/blob/main/docs/instrumentation.md).
+
+## Historical investigation after 166ff17
+
 Investigated after commit `166ff17` on Windows10.0.26100 x64, portable SDK10.0.403 / runtime .NET10.0.14. No production or test acceptance logic changed during this investigation.
 
 The historical6,192-byte allocation delta and the later malformed-argument guard failure remain **unattributed**. The guard's original child output was not retained, so those two failures cannot be assumed to share a cause. This report closes a bounded diagnostic investigation, not the underlying uncertainty or a deterministic-test claim.

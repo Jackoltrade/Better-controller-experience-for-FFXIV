@@ -10,7 +10,7 @@ from pathlib import Path
 from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
 ROOT = Path(__file__).resolve().parents[1]
-REPOSITORY = "https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-"
+REPOSITORY = "https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV"
 LICENSES = ("LICENSE.txt", "LICENSE-HidLibrary.txt", "LICENSE-FFXIVClientStructs.txt", "THIRD-PARTY-NOTICES.txt")
 GUIDES = ("README.md", "README.zh-CN.md", "README.ja.md")
 # Defaults emitted by the pinned DalamudPackager, including fields omitted in

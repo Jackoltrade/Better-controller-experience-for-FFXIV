@@ -383,13 +383,15 @@ Use the existing Windows .NET 10 SDK and compatible API 15 references:
 ./tools/build.ps1 -DalamudLibPath <API-15-directory> -LockedRestore
 ./tests/CheckRunnerProcessChecks.ps1
 ./tests/BuildProcessChecks.ps1
+./tests/CoverageProcessChecks.ps1
 ./tools/audit-dependencies.ps1
 ./tools/measure-coverage.ps1 -PluginPath ./artifacts/plugin/DualSenseLighting.dll -DalamudLibPath <API-15-directory>
-python ./tools/summarize-coverage.py ./artifacts/coverage/coverage.cobertura.xml --output ./artifacts/coverage/summary.json --require-plugin
 python -m unittest discover -s tests -p "test_*.py" -v
 dotnet ./artifacts/checks/LightingChecks.dll --benchmark
 python ./tools/package-release.py
 ```
 
-Coverage and performance run separately. Keep raw failing output as well as the
-summary; the CI verification-evidence artifact is uploaded even on failure.
+Coverage and performance run separately. Coverage uses static instrumentation of
+shadow copies and validates its summary inside each `artifacts/coverage/run-*`
+directory. Release DLLs and PDBs remain unchanged. Keep raw failing output as well
+as the summary; the CI verification-evidence artifact is uploaded even on failure.

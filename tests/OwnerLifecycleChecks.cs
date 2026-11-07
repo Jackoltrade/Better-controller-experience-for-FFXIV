@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Numerics;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
@@ -41,6 +42,9 @@ internal static unsafe class OwnerLifecycleChecks
             () => CheckGuardAcquisition(check, plugin), () => CheckGuardEnableRollback(check, plugin),
             () => CheckGuardDispose(check, plugin), () => CheckCaptureDispose(check, plugin),
             () => CheckEffectConstructorRollback(check, plugin), () => CheckNestedEnemyDispose(check, plugin),
+            () => CheckSourceObserverAcquisition(check, plugin), () => CheckSourceObserverLifecycle(check, plugin),
+            () => CheckRotationObserverLifecycle(check, plugin), () => CheckMotionSessionAndGuard(check, plugin),
+            () => CheckMotionFilterPermission(check, plugin), () => CheckFirstCameraFilter(check, plugin),
             () => CheckXInputDispose(check, plugin), () => CheckWorkerFinally(check, plugin),
             () => CheckPluginShutdown(check, plugin),
         })
@@ -307,6 +311,304 @@ internal static unsafe class OwnerLifecycleChecks
             }
         }
         finally { Marshal.FreeHGlobal(module); }
+    }
+
+    private static void CheckSourceObserverAcquisition(Action<bool, string> check, Assembly plugin)
+    {
+        var type = PluginType(plugin, "Windows.ScreenEffectSourceObserver");
+        var constructor = type.GetConstructors()[0];
+        var module = Marshal.AllocHGlobal(0x1000);
+        try
+        {
+            new Span<byte>((void*)module, 0x1000).Clear();
+            // Owned non-executable bytes satisfy the observer's structural
+            // guards; this fixture tests acquisition rollback, not game ABI.
+            void Put(int offset, byte[] bytes) => Marshal.Copy(bytes, 0, module + offset, bytes.Length);
+            Marshal.WriteInt32(module + 0x3A, 0x800 - 0x3E);
+            Put(0x113, new byte[] { 0xF3, 0x0F, 0x10, 0x8F, 0xC8, 1, 0, 0 });
+            Marshal.WriteByte(module + 0x11B, 0xE8);
+            Marshal.WriteInt32(module + 0x11C, 0x200 - 0x120);
+            Put(0x220, new byte[] { 0x48, 0x8B, 0x87, 0x28, 2, 0, 0 });
+            Put(0x240, new byte[] { 0x80, 0x7B, 4, 6 });
+            Put(0x260, new byte[] { 0x48, 0x8B, 0x88, 0x90, 0x14, 0, 0 });
+            Put(0x280, new byte[] { 0x0F, 0x2F, 0xB1, 0xC0, 1, 0, 0 });
+            Put(0x2A0, new byte[] { 0xF3, 0x0F, 0x11, 0x89, 0xD8, 1, 0, 0 });
+            Marshal.WriteIntPtr(module + 0x8F8, module + 0xA00);
+            Put(0xA00, new byte[] { 0xF3, 0x0F, 0x10, 0x91, 0xCC, 1, 0, 0,
+                0xF3, 0x0F, 0x10, 0x89, 0xC8, 1, 0, 0, 0xE9 });
+            Marshal.WriteInt32(module + 0xA11, 0x200 - 0xA15);
+            var metadata = RuntimeHelpers.GetUninitializedObject(typeof(ProcessModule));
+            Set(typeof(ProcessModule), metadata, "<BaseAddress>k__BackingField", module);
+            Set(typeof(ProcessModule), metadata, "<ModuleMemorySize>k__BackingField", 0x1000);
+            var signature = (string)type.GetField("ConstructorSignature", BindingFlags.Static | BindingFlags.NonPublic)!.GetRawConstantValue()!;
+            var scanner = Proxy(constructor.GetParameters()[1].ParameterType, (method, args) => method.Name switch
+            {
+                "get_Module" => metadata, "get_SearchBase" => module,
+                "ScanAllText" => new[] { Equals(args![0], signature) ? module : module + 0x200 }, _ => Default(method),
+            });
+            foreach (var cleanupFails in new[] { false, true })
+            {
+                var failure = new InvalidOperationException("source second hook acquisition");
+                var cleanup = new InvalidOperationException("source acquired hook rollback");
+                var acquired = 0; var disposed = 0;
+                var interop = Interop(constructor.GetParameters()[0].ParameterType, hookType =>
+                {
+                    if (++acquired == 2) throw failure;
+                    return Hook(hookType, () => { disposed++; if (cleanupFails) throw cleanup; });
+                });
+                try { constructor.Invoke(new[] { interop, scanner }); check(false, "Source observer swallowed acquisition failure"); }
+                catch (TargetInvocationException error)
+                {
+                    var errors = Flatten(error.InnerException!);
+                    check(acquired == 2 && disposed == 1 && (cleanupFails
+                        ? errors.Count == 2 && errors.Contains(failure) && errors.Contains(cleanup)
+                        : ReferenceEquals(error.InnerException, failure)),
+                        "Source observer lost acquisition/rollback failures or skipped its first acquired hook");
+                }
+            }
+        }
+        finally { Marshal.FreeHGlobal(module); }
+    }
+
+    private static void CheckSourceObserverLifecycle(Action<bool, string> check, Assembly plugin)
+    {
+        var type = PluginType(plugin, "Windows.ScreenEffectSourceObserver");
+        foreach (var failedEnable in new[] { "constructor", "sampler" })
+        {
+            var owner = RuntimeHelpers.GetUninitializedObject(type); var order = new List<string>();
+            foreach (var name in new[] { "constructor", "sampler" })
+                Set(type, owner, name, Hook(Field(type, name).FieldType, () => order.Add("dispose " + name),
+                    () => { order.Add("enable " + name); if (name == failedEnable) throw new InvalidOperationException(name + " enable"); },
+                    () => order.Add("disable " + name)));
+            Invoke(type, owner, "Start", 0L); Invoke(type, owner, "SetActive", true);
+            check((int)Field(type, "enabled").GetValue(owner)! == 0 && (int)Field(type, "faulted").GetValue(owner)! == 1 &&
+                order.Contains("enable " + failedEnable) && (failedEnable != "sampler" || order.Contains("disable constructor")),
+                "Source Enable failure retained capture or skipped the already-enabled constructor cleanup");
+            Invoke(type, owner, "Dispose");
+            check(order.Contains("dispose sampler") && order.Contains("dispose constructor"),
+                "Source Enable failure prevented later disposal of both acquired hooks");
+        }
+        var instance = RuntimeHelpers.GetUninitializedObject(type); var disabled = new List<string>();
+        var failDisable = true;
+        foreach (var name in new[] { "constructor", "sampler" })
+            Set(type, instance, name, Hook(Field(type, name).FieldType, () => { disabled.Add("dispose " + name);
+                if (name == "sampler") throw new InvalidOperationException("sample disposal"); },
+                () => { }, () => { disabled.Add(name); if (failDisable) throw new InvalidOperationException(name + " disable"); }));
+        Invoke(type, instance, "Start", 0L); Invoke(type, instance, "SetActive", true);
+        Invoke(type, instance, "SetActive", false);
+        check(disabled.Contains("sampler") && disabled.Contains("constructor") && (int)Field(type, "enabled").GetValue(instance)! == 0,
+            "A failed source-hook disable skipped the other hook or retained active capture");
+        failDisable = false; Invoke(type, instance, "SetActive", false);
+        var hooksDisabled = true;
+        foreach (var name in new[] { "constructor", "sampler" })
+        {
+            var hook = Field(type, name).GetValue(instance)!;
+            hooksDisabled &= !(bool)hook.GetType().GetProperty("IsEnabled")!.GetValue(hook)!;
+        }
+        check(hooksDisabled,
+            "Source hook disable failure was not retried on the next owner update");
+        var recording = Field(type, "recording").GetValue(instance)!;
+        try { Invoke(type, instance, "Dispose"); check(false, "Source unload hid sample hook cleanup failure"); }
+        catch (AggregateException error)
+        {
+            check(Flatten(error).Any(x => x is InvalidOperationException && x.Message == "sample disposal"),
+                "Source cleanup aggregate lost its sample disposal failure");
+            var snapshot = Invoke(recording.GetType(), recording, "Snapshot")!;
+            check(disabled.Contains("dispose sampler") && disabled.Contains("dispose constructor") &&
+                (bool)snapshot.GetType().GetProperty("Retired")!.GetValue(snapshot)!,
+                "Source unload skipped its other hook or failed to retire the recording after cleanup failure");
+        }
+    }
+
+    private static void CheckRotationObserverLifecycle(Action<bool, string> check, Assembly plugin)
+    {
+        var type = PluginType(plugin, "Windows.SecondaryMotionObserver");
+        foreach (var failedEnable in new[] { "producer", "rotationSetter", "positionSetter", "reset" })
+        {
+            var owner = RuntimeHelpers.GetUninitializedObject(type); var order = new List<string>();
+            foreach (var name in new[] { "producer", "rotationSetter", "positionSetter", "reset" })
+                Set(type, owner, name, Hook(Field(type, name).FieldType, () => order.Add("dispose " + name),
+                    () => { order.Add("enable " + name); if (name == failedEnable) throw new InvalidOperationException(name); },
+                    () => order.Add("disable " + name)));
+            Invoke(type, owner, "SetActive", true);
+            check((int)Field(type, "enabled").GetValue(owner)! == 0 && (int)Field(type, "faulted").GetValue(owner)! == 1 &&
+                order.Contains("enable " + failedEnable) && (failedEnable != "producer" || order.Contains("disable rotationSetter")) &&
+                (failedEnable != "producer" && failedEnable != "rotationSetter" || order.Contains("disable positionSetter")) &&
+                (failedEnable == "reset" || order.Contains("disable reset")),
+                "Rotation enable failure retained capture or skipped already-enabled hook rollback");
+            Invoke(type, owner, "Dispose");
+            check(order.Contains("dispose rotationSetter") && order.Contains("dispose producer") && order.Contains("dispose reset") && order.Contains("dispose positionSetter"),
+                "Rotation enable failure prevented all four hook disposals");
+        }
+        var instance = RuntimeHelpers.GetUninitializedObject(type); var operations = new List<string>();
+        var failDisable = true;
+        foreach (var name in new[] { "producer", "rotationSetter", "positionSetter", "reset" })
+            Set(type, instance, name, Hook(Field(type, name).FieldType,
+                () => { operations.Add("dispose " + name); throw new InvalidOperationException(name + " dispose"); },
+                () => { }, () => { operations.Add("disable " + name); if (failDisable) throw new InvalidOperationException(name); }));
+        Invoke(type, instance, "SetActive", true); Invoke(type, instance, "SetActive", false);
+        check(operations.Contains("disable producer") && operations.Contains("disable rotationSetter") && operations.Contains("disable reset") && operations.Contains("disable positionSetter") &&
+            (int)Field(type, "enabled").GetValue(instance)! == 0,
+            "Rotation disable failure skipped another hook or retained active capture");
+        failDisable = false; Invoke(type, instance, "SetActive", false);
+        check(new[] { "producer", "rotationSetter", "positionSetter", "reset" }.All(name =>
+            !(bool)Field(type, name).GetValue(instance)!.GetType().GetProperty("IsEnabled")!.GetValue(Field(type, name).GetValue(instance))!),
+            "Rotation disable failure was not retried");
+        try { Invoke(type, instance, "Dispose"); check(false, "Rotation disposal hid cleanup failures"); }
+        catch (AggregateException error)
+        {
+            var errors = Flatten(error);
+            check(errors.Count == 4 && errors.Any(x => x.Message == "producer dispose") && errors.Any(x => x.Message == "rotationSetter dispose") &&
+                errors.Any(x => x.Message == "reset dispose") && errors.Any(x => x.Message == "positionSetter dispose") &&
+                operations.Contains("dispose producer") && operations.Contains("dispose rotationSetter") && operations.Contains("dispose reset") && operations.Contains("dispose positionSetter"),
+                "Rotation disposal skipped a hook or lost cleanup failures");
+        }
+    }
+
+    private static void CheckMotionSessionAndGuard(Action<bool, string> check, Assembly plugin)
+    {
+        var recordingType = PluginType(plugin, "Core.ScreenEffectSourceRecording");
+        var sessionType = PluginType(plugin, "Windows.SecondaryMotionSession");
+        var sampleType = PluginType(plugin, "Core.SecondaryVectorSample");
+        var recording = New(recordingType, 0L);
+        var session = New(sessionType, recording, null);
+        var sample = New(sampleType, 100L, 200L, 300L, 0, true, .1f, .2f, .3f);
+        int Count()
+        {
+            var snapshot = Invoke(recordingType, recording, "Snapshot")!;
+            var events = snapshot.GetType().GetProperty("Events")!.GetValue(snapshot)!;
+            return (int)events.GetType().GetProperty("Length")!.GetValue(events)!;
+        }
+        Invoke(sessionType, session, "Observe", sample, true, 1L);
+        check(Count() == 1, "Active motion session did not record its position observation");
+        Invoke(sessionType, session, "Retire", 2L);
+        var afterRetire = Count();
+        Invoke(sessionType, session, "Observe", sample, true, 3L);
+        Invoke(sessionType, session, "Reset", 100L, 200L, 300L, (uint)0, (uint)0, 4L);
+        Invoke(sessionType, session, "Gap", 5L);
+        Invoke(sessionType, session, "Retire", 6L);
+        check(Count() == afterRetire, "Retired motion callbacks mutated their recording or repeated retirement");
+        var next = New(sessionType, recording, null);
+        Invoke(sessionType, next, "Observe", sample, false, 7L);
+        check(Count() == afterRetire + 1, "Retiring an old motion session prevented the new session from recording");
+        Invoke(sessionType, session, "Observe", sample, false, 8L);
+        check(Count() == afterRetire + 1, "An old callback mutated recording after a new motion session was admitted");
+        var guardType = PluginType(plugin, "Core.ScreenEffectFilterGuard");
+        var kind = PluginType(plugin, "Core.ScreenEffectKind");
+        var guard = New(guardType);
+        var fresh = (long)PluginType(plugin, "Core.ScreenEffectHaptics").GetField("FreshTicks", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+        float Apply(long clock, Vector3 primary, float scripted, int effects) =>
+            (float)Invoke(guardType, guard, "Apply", .2f, primary, Vector3.Zero, scripted, Enum.ToObject(kind, effects), clock)!;
+        for (var i = 0; i < 8; i++)
+            check(Apply(fresh * (i + 1), Vector3.UnitX, 0, 1) == 1,
+                "A long primary attack lost full feedback beyond the initial protection interval");
+        check(Apply(fresh * 8 + fresh / 2, Vector3.Zero, 0, 1) == 1,
+            "Primary zero crossing lost its recent-effect protection");
+        check(Apply(fresh * 10, Vector3.Zero, 0, 1) == .2f,
+            "Quiet primary protection did not expire back to the qualified candidate");
+        check(Apply(fresh * 11, Vector3.Zero, 0, 3) == 1,
+            "A non-dominant blur flag failed to protect full feedback alongside shake");
+        check(Apply(fresh * 13, Vector3.Zero, .1f, 1) == 1 &&
+            Apply(fresh * 13 + fresh / 2, Vector3.Zero, 0, 1) == 1,
+            "Scripted shake or its zero crossing lost protection");
+        check(Apply(fresh * 15, Vector3.Zero, 0, 1) == .2f,
+            "Scripted protection did not expire after a quiet interval");
+    }
+
+    private static void CheckMotionFilterPermission(Action<bool, string> check, Assembly plugin)
+    {
+        var type = PluginType(plugin, "Windows.GameScreenEffects");
+        var observerType = PluginType(plugin, "Windows.SecondaryMotionObserver");
+        var outputType = PluginType(plugin, "Windows.NativeHapticOutput");
+        var settingsType = PluginType(plugin, "Core.HapticSettings");
+        var constructor = settingsType.GetConstructors().Single(x => x.GetParameters().Length > 1);
+        var settings = constructor.Invoke(constructor.GetParameters().Select(x => x.DefaultValue).ToArray());
+        settingsType.GetProperty("ScreenEffects")!.SetValue(settings, true);
+        var output = RuntimeHelpers.GetUninitializedObject(outputType);
+        Set(outputType, output, "screenSettings", settings);
+        var owner = RuntimeHelpers.GetUninitializedObject(type);
+        Set(type, owner, "output", output);
+        var observer = RuntimeHelpers.GetUninitializedObject(observerType);
+        foreach (var name in new[] { "producer", "rotationSetter", "positionSetter", "reset" })
+            Set(observerType, observer, name, Hook(Field(observerType, name).FieldType, () => { }, () => { }, () => { }));
+        Set(type, owner, "motionObserver", observer);
+        Invoke(type, owner, "UpdateMotion", true, true);
+        var session = Field(type, "motionSession").GetValue(owner)!;
+        var sessionType = session.GetType();
+        check(Field(sessionType, "Filter").GetValue(session) != null &&
+            Field(sessionType, "Recording").GetValue(session) == null && (int)Field(observerType, "enabled").GetValue(observer)! == 1,
+            "Normal screen filtering required recording or failed to activate its fixed matcher");
+        Invoke(type, owner, "UpdateMotion", true, false);
+        check(Field(type, "motionSession").GetValue(owner) == null &&
+            !(bool)sessionType.GetProperty("Active", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(session)! &&
+            (int)Field(observerType, "enabled").GetValue(observer)! == 0,
+            "Background state retained active filter callbacks or a live session");
+        Invoke(type, owner, "UpdateMotion", true, true);
+        check(Field(type, "motionSession").GetValue(owner) != null,
+            "Foreground return failed to resume fixed-pattern observation");
+        Invoke(type, owner, "UpdateMotion", false, true);
+        check(Field(type, "motionSession").GetValue(owner) == null && (int)Field(observerType, "enabled").GetValue(observer)! == 0,
+            "Invalid character/duty permission kept filter observation running");
+    }
+
+    private static void CheckFirstCameraFilter(Action<bool, string> check, Assembly plugin)
+    {
+        // Exercise the compiled camera reader with owned data buffers. No game
+        // process, executable memory, OS hooks or physical controller is used.
+        var allocations = new List<nint>();
+        nint Buffer(int size)
+        {
+            var memory = Marshal.AllocHGlobal(size); allocations.Add(memory);
+            new Span<byte>((void*)memory, size).Clear(); return memory;
+        }
+        try
+        {
+            var module = Buffer(256); var post = Buffer(0x4800); var camera = Buffer(256);
+            var scene = Buffer(8); var nextScene = Buffer(8);
+            *(nint*)post = *(nint*)camera = *(nint*)scene = *(nint*)nextScene = module;
+            var postGlobal = Buffer(8); var cameraGlobal = Buffer(8);
+            *(nint*)postGlobal = post; *(nint*)cameraGlobal = camera;
+            *(nint*)(camera + 0x58) = scene;
+            var type = PluginType(plugin, "Windows.GameScreenEffects");
+            var owner = RuntimeHelpers.GetUninitializedObject(type);
+            var contextType = type.GetNestedType("CaptureContext", BindingFlags.NonPublic)!;
+            var context = New(contextType);
+            var filterType = PluginType(plugin, "Core.KnownMotionFilter");
+            var filter = New(filterType, Stopwatch.Frequency);
+            var outputType = PluginType(plugin, "Windows.NativeHapticOutput");
+            var output = RuntimeHelpers.GetUninitializedObject(outputType);
+            var settingsType = PluginType(plugin, "Core.HapticSettings");
+            var constructor = settingsType.GetConstructors().Single(x => x.GetParameters().Length > 1);
+            var settings = constructor.Invoke(constructor.GetParameters().Select(x => x.DefaultValue).ToArray());
+            Set(outputType, output, "screenSettings", settings);
+            Set(type, owner, "output", output); Set(type, owner, "context", context);
+            Set(type, owner, "moduleStart", module); Set(type, owner, "moduleEnd", module + 256);
+            Set(type, owner, "postGlobal", postGlobal); Set(type, owner, "cameraGlobal", cameraGlobal);
+            Set(type, owner, "motionFilter", filter);
+            var sessionType = PluginType(plugin, "Windows.SecondaryMotionSession");
+            Set(type, owner, "motionSession", New(sessionType, null, filter));
+            Set(type, owner, "motionObserver", RuntimeHelpers.GetUninitializedObject(PluginType(plugin, "Windows.SecondaryMotionObserver")));
+            // Warm the reader before measuring a fresh epoch's first data frame.
+            Invoke(type, owner, "Read", camera, context);
+            context = New(contextType); Set(type, owner, "context", context);
+            var profiles = (Array)Field(filterType, "patterns").GetValue(filter)!;
+            var profile = profiles.GetValue(0)!;
+            var rotation = (Vector3)Invoke(profile.GetType(), profile, "At", .237)!;
+            var values = (float*)(camera + 0x40);
+            values[0] = rotation.X; values[1] = rotation.Y; values[2] = rotation.Z;
+            var sample = New(PluginType(plugin, "Core.SecondaryVectorSample"), 1L, 101L, 201L, 0, true,
+                rotation.X, rotation.Y, rotation.Z);
+            Invoke(filterType, filter, "Observe", sample, false, Stopwatch.GetTimestamp());
+            var first = Invoke(type, owner, "Read", camera, context)!;
+            check((float)first.GetType().GetProperty("Level")!.GetValue(first)! > 0 &&
+                (float)first.GetType().GetProperty("AmplitudeMultiplier")!.GetValue(first)! == 0,
+                "The first camera frame discarded fresh source observations and leaked vehicle vibration");
+            *(nint*)(camera + 0x58) = nextScene;
+            var changed = Invoke(type, owner, "Read", camera, context)!;
+            check((float)changed.GetType().GetProperty("AmplitudeMultiplier")!.GetValue(changed)! == 1,
+                "A genuine camera replacement retained attribution from the previous scene camera");
+        }
+        finally { foreach (var memory in allocations) Marshal.FreeHGlobal(memory); }
     }
 
     private static void CheckNestedEnemyDispose(Action<bool, string> check, Assembly plugin)

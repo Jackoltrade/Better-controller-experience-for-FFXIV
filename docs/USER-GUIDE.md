@@ -10,7 +10,7 @@ Custom DualSense lighting and game-driven vibration for Final Fantasy XIV, built
 
 Diagnostics and diagnostic commands described in this guide are available only for development installs.
 
-[Source](https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-) · [Releases](https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-/releases) · [Report an issue](https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-/issues) · [Support on Ko-fi](https://ko-fi.com/K7C122MEWU)
+[Source](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV) · [Releases](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/releases) · [Report an issue](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/issues) · [Support on Ko-fi](https://ko-fi.com/K7C122MEWU)
 
 ![Controller lighting preview](../src/DualSenseLighting/Assets/dualsense-preview.png)
 
@@ -52,7 +52,7 @@ This is an opt-in **public test project**, not a plugin reviewed for Dalamud's o
 1. Open `/xlsettings` → **Experimental** → **Custom Plugin Repositories**.
 2. Add:
    ```text
-   https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-/releases/download/plugin-repository/pluginmaster.json
+   https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/releases/download/plugin-repository/pluginmaster.json
    ```
 3. Enable testing plugins in Dalamud. Find **Better controller experience for FFXIV** in `/xlplugins` and install its testing build.
 4. Connect your controller, then run `/bcef`.
@@ -63,7 +63,7 @@ The feed is testing-only; these builds are not advertised as stable.
 
 ### Manual/dev-plugin installation
 
-1. After a release is published, download `latest.zip` from [Releases](https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-/releases), or use your locally built `artifacts/plugin/` folder.
+1. After a release is published, download `latest.zip` from [Releases](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/releases), or use your locally built `artifacts/plugin/` folder.
 2. Extract the entire ZIP into a dedicated folder.
 3. In `/xlsettings` → **Experimental** → **Dev Plugin Locations**, add that folder's `DualSenseLighting.dll`.
 4. Enable the plugin in `/xlplugins` → **Dev Tools**.
@@ -244,7 +244,7 @@ Traces contain settings, sound/resource names, NPC/ownership metadata, positions
 
 ## Feedback and support
 
-Open a [GitHub issue](https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-/issues/new) or [send feedback by email](mailto:jackzhou.work@protonmail.com?subject=%5BBetter%20controller%20experience%20for%20FFXIV%5D%20Feedback). Include plugin version, client build/region, Dalamud version, controller model/firmware, USB/Bluetooth/XInput output, settings and reproduction steps. Attach a short trace when useful. The About buttons open a draft or issue form; you submit it yourself.
+Open a [GitHub issue](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/issues/new) or [send feedback by email](mailto:jackzhou.work@protonmail.com?subject=%5BBetter%20controller%20experience%20for%20FFXIV%5D%20Feedback). Include plugin version, client build/region, Dalamud version, controller model/firmware, USB/Bluetooth/XInput output, settings and reproduction steps. Attach a short trace when useful. The About buttons open a draft or issue form; you submit it yourself.
 
 This plugin is completely free to use. If you enjoy it, [buy me a coffee on Ko-fi](https://ko-fi.com/K7C122MEWU) or [support me on Afdian](https://afdian.com/a/jackoltrade).
 

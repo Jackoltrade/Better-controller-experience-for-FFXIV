@@ -10,6 +10,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DualSenseLighting.Core;
+using Dalamud.Game.ClientState.Objects.Enums;
 using Dalamud.Game.ClientState.Objects.Types;
 using Dalamud.Plugin.Services;
 
@@ -30,6 +31,7 @@ internal sealed class SfxTrace
     private readonly HashSet<Enemy> enemies = new();
     private readonly Dictionary<(string, string), EnemySkillFilter.EffectOwner> effectOwners = new();
     private readonly Dictionary<string, EnemySkillFilter.EffectClip> effectClips = new(StringComparer.Ordinal);
+    private readonly Dictionary<uint, EnemySkillFilter.ActionResult> actionResults = new();
     private readonly Dictionary<uint, NpcSpawnObserver.Spawn> npcSpawns = new();
     private readonly HashSet<NpcActor> npcActors = new();
     private string? spawnTraceError;
@@ -49,14 +51,19 @@ internal sealed class SfxTrace
     private sealed record Sound(int Slot, int SoundId, int PlaybackId, bool Owned, uint Number, string Name,
         byte Origin, string SourceActor, string SourceDraw, int TimelineOwnerIndex, bool IsPositional, Point? Position, EnemySoundKind Enemy,
         EnemyActionTag Action, EnemyActorRole? EnemyRole, uint NameId, uint BaseId, uint OwnerId, uint BossOwnerNameId,
-        uint EffectOwnerGetterRva);
+        uint EffectOwnerGetterRva, ImpactPoint? Impact, bool SelfTargetedExecution);
     private sealed record Enemy(string Actor, uint EntityId, int ObjectIndex, EnemySoundKind Kind,
         EnemyActorRole Role, uint NameId, uint BaseId, uint OwnerId, uint BossOwnerNameId, uint EventId, uint LayoutId);
     private sealed record NpcActor(string Actor, uint EntityId, uint NameId, uint BaseId, int ObjectIndex,
         byte SubKind, uint OwnerId, uint LayoutId, uint GimmickId, uint EventId, ushort FateId,
-        string SharedGroup, string EventHandler);
+        string SharedGroup, string EventHandler, bool Hostile, int? TargetCategory);
     private sealed record Point(float X, float Y, float Z)
     { public static Point? Of(Vector3? point) => point.HasValue ? new(point.Value.X, point.Value.Y, point.Value.Z) : null; }
+    private sealed record ImpactPoint(Point Position, uint ActionId, uint Sequence, HapticImpactSource Source, bool CasterAttached)
+    {
+        public static ImpactPoint? Of(HapticImpactPosition? impact) => impact is { IsValid: true } value
+            ? new(Point.Of(value.Position)!, value.ActionId, value.Sequence, value.Source, value.CasterAttached) : null;
+    }
     private sealed record Haptics(HapticSettings? Settings, Point? Character, Point? Camera, Point? CameraRight,
         int? ImpactSoundId, Point? ImpactPosition, long SpatialBlocks, long CutoffBlocks, long SuppressedBlocks, long BiasedBlocks,
         string? Error, long FootstepBlocks, bool FootstepContextReady, long BossBlocks, long RegularEnemyBlocks,
@@ -93,6 +100,7 @@ internal sealed class SfxTrace
 
     private void SampleNpcActors(IObjectTable objects)
     {
+        var playerPresent = objects.LocalPlayer != null;
         foreach (var item in objects)
         {
             if (npcActors.Count >= 512) break;
@@ -103,7 +111,9 @@ internal sealed class SfxTrace
             npcActors.Add(new($"{actor.Address:X}", actor.EntityId, actor.NameId, actor.BaseId, actor.ObjectIndex,
                 bytes[0x91], BitConverter.ToUInt32(bytes, 0x88), BitConverter.ToUInt32(bytes, 0x7C),
                 BitConverter.ToUInt32(bytes, 0x80), BitConverter.ToUInt32(bytes, 0xF4), BitConverter.ToUInt16(bytes, 0xF8),
-                $"{BitConverter.ToUInt64(bytes, 0x108):X}", $"{BitConverter.ToUInt64(bytes, 0x160):X}"));
+                $"{BitConverter.ToUInt64(bytes, 0x108):X}", $"{BitConverter.ToUInt64(bytes, 0x160):X}",
+                (actor.StatusFlags & StatusFlags.Hostile) != 0,
+                playerPresent && actor.SubKind == (byte)BattleNpcSubKind.Combatant ? GameTargetRelation.Read(actor.Address) : null));
         }
     }
 
@@ -134,6 +144,7 @@ internal sealed class SfxTrace
             // A clip can be observed before its C012 listener has initialized.
             // Retain the later resolved association rather than its first shell.
             foreach (var clip in capture.EffectClips) effectClips[clip.Clip] = clip;
+            foreach (var action in capture.ActionResults) actionResults[action.Sequence] = action;
             foreach (var actor in capture.EnemyActors())
                 enemies.Add(new($"{actor.Actor:X}", actor.EntityId, actor.ObjectIndex, actor.Kind, actor.Role, actor.NameId, actor.BaseId,
                     actor.OwnerId, actor.BossOwnerNameId, actor.EventId, actor.LayoutId));
@@ -141,7 +152,7 @@ internal sealed class SfxTrace
             var sounds = capture.Reservations().Select(s => new Sound(s.Slot, s.SoundId, s.PlaybackId,
                 s.Owned, s.SoundNumber, Name(s), s.Origin, $"{s.SourceActor:X}", $"{s.SourceDraw:X}", s.TimelineOwnerIndex,
                 s.IsPositional, Point.Of(s.Position), s.Enemy, s.Action, s.EnemyRole, s.NameId, s.BaseId, s.OwnerId, s.BossOwnerNameId,
-                s.EffectOwnerGetterRva)).ToArray();
+                s.EffectOwnerGetterRva, ImpactPoint.Of(s.Impact), s.SelfTargetedExecution)).ToArray();
             var output = capture.Haptics; var pose = output?.Listener; var cue = output?.ImpactCue;
             frames.Add(new Frame(seconds, sounds, capture.Voices(), new Haptics(output?.CurrentSettings,
                 Point.Of(pose?.Origin), Point.Of(pose?.CameraPosition), Point.Of(pose?.CameraRight), cue?.SoundId,
@@ -176,6 +187,11 @@ internal sealed class SfxTrace
             ArenaSoundError = arenaSoundError,
             EffectOwners = effectOwners.Values.ToArray(),
             EffectClips = effectClips.Values.ToArray(),
+            ActionResults = actionResults.Values.OrderBy(a => a.Seconds).Select(a => new
+            {
+                a.Seconds, a.Caster, a.CasterEntityId, a.ActionId, a.Sequence, a.AnimationTargetId, a.Targets, a.AreaTarget,
+                NativeTargetPosition = Point.Of(a.NativeTargetPosition), Impact = ImpactPoint.Of(a.Impact)
+            }).ToArray(),
             EnemyTimelineKeys = timelineKeys.OrderBy(k => k).ToArray(), Frames = frames }, options));
     }
 }

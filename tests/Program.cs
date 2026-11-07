@@ -41,6 +41,8 @@ internal static class Program
         await runner.Run(nameof(CheckHaptics), CheckHaptics);
         await runner.Run(nameof(HapticEnableCueChecks), () => HapticEnableCueChecks.Run(Assert));
         await runner.Run(nameof(ScreenEffectHapticChecks), () => ScreenEffectHapticChecks.Run(Assert));
+        await runner.Run(nameof(ScreenEffectSourceChecks), () => ScreenEffectSourceChecks.Run(Assert));
+        await runner.Run(nameof(KnownMotionFilterChecks), () => KnownMotionFilterChecks.Run(Assert));
         await runner.Run(nameof(RumbleChecks), () => RumbleChecks.Run(Assert));
         await runner.Run(nameof(RumblePulseChecks), () => RumblePulseChecks.Run(Assert));
         await runner.Run(nameof(BluetoothChecks), () => BluetoothChecks.Run(Assert));
@@ -49,6 +51,7 @@ internal static class Program
         await runner.Run(nameof(EnemyHapticChecks), () => EnemyHapticChecks.Run(Assert));
         await runner.Run(nameof(EnemyEncounterChecks), () => EnemyEncounterChecks.Run(Assert));
         await runner.Run(nameof(BossEncounterStateChecks), () => BossEncounterStateChecks.Run(Assert));
+        await runner.Run(nameof(FriendlyAndHelperChecks), () => FriendlyAndHelperChecks.Run(Assert));
         await runner.Run(nameof(BossNpcSoundChecks), () => BossNpcSoundChecks.Run(Assert));
         await runner.Run(nameof(EnemySkillChecks), () => EnemySkillChecks.Run(Assert));
         await runner.Run(nameof(EnemyEffectChecks), () => EnemyEffectChecks.Run(Assert));
@@ -56,6 +59,7 @@ internal static class Program
         await runner.Run(nameof(UserConsentChecks), () => UserConsentChecks.Run(Assert));
         await runner.Run(nameof(CheckSpatialHaptics), CheckSpatialHaptics);
         await runner.Run(nameof(CheckImpactBias), CheckImpactBias);
+        await runner.Run(nameof(ImpactDistanceChecks), () => ImpactDistanceChecks.Run(Assert));
         await runner.Run(nameof(CheckNativeStereoMatrices), CheckNativeStereoMatrices);
         await runner.Run(nameof(CheckPlayerAnimations), CheckPlayerAnimations);
         await runner.Run(nameof(LimitBreakChecks), () => LimitBreakChecks.Run(Assert));

@@ -69,18 +69,19 @@ public static class HapticSpatializer
         return (settings.NearDistance + offset, settings.FarDistance + offset);
     }
 
-    public static HapticSpatialFrame Evaluate(HapticSettings settings, HapticListenerPose? listener, Vector3 source, long now)
+    public static HapticSpatialFrame Evaluate(HapticSettings settings, HapticListenerPose? listener, Vector3 source, long now,
+        Vector3? distancePosition = null, bool allowUnlocatedExecution = false)
     {
         if ((!settings.Spatial && !settings.DistanceFalloff) || listener == null || !ValidPosition(source) ||
             now < listener.Timestamp || now - listener.Timestamp > Stopwatch.Frequency / 2) return default;
         var offset = source - listener.Origin;
-        var directionLength = offset.Length();
-        var distance = settings.DistanceOrigin == HapticDistanceOrigin.Camera
-            ? Vector3.Distance(source, listener.CameraPosition) : directionLength;
+        var distanceSource = distancePosition.HasValue && ValidPosition(distancePosition.Value) ? distancePosition.Value : source;
+        var distance = Vector3.Distance(distanceSource, settings.DistanceOrigin == HapticDistanceOrigin.Camera
+            ? listener.CameraPosition : listener.Origin);
         if (!float.IsFinite(distance)) return default;
         var pan = settings.Spatial ? DirectionalPan(offset, listener.CameraRight) : 0;
         var fade = 1f;
-        if (settings.DistanceFalloff)
+        if (settings.DistanceFalloff && !(allowUnlocatedExecution && !distancePosition.HasValue))
         {
             var range = DistanceRange(settings, listener);
             fade = 1 - SmoothStep((distance - range.Near) / (range.Far - range.Near));

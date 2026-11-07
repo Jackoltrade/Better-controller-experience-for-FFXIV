@@ -34,12 +34,22 @@ internal sealed class GameScreenEffects : IDisposable
     private readonly nint postGlobal, cameraGlobal, moduleStart, moduleEnd;
     private readonly nint scriptedSource, control;
     private readonly NativeHapticOutput output;
+    private ScreenEffectSourceObserver? sourceObserver;
+    private string? sourceTraceError;
+    private SecondaryMotionObserver? motionObserver;
+    private SecondaryMotionSession? motionSession;
+    private KnownMotionFilter? motionFilter;
+    private string? motionBindingError;
+    private readonly long motionPreparationTicks;
+    private readonly long? sourcePreparationTicks;
+    private long? firstMotionActivationTicks, firstTraceStartTicks;
     private readonly Hook<CameraUpdateDelegate> cameraUpdate;
     private Hook<ScriptedShakeDelegate>? scriptedShake;
     private sealed record ScriptedSample(nint SceneCamera, long Timestamp, Vector3 Position, Vector3 Rotation);
     private sealed class CaptureContext
     {
         public readonly CameraShakeTracker Shake = new(), ScriptedShake = new();
+        public readonly ScreenEffectFilterGuard FilterGuard = new();
         public nint Camera, SceneCamera;
         public long LastCompositionClock;
         public ScriptedSample? Scripted;
@@ -47,7 +57,8 @@ internal sealed class GameScreenEffects : IDisposable
     private CaptureContext context = new();
     private int allowed, disposed, scriptedFaulted;
     private string? error, scriptedError, traceError;
-    public string? Error => Volatile.Read(ref error) ?? Volatile.Read(ref scriptedError) ?? Volatile.Read(ref traceError);
+    public string? Error => Volatile.Read(ref error) ?? Volatile.Read(ref scriptedError) ?? Volatile.Read(ref traceError) ??
+        (output.ScreenEffectsActive ? motionBindingError ?? motionObserver?.Error : null);
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
     private delegate void CameraUpdateDelegate(nint manager);
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
@@ -63,6 +74,7 @@ internal sealed class GameScreenEffects : IDisposable
         public readonly TimingFrame[] Frames = new TimingFrame[TraceCapacity];
         public int Count, Next;
         public long Sequence, Dropped;
+        public ScreenEffectSourceRecording? Sources;
     }
     private record struct TimingFrame(long Sequence, long CaptureClock, long IntervalTicks,
         float PositionX, float PositionY, float PositionZ, float RotationX, float RotationY, float RotationZ,
@@ -82,6 +94,19 @@ internal sealed class GameScreenEffects : IDisposable
         public float ScriptedPositionY { get; init; }
         public float ScriptedRotationX { get; init; }
         public float ScriptedRotationY { get; init; }
+        public float PrimaryPositionX { get; init; }
+        public float PrimaryPositionY { get; init; }
+        public float PrimaryPositionZ { get; init; }
+        public float PrimaryRotationX { get; init; }
+        public float PrimaryRotationY { get; init; }
+        public float PrimaryRotationZ { get; init; }
+        public float SecondaryPositionX { get; init; }
+        public float SecondaryPositionY { get; init; }
+        public float SecondaryPositionZ { get; init; }
+        public float SecondaryRotationX { get; init; }
+        public float SecondaryRotationY { get; init; }
+        public float SecondaryRotationZ { get; init; }
+        public float PatternAmplitudeMultiplier { get; init; }
         public NativeHapticOutput.ScreenMixSnapshot? Output { get; set; }
         public double? FirstMixMilliseconds => FirstMixClock > 0
             ? (FirstMixClock - CaptureClock) * 1000.0 / Stopwatch.Frequency : null;
@@ -94,7 +119,7 @@ internal sealed class GameScreenEffects : IDisposable
     [DllImport("kernel32.dll")]
     private static extern unsafe bool ReadProcessMemory(nint process, nint address, void* bytes, nuint size, out nuint read);
 
-    public unsafe GameScreenEffects(IGameInteropProvider interop, ISigScanner scanner, NativeHapticOutput output)
+    public unsafe GameScreenEffects(IGameInteropProvider interop, ISigScanner scanner, NativeHapticOutput output, bool developmentInstall = false)
     {
         this.output = output;
         moduleStart = scanner.Module.BaseAddress;
@@ -143,28 +168,51 @@ internal sealed class GameScreenEffects : IDisposable
         // This independent producer also drives Lua/cutscene shakes directly
         // into LowCutCamera's pose, bypassing the scene-manager AVFX offsets.
         // An unsupported optional binding leaves the established paths usable.
-        Hook<ScriptedShakeDelegate>? created = null;
         try
         {
-            var sampler = Unique(ScriptedShakeSignature);
-            var caller = Unique(ScriptedSourceSignature);
-            var callerCode = Code(caller, 0x120);
-            if (callerCode[0xB8] != 0xE8 ||
-                caller + 0xBD + BinaryPrimitives.ReadInt32LittleEndian(callerCode[0xB9..]) != sampler ||
-                callerCode.IndexOf(new byte[] { 0xF3, 0x0F, 0x58, 0x45, 0xD0 }) < 0 ||
-                callerCode.IndexOf(new byte[] { 0xF3, 0x0F, 0x58, 0x4D, 0xD4 }) < 0)
-                throw new NotSupportedException("Scripted shake camera consumer is unsupported on this game build.");
-            scriptedSource = Global(ScriptedSourceSignature);
-            control = Global(ControlSignature);
-            if (scriptedSource != control + 0x28)
-                throw new NotSupportedException("Scripted shake camera owner is unsupported on this game build.");
-            created = interop.HookFromAddress<ScriptedShakeDelegate>(sampler, CaptureScriptedShake);
-            scriptedShake = created;
+            Hook<ScriptedShakeDelegate>? created = null;
+            try
+            {
+                var sampler = Unique(ScriptedShakeSignature);
+                var caller = Unique(ScriptedSourceSignature);
+                var callerCode = Code(caller, 0x120);
+                if (callerCode[0xB8] != 0xE8 ||
+                    caller + 0xBD + BinaryPrimitives.ReadInt32LittleEndian(callerCode[0xB9..]) != sampler ||
+                    callerCode.IndexOf(new byte[] { 0xF3, 0x0F, 0x58, 0x45, 0xD0 }) < 0 ||
+                    callerCode.IndexOf(new byte[] { 0xF3, 0x0F, 0x58, 0x4D, 0xD4 }) < 0)
+                    throw new NotSupportedException("Scripted shake camera consumer is unsupported on this game build.");
+                scriptedSource = Global(ScriptedSourceSignature);
+                control = Global(ControlSignature);
+                if (scriptedSource != control + 0x28)
+                    throw new NotSupportedException("Scripted shake camera owner is unsupported on this game build.");
+                created = interop.HookFromAddress<ScriptedShakeDelegate>(sampler, CaptureScriptedShake);
+                scriptedShake = created;
+            }
+            catch (Exception exception)
+            {
+                created?.Dispose();
+                scriptedError = exception.Message;
+            }
+            // This constructor already runs in Plugin's audio initialization task.
+            // Prepare disabled hooks here; activation must not scan the game image.
+            var started = Stopwatch.GetTimestamp();
+            try { motionObserver = new SecondaryMotionObserver(interop, scanner, CurrentMotion); }
+            catch (Exception failure) { motionBindingError = failure.Message; }
+            finally { motionPreparationTicks = Stopwatch.GetTimestamp() - started; }
+            if (developmentInstall)
+            {
+                started = Stopwatch.GetTimestamp();
+                try { sourceObserver = new ScreenEffectSourceObserver(interop, scanner); }
+                catch (Exception failure) { sourceTraceError = failure.Message; }
+                finally { sourcePreparationTicks = Stopwatch.GetTimestamp() - started; }
+            }
         }
-        catch (Exception exception)
+        catch (Exception failure)
         {
-            created?.Dispose();
-            scriptedError = exception.Message;
+            try { ResourceCleanup.Run(() => sourceObserver?.Dispose(), () => motionObserver?.Dispose(),
+                () => scriptedShake?.Dispose(), cameraUpdate.Dispose); }
+            catch (Exception cleanup) { throw new AggregateException("Screen effect initialization and rollback failed.", failure, cleanup); }
+            throw;
         }
     }
 
@@ -173,7 +221,10 @@ internal sealed class GameScreenEffects : IDisposable
     {
         if (Volatile.Read(ref disposed) != 0) return;
         Volatile.Write(ref allowed, permitted ? 1 : 0);
-        var active = permitted && (output.ScreenEffectsActive || Volatile.Read(ref timing) != null);
+        var foreground = Native.IsCurrentProcessForeground();
+        UpdateMotion(permitted, foreground);
+        sourceObserver?.SetActive(permitted && Volatile.Read(ref timing) != null && foreground);
+        var active = permitted && foreground && (output.ScreenEffectsActive || Volatile.Read(ref timing) != null);
         if (active)
         {
             try { if (!cameraUpdate.IsEnabled) cameraUpdate.Enable(); }
@@ -210,6 +261,50 @@ internal sealed class GameScreenEffects : IDisposable
                 finally { if (enabled) Reset(); }
             }
         }
+    }
+
+    private void UpdateMotion(bool permitted, bool foreground)
+    {
+        var recording = Volatile.Read(ref timing)?.Sources;
+        var filtering = output.ScreenEffectsActive;
+        var active = permitted && foreground && (filtering || recording != null);
+        var started = active && motionObserver != null && !firstMotionActivationTicks.HasValue ? Stopwatch.GetTimestamp() : 0;
+        try
+        {
+            if (active && motionObserver != null)
+            {
+                var filter = filtering ? motionFilter ??= new KnownMotionFilter() : null;
+                var current = Volatile.Read(ref motionSession);
+                if (current == null || !current.Active || !ReferenceEquals(current.Recording, recording) ||
+                    !ReferenceEquals(current.Filter, filter))
+                {
+                    if (!ReferenceEquals(current?.Filter, filter)) motionFilter?.Invalidate();
+                    var next = new SecondaryMotionSession(recording, filter);
+                    Interlocked.Exchange(ref motionSession, next)?.Retire(Stopwatch.GetTimestamp());
+                }
+            }
+            else
+            {
+                Interlocked.Exchange(ref motionSession, null)?.Retire(Stopwatch.GetTimestamp());
+                motionFilter?.Invalidate();
+            }
+            motionObserver?.SetActive(active);
+            if (motionObserver?.Error != null)
+            {
+                Interlocked.Exchange(ref motionSession, null)?.Retire(Stopwatch.GetTimestamp());
+                motionFilter?.Invalidate();
+            }
+        }
+        finally { if (started != 0) firstMotionActivationTicks = Stopwatch.GetTimestamp() - started; }
+    }
+
+    private SecondaryMotionSession? CurrentMotion()
+    {
+        var current = Volatile.Read(ref motionSession);
+        if (current?.Active == true && Volatile.Read(ref disposed) == 0 && Volatile.Read(ref allowed) != 0 &&
+            Native.IsCurrentProcessForeground()) return current;
+        current?.Gap(Stopwatch.GetTimestamp());
+        return null;
     }
 
     private byte CaptureScriptedShake(nint source, nint first, nint second)
@@ -285,6 +380,9 @@ internal sealed class GameScreenEffects : IDisposable
         if (epoch.Camera != camera || epoch.SceneCamera != sceneCamera)
         {
             epoch.Shake.Reset(); epoch.ScriptedShake.Reset();
+            // Reset already invalidated the old epoch. Its first camera frame
+            // must retain the source writes observed during this same update.
+            if (epoch.Camera != 0) motionFilter?.Invalidate();
             epoch.Camera = camera; epoch.SceneCamera = sceneCamera;
         }
         var floats = MemoryMarshal.Cast<byte, float>(parameters);
@@ -304,25 +402,39 @@ internal sealed class GameScreenEffects : IDisposable
         var scriptedLevel = epoch.ScriptedShake.Observe(scripted?.Position ?? Vector3.Zero, scripted?.Rotation ?? Vector3.Zero, now);
         // Select a current observed signal, never add duplicate camera motion.
         var shakeLevel = Math.Max(managerLevel, scriptedLevel);
-        var sample = ScreenEffectHaptics.Measure(shakeLevel,
+        var measured = ScreenEffectHaptics.Analyze(shakeLevel,
             BinaryPrimitives.ReadUInt32LittleEndian(parameters), BinaryPrimitives.ReadInt32LittleEndian(parameters[0x22C..]),
             floats[0x234 / 4], floats[0x23C / 4], floats[0x358 / 4],
-            new(floats[0x35C / 4], floats[0x360 / 4], floats[0x32C / 4]), now);
+            new(floats[0x35C / 4], floats[0x360 / 4], floats[0x32C / 4]));
+        var multiplier = 1f;
+        var motion = Volatile.Read(ref motionSession);
+        if (motion?.Active == true && motion.Filter != null && motionObserver?.Error == null)
+        {
+            multiplier = motion.Filter.GetGain(new(vectors[4], vectors[5], vectors[6]),
+                new(vectors[12], vectors[13], vectors[14]), now);
+            if (!motion.Active || !ReferenceEquals(motion, Volatile.Read(ref motionSession))) multiplier = 1;
+            multiplier = epoch.FilterGuard.Apply(multiplier,
+                new(vectors[0], vectors[1], vectors[2]), new(vectors[8], vectors[9], vectors[10]),
+                scriptedLevel, measured.Effects, now);
+        }
         // If camera frames stop arriving, do not sustain the last jolt for the
         // generic 100 ms screen-effect freshness window on a fast-running game.
-        if (sample.Texture == ScreenEffectKind.Shake)
+        var expiresAt = 0L;
+        if (measured.DominantEffect == ScreenEffectKind.Shake)
         {
             var tracker = scriptedLevel > managerLevel ? epoch.ScriptedShake : epoch.Shake;
             var hold = Math.Clamp(Math.Max(tracker.IntervalTicks * 2, Stopwatch.Frequency / 30), 1,
                 ScreenEffectHaptics.FreshTicks);
-            sample = sample with { ExpiresAt = Math.Min(now + hold, tracker.LastChangeTimestamp + hold) };
+            expiresAt = Math.Min(now + hold, tracker.LastChangeTimestamp + hold);
         }
-        RecordCamera(sample, position, rotation, epoch, managerLevel, scriptedLevel, scripted, observedScripted?.Timestamp ?? 0, scriptedState);
+        var sample = measured.At(now, multiplier, expiresAt);
+        RecordCamera(sample, position, rotation, vectors, epoch, managerLevel, scriptedLevel, scripted, observedScripted?.Timestamp ?? 0, scriptedState);
         return sample;
     }
 
     public void Reset()
     {
+        motionFilter?.Invalidate();
         Volatile.Write(ref context, new CaptureContext());
         output.SetScreenEffects(null, output.ScreenSettings);
     }
@@ -332,11 +444,26 @@ internal sealed class GameScreenEffects : IDisposable
         if (enabled)
         {
             if (Volatile.Read(ref disposed) != 0) return;
-            if (Volatile.Read(ref timing) == null) Volatile.Write(ref timing, new TimingSession());
+            if (Volatile.Read(ref timing) == null)
+            {
+                var started = firstTraceStartTicks.HasValue ? 0 : Stopwatch.GetTimestamp();
+                var next = new TimingSession();
+                next.Sources = sourceObserver?.Start(next.StartedClock) ?? new ScreenEffectSourceRecording(next.StartedClock);
+                Volatile.Write(ref timing, next);
+                if (started != 0) firstTraceStartTicks = Stopwatch.GetTimestamp() - started;
+            }
             return;
         }
         var completed = Interlocked.Exchange(ref timing, null);
         if (completed == null) return;
+        sourceObserver?.Stop();
+        completed.Sources?.Retire();
+        var sourceError = sourceTraceError ?? sourceObserver?.Error;
+        var motionSupported = motionObserver != null && motionObserver.Error == null;
+        var motionError = motionBindingError ?? motionObserver?.Error;
+        var activationTiming = new { ClockFrequency = Stopwatch.Frequency, MotionPreparationTicks = motionPreparationTicks,
+            SourcePreparationTicks = sourcePreparationTicks, FirstMotionActivationTicks = firstMotionActivationTicks,
+            FirstTraceStartTicks = firstTraceStartTicks };
         var previous = traceSave;
         traceSave = Task.Run(async () =>
         {
@@ -351,13 +478,22 @@ internal sealed class GameScreenEffects : IDisposable
                         frames[i] = completed.Frames[(completed.Next - completed.Count + i + TraceCapacity) % TraceCapacity];
                 }
                 var path = TraceArchive.ScreenTimingPath;
-                var json = JsonSerializer.Serialize(new { Format = "camera-haptics-timing-v4", Policy = "Independent",
+                var json = JsonSerializer.Serialize(new { Format = "camera-haptics-timing-v5", Policy = "Independent",
                     PluginVersion = typeof(GameScreenEffects).Assembly.GetName().Version?.ToString(),
                     ScriptedShakeSupported = scriptedShake != null && Volatile.Read(ref scriptedFaulted) == 0,
                     ScriptedShakeError = Volatile.Read(ref scriptedError), ScreenObserverError = Volatile.Read(ref error),
                     completed.StartedUtc, completed.StartedClock, ClockFrequency = Stopwatch.Frequency,
-                    Capacity = TraceCapacity, completed.Dropped, Frames = frames },
-                    new JsonSerializerOptions { Converters = { new JsonStringEnumConverter<ScreenEffectKind>() } });
+                    Capacity = TraceCapacity, completed.Dropped, Overwritten = Math.Max(0, completed.Sequence - TraceCapacity),
+                    SourceTraceError = sourceError,
+                    ActivationTiming = activationTiming,
+                    SecondaryRotationSupported = motionSupported, SecondaryRotationError = motionError,
+                    SecondaryPositionSupported = motionSupported, SecondaryPositionError = motionError,
+                    SourceScope = "AVFX quake types 6/9 construction/sample observations; secondary position and rotation producer-scoped or unscoped indexed vector arguments and native reset-call observations. A reset observation does not imply a new playback generation. No exact end, playback restart or camera winner is inferred. Raw float fields are IEEE-754 bits; native phase units are unverified.",
+                    Sources = completed.Sources?.Snapshot(), Frames = frames },
+                    new JsonSerializerOptions { Converters = { new JsonStringEnumConverter<ScreenEffectKind>(),
+                        new JsonStringEnumConverter<ScreenEffectSourceRecording.EventKind>(),
+                        new JsonStringEnumConverter<ScreenEffectSourceRecording.SourceFamily>(),
+                        new JsonStringEnumConverter<ScreenEffectSourceRecording.EndEvidence>() } });
                 // Reuse the existing atomic publisher and its twenty-session
                 // retention so the next recording cannot erase this one.
                 TraceArchive.Save(path, completed.StartedUtc, json);
@@ -367,7 +503,7 @@ internal sealed class GameScreenEffects : IDisposable
         });
     }
 
-    private void RecordCamera(ScreenEffectSample sample, Vector3 position, Vector3 rotation, CaptureContext epoch,
+    private void RecordCamera(ScreenEffectSample sample, Vector3 position, Vector3 rotation, ReadOnlySpan<float> vectors, CaptureContext epoch,
         float managerLevel, float scriptedLevel, ScriptedSample? scripted, long observedClock, string scriptedState)
     {
         var session = Volatile.Read(ref timing);
@@ -375,21 +511,27 @@ internal sealed class GameScreenEffects : IDisposable
         if (!Monitor.TryEnter(session.Sync)) { Interlocked.Increment(ref session.Dropped); return; }
         try
         {
+            if (!ReferenceEquals(session, Volatile.Read(ref timing))) return;
             static float Finite(float value) => float.IsFinite(value) ? value : 0;
             var tracker = epoch.Shake;
             session.Frames[session.Next] = new(++session.Sequence, sample.Timestamp, tracker.IntervalTicks,
                 Finite(position.X), Finite(position.Y), Finite(position.Z), Finite(rotation.X), Finite(rotation.Y), Finite(rotation.Z),
                 tracker.RawMagnitude, tracker.UnchangedFrames, sample.Level,
-                output.ScreenEffectsActive ? ScreenEffectHaptics.Response(sample.Level, output.ScreenSettings.ScreenStrength) : 0,
+                output.ScreenEffectsActive ? ScreenEffectHaptics.Amplitude(sample, sample.Timestamp, output.ScreenSettings.ScreenStrength) : 0,
                 output.UsesRumble ? "XInput" : "DualSense",
                 0, 0, sample.Level <= 0 ? "quiet" : output.ScreenEffectsActive ? "awaiting-output" : "disabled")
             {
                 Effects = sample.Effects, DominantEffect = sample.DominantEffect,
+                PatternAmplitudeMultiplier = sample.AmplitudeMultiplier,
                 ShakeLevel = Math.Max(managerLevel, scriptedLevel), ManagerShakeLevel = managerLevel, ScriptedShakeLevel = scriptedLevel,
                 ScriptedRawMagnitude = epoch.ScriptedShake.RawMagnitude, ScriptedSampleClock = scripted?.Timestamp ?? 0,
                 ScriptedObservedClock = observedClock, ScriptedSampleState = scriptedState,
                 ScriptedPositionX = Finite(scripted?.Position.X ?? 0), ScriptedPositionY = Finite(scripted?.Position.Y ?? 0),
                 ScriptedRotationX = Finite(scripted?.Rotation.X ?? 0), ScriptedRotationY = Finite(scripted?.Rotation.Y ?? 0),
+                PrimaryPositionX = Finite(vectors[0]), PrimaryPositionY = Finite(vectors[1]), PrimaryPositionZ = Finite(vectors[2]),
+                PrimaryRotationX = Finite(vectors[8]), PrimaryRotationY = Finite(vectors[9]), PrimaryRotationZ = Finite(vectors[10]),
+                SecondaryPositionX = Finite(vectors[4]), SecondaryPositionY = Finite(vectors[5]), SecondaryPositionZ = Finite(vectors[6]),
+                SecondaryRotationX = Finite(vectors[12]), SecondaryRotationY = Finite(vectors[13]), SecondaryRotationZ = Finite(vectors[14]),
             };
             session.Next = (session.Next + 1) % TraceCapacity;
             session.Count = Math.Min(session.Count + 1, TraceCapacity);
@@ -406,6 +548,7 @@ internal sealed class GameScreenEffects : IDisposable
         if (!Monitor.TryEnter(session.Sync)) { Interlocked.Increment(ref session.Dropped); return; }
         try
         {
+            if (!ReferenceEquals(session, Volatile.Read(ref timing))) return;
             if (session.Count == 0) return;
             var index = (session.Next - 1 + TraceCapacity) % TraceCapacity;
             var frame = session.Frames[index];
@@ -426,15 +569,20 @@ internal sealed class GameScreenEffects : IDisposable
     {
         if (Interlocked.Exchange(ref disposed, 1) != 0) return;
         Volatile.Write(ref allowed, 0);
+        Interlocked.Exchange(ref motionSession, null)?.Retire(Stopwatch.GetTimestamp());
         try { cameraUpdate.Dispose(); }
         finally
         {
             try { scriptedShake?.Dispose(); }
             finally
             {
-                Reset();
-                SetTracing(false);
-                traceSave.GetAwaiter().GetResult();
+                try { ResourceCleanup.Run(() => motionObserver?.Dispose(), () => sourceObserver?.Dispose()); }
+                finally
+                {
+                    Reset();
+                    SetTracing(false);
+                    traceSave.GetAwaiter().GetResult();
+                }
             }
         }
     }
@@ -450,7 +598,7 @@ internal sealed class GameScreenEffects : IDisposable
         Span<byte> value = stackalloc byte[8];
         return Copy(address, value) ? (nint)BinaryPrimitives.ReadInt64LittleEndian(value) : 0;
     }
-    private static unsafe bool Copy(nint address, Span<byte> bytes)
+    internal static unsafe bool Copy(nint address, Span<byte> bytes)
     {
         if (address < 0x10000 || address > nint.MaxValue - bytes.Length) return false;
         fixed (byte* target = bytes)

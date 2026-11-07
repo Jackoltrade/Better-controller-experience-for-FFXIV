@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Vibration curves · Better controller experience for FFXIV</title>
+  <style>
+    :root { color-scheme: light dark; --page: #fafbfc; --surface: #fff; --ink: #18212f; --muted: #526173; --line: #dfe5ec; --player: #2563eb; --enemy: #b45309; --screen: #7c3aed; --neutral: #64748b; }
+    @media (prefers-color-scheme: dark) {
+      :root { --page: #15191f; --surface: #1d232c; --ink: #edf2f7; --muted: #b0bdcc; --line: #384251; --player: #7cb0ff; --enemy: #f8b66d; --screen: #c2a0ff; --neutral: #acb9ca; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--page); color: var(--ink); font: 16px/1.55 system-ui, sans-serif; }
+    main { max-width: 1000px; margin: 0 auto; padding: 36px 24px; }
+    h1 { margin: 8px 0; font-size: clamp(24px, 4vw, 32px); line-height: 1.2; font-weight: 650; }
+    h2 { margin: 0; font-size: 19px; line-height: 1.4; }
+    p { margin: 8px 0 0; }
+    a { color: var(--player); text-underline-offset: 3px; }
+    .muted { color: var(--muted); }
+    .eyebrow { font-size: 14px; }
+    .panel { margin-top: 28px; padding: 24px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+    .toolbar { display: flex; gap: 16px; justify-content: space-between; align-items: end; flex-wrap: wrap; margin-bottom: 20px; }
+    .field { display: grid; gap: 6px; min-width: 0; }
+    select, button { font: inherit; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 7px; padding: 9px 12px; min-height: 44px; }
+    select { width: 100%; max-width: 100%; }
+    button { cursor: pointer; }
+    button:hover { border-color: var(--ink); }
+    :focus-visible { outline: 3px solid var(--player); outline-offset: 3px; }
+    #chart { position: relative; margin-top: 16px; }
+    #chart svg { display: block; width: 100%; height: auto; }
+    #reading { position: absolute; z-index: 1; max-width: min(360px, calc(100% - 16px)); padding: 12px 14px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px #0002; font-size: 14px; pointer-events: none; }
+    #reading[hidden] { display: none; }
+    .tooltip-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; margin-bottom: 8px; }
+    .tooltip-heading span { color: var(--muted); font-size: 12px; }
+    .tooltip-row { display: grid; grid-template-columns: 10px minmax(0, 1fr) max-content; align-items: center; gap: 10px; margin-top: 6px; }
+    .tooltip-row span { overflow-wrap: anywhere; }
+    .tooltip-row i { width: 9px; height: 9px; border-radius: 2px; }
+    .tooltip-row strong, .tooltip-heading strong { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .controls-section { border-top: 1px solid var(--line); margin-top: 20px; padding-top: 20px; }
+    .controls-title { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    #controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px 28px; margin-top: 20px; }
+    .slider { display: grid; gap: 8px; }
+    .slider label { display: flex; justify-content: space-between; gap: 12px; }
+    output { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--muted); }
+    input[type="range"] { accent-color: var(--player); width: 100%; min-height: 24px; margin: 0; cursor: ew-resize; }
+    .small { font-size: 14px; }
+    footer { margin-top: 20px; }
+    @media (max-width: 540px) {
+      main { padding: 24px 12px; }
+      .panel { padding: 18px 12px; }
+      #controls { grid-template-columns: 1fr; }
+      .toolbar, .toolbar .field { width: 100%; }
+    }
+    @media (pointer: coarse) { input[type="range"] { min-height: 44px; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <a class="eyebrow" href="https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV">Better controller experience for FFXIV</a>
+    <h1>How vibration strength responds</h1>
+    <p>Compare the plugin's response curves, then move the sliders below the graph to try different settings.</p>
+    <p><strong>The screen-effect curve shows the deliberate boost to weak effects.</strong> These are digital signal targets, not measured vibration force; sound texture, mixing and the controller also affect how they feel.</p>
+  </header>
+  <section class="panel" aria-label="Interactive vibration response">
+    <div class="toolbar">
+      <label class="field" for="view">Curve
+        <select id="view">
+          <option value="overview">Player, enemy and screen effects</option>
+          <option value="shake">Screen shake: weak-motion boost</option>
+          <option value="footsteps">Native footstep amplification</option>
+          <option value="distance">Combat distance fade</option>
+          <option value="spatial">Combat left/right separation</option>
+          <option value="rumble">Ordinary rumble response</option>
+          <option value="pulse">Ordinary rumble impact over time</option>
+        </select>
+      </label>
+    </div>
+    <h2 id="title">Vibration strengths</h2>
+    <p id="description" class="muted small"></p>
+    <div id="chart">
+      <div id="plot"></div>
+      <div id="reading" role="tooltip" hidden></div>
+    </div>
+    <p class="muted small">Hover over the graph, or tap it, to see exact values.</p>
+    <p id="note" class="muted small"></p>
+    <div class="controls-section">
+      <div class="controls-title">
+        <h2>Try different settings</h2>
+        <button id="reset" type="button">Reset defaults</button>
+      </div>
+      <div id="controls"></div>
+    </div>
+    <noscript><p>Enable JavaScript to adjust the curves. The default preview is also available in the README.</p></noscript>
+  </section>
+  <footer class="muted small">Simulation only. This page works offline and does not connect to a controller or change plugin settings. Defaults and formulas are based on the current source; saved settings may differ.</footer>
+</main>
+<script>
+"use strict";
+// BEGIN CURVE MODEL
+// Mirrors Configuration, HapticSettings, CameraShakeTracker, ScreenEffectHaptics,
+// HapticSpatializer, RumbleMotors and RumblePulse. It models one isolated source.
+const defaults = Object.freeze({ player: 0.25, enemy: 1, screen: 0.25, footsteps: 6,
+  near: 3, far: 25, sourceDistance: 3, rumble: 0.5, milliseconds: 120 });
+const keys = ["overview", "shake", "footsteps", "distance", "spatial", "rumble", "pulse"];
+const clamp = (x, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, x));
+const smoothstep = x => { const t = clamp(x); return t * t * (3 - 2 * t); };
+const percent = x => `${Math.round(x * 100)}%`;
+const screenResponse = (x, strength) => strength * Math.sqrt(clamp(x));
+const distanceFade = (d, near, far) => 1 - smoothstep((d - near) / (far - near));
+function directionalPan(angle, distance) {
+  if (distance <= 0.05) return 0;
+  const bearing = Math.sin(angle * Math.PI / 180);
+  const close = 1 - smoothstep((distance - 3) / 3);
+  return (bearing + (Math.tanh(6 * bearing) / Math.tanh(6) - bearing) * close)
+    * smoothstep((distance - 0.05) / 0.20);
+}
+const note = {
+  overview: "USB DualSense targets before direction, distance and final mixing. The shared input axis compares each response shape; sound amplitude and screen-effect level are different inputs. Boss, regular-enemy and optional hit-reaction SFX share the enemy gain.",
+  shake: "Only valid, changing shake uses the lifted curve. Numerical silence and settled offsets stay at zero. At the default 25%, weak valid shakes start near a 10% target; the attack ramp and available native headroom can reduce actual output.",
+  footsteps: "Footstep amplification is off by default; 6× is the saved multiplier. Supported USB DualSense only. This adds to the game's existing footstep vibration send; it does not create vibration from ordinary audible footsteps. Final limiting is not shown.",
+  distance: "Distance from sound source to character, with valid positions. This multiplier applies to player, enemy and hit-reaction combat feedback. Screen effects and native footsteps keep their own behavior. Recommended defaults are 3–25 yalms.",
+  spatial: "This slider changes the simulated source distance, not a plugin setting. The source is positioned relative to your character, with left/right aligned to the camera. Distance fade is excluded here. Ordinary XInput motors do not provide this left/right positioning.",
+  rumble: "One newly accepted sound onset at full distance gain, before output merging and Bluetooth balance calibration. The main-motor target includes Rumble strength. Screen effects bypass this combat pulse and use their separate response curve.",
+  pulse: "One isolated onset with saturated sound input. The pulse holds for 60% of its duration, then fades out. XInput's other motor receives 25% of this target; Bluetooth uses spatial channels plus balance calibration. USB haptics follow the sound waveform instead."
+};
+function configFor(key, p = defaults) {
+  const c = { title: "Player, enemy and screen effects", description: "Linear sound gain compared with the boosted screen-effect response.",
+    xLabel: "Normalized input (0–1)", yLabel: "Target amplitude (%)", xDomain: [0, 1], yDomain: [0, 1],
+    percent: true, labels: [`Player SFX · ${percent(p.player)}`, `Enemies · ${percent(p.enemy)}`, `Screen · ${percent(p.screen)}`],
+    colors: ["player", "enemy", "screen"], rows: [] };
+  if (key === "overview") {
+    c.rows = Array.from({ length: 201 }, (_, i) => { const x = i / 200; return [x, p.player * x, p.enemy * x, screenResponse(x, p.screen)]; });
+  } else if (key === "shake") {
+    Object.assign(c, { title: "Screen shake: weak-motion boost", description: "Active target = strength × √(0.16 + 0.84 × m / (1 + m)). Silence remains zero.",
+      xLabel: "Weighted motion m (4 × position + 2 × rotation)", xDomain: [0, 4],
+      labels: ["Active shake", "Silence"], colors: ["screen", "neutral"],
+      rows: [[0, null, 0], [0.000001, null, null], [0.0000011, screenResponse(0.16 + 0.84 * 0.0000011 / 1.0000011, p.screen), null],
+        ...Array.from({ length: 200 }, (_, i) => { const m = (i + 1) / 50; return [m, screenResponse(0.16 + 0.84 * m / (1 + m), p.screen), null]; })] });
+  } else if (key === "footsteps") {
+    Object.assign(c, { title: "Native footstep amplification", description: `Native send g + plugin addition (${p.footsteps} − 1)g = ${p.footsteps}g.`,
+      xLabel: "Existing native footstep send gain g", yLabel: "Send gain (× unit gain)", yDomain: [0, 6], percent: false,
+      labels: ["Native alone", "Plugin addition", "Combined gain"], colors: ["neutral", "player", "enemy"],
+      rows: Array.from({ length: 101 }, (_, i) => { const g = i / 100; return [g, g, (p.footsteps - 1) * g, p.footsteps * g]; }) });
+  } else if (key === "distance") {
+    const end = Math.max(30, p.far + 5);
+    const points = [...new Set([p.near, p.far, ...Array.from({ length: 241 }, (_, i) => i * end / 240)])].sort((a, b) => a - b);
+    Object.assign(c, { title: "Combat distance fade", description: `Full strength through ${p.near} yalms; smooth fade to zero at ${p.far} yalms.`,
+      xLabel: "Sound source → character (yalms)", yLabel: "Remaining combat strength (%)", xDomain: [0, end],
+      labels: ["Distance multiplier"], colors: ["player"], rows: points.map(d => [d, distanceFade(d, p.near, p.far)]) });
+  } else if (key === "spatial") {
+    Object.assign(c, { title: "Combat left/right separation", description: `Source distance: ${p.sourceDistance} yalms. 0° is straight ahead; close-range angles receive more separation.`,
+      xLabel: "Source angle from camera-facing direction (degrees)", yLabel: "Grip multiplier (%)", xDomain: [-90, 90],
+      labels: ["Left grip", "Right grip"], colors: ["player", "enemy"],
+      rows: Array.from({ length: 181 }, (_, i) => { const a = i - 90, pan = directionalPan(a, p.sourceDistance); return [a, 1 - Math.max(0, pan), 1 + Math.min(0, pan)]; }) });
+  } else if (key === "rumble") {
+    // RumblePulse starts only when the routed level exceeds 0.005.
+    const playerEdge = p.player > 0.005 ? 0.005 / (8 * p.player) : null;
+    const enemyEdge = p.enemy > 0.005 ? 0.005 / (8 * p.enemy) : null;
+    const points = [...new Set([...[playerEdge, enemyEdge].filter(x => x !== null).flatMap(x => [x, x + 1e-9]),
+      ...Array.from({ length: 201 }, (_, i) => i / 1000)])].sort((a, b) => a - b);
+    Object.assign(c, { title: "Ordinary rumble: sound-onset response", description: "Target = min(8 × SFX RMS, 1) × source strength × Rumble strength. Onsets at or below 0.005 before the final Rumble gain remain silent.",
+      xLabel: "Processed sound RMS (linear digital amplitude)", yLabel: "Main motor target (%)", xDomain: [0, 0.2],
+      labels: [`Player SFX · ${percent(p.player)}`, `Enemies · ${percent(p.enemy)}`], colors: ["player", "enemy"],
+      rows: points.map(r => { const player = clamp(8 * r) * p.player, enemy = clamp(8 * r) * p.enemy;
+        return [r, player > 0.005 ? player * p.rumble : 0, enemy > 0.005 ? enemy * p.rumble : 0]; }) });
+  } else if (key === "pulse") {
+    const end = 450;
+    const points = [...new Set([p.milliseconds * 0.6, p.milliseconds, ...Array.from({ length: end + 1 }, (_, i) => i)])].sort((a, b) => a - b);
+    Object.assign(c, { title: "Ordinary rumble: one impact", description: `${p.milliseconds} ms pulse at ${percent(p.rumble)} Rumble strength, with saturated sound input.`,
+      xLabel: "Time since isolated sound onset (ms)", yLabel: "Main motor target (%)", xDomain: [0, end],
+      labels: [`Player SFX · ${percent(p.player)}`, `Enemies · ${percent(p.enemy)}`], colors: ["player", "enemy"],
+      rows: points.map(ms => { const envelope = ms >= p.milliseconds ? 0 : 1 - smoothstep((ms / p.milliseconds - 0.6) / 0.4);
+        return [ms, p.player > 0.005 ? envelope * p.player * p.rumble : 0, p.enemy > 0.005 ? envelope * p.enemy * p.rumble : 0]; }) });
+  } else throw new Error("Unknown curve");
+  return c;
+}
+// END CURVE MODEL
+
+// BEGIN SVG RENDERER
+// One renderer supplies both the live page and the README's default SVG preview.
+const escapeXml = value => String(value).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" }[c]));
+function plotGeometry(c, width) {
+  const w = Math.max(240, Math.round(width)), compact = w < 500;
+  const left = compact ? 38 : 52, right = 18, top = 30, bottom = 290;
+  const pw = w - left - right;
+  const x = value => left + (value - c.xDomain[0]) / (c.xDomain[1] - c.xDomain[0]) * pw;
+  const y = value => bottom - (value - c.yDomain[0]) / (c.yDomain[1] - c.yDomain[0]) * (bottom - top);
+  return { w, compact, left, right, top, bottom, pw, x, y };
+}
+function chartSvg(c, width = 900) {
+  const { w, compact, left, right, top, bottom, pw, x, y } = plotGeometry(c, width);
+  const tick = (value, isY = false) => isY && c.percent ? `${Math.round(value * 100)}` : Number(value.toFixed(3)).toString();
+  const legend = []; let lx = left, ly = bottom + (compact ? 70 : 58);
+  c.labels.forEach((label, i) => { const needed = label.length * 7 + 42; if (lx + needed > w - right && lx > left) { lx = left; ly += 24; }
+    legend.push(`<line x1="${lx}" y1="${ly}" x2="${lx + 20}" y2="${ly}" stroke="var(--${c.colors[i]})" stroke-width="3"${i ? ` stroke-dasharray="${i === 1 ? '7 4' : '2 4'}"` : ''}/><text x="${lx + 28}" y="${ly + 4}" fill="var(--ink)" font-size="12">${escapeXml(label)}</text>`); lx += needed; });
+  const svg = [`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${ly + 24}" viewBox="0 0 ${w} ${ly + 24}" role="img" aria-labelledby="chart-title chart-desc">`,
+    `<title id="chart-title">${escapeXml(c.title)}</title><desc id="chart-desc">${escapeXml(c.description)}</desc>`,
+    `<style>svg{--ink:#18212f;--muted:#526173;--line:#dfe5ec;--player:#2563eb;--enemy:#b45309;--screen:#7c3aed;--neutral:#64748b;font-family:system-ui,sans-serif}@media(prefers-color-scheme:dark){svg{--ink:#edf2f7;--muted:#b0bdcc;--line:#384251;--player:#7cb0ff;--enemy:#f8b66d;--screen:#c2a0ff;--neutral:#acb9ca}}</style>`,
+    `<text x="${left}" y="16" fill="var(--muted)" font-size="12">${escapeXml(c.yLabel)}</text>`];
+  for (let i = 0; i <= 4; i++) {
+    const value = c.yDomain[0] + (c.yDomain[1] - c.yDomain[0]) * i / 4, py = y(value);
+    svg.push(`<line x1="${left}" y1="${py}" x2="${w - right}" y2="${py}" stroke="var(--line)"/><text x="${left - 8}" y="${py + 4}" fill="var(--muted)" text-anchor="end" font-size="12">${tick(value, true)}</text>`);
+  }
+  const ticks = compact ? 2 : 4;
+  for (let i = 0; i <= ticks; i++) {
+    const value = c.xDomain[0] + (c.xDomain[1] - c.xDomain[0]) * i / ticks, px = x(value);
+    svg.push(`<line x1="${px}" y1="${bottom}" x2="${px}" y2="${bottom + 5}" stroke="var(--muted)"/><text x="${px}" y="${bottom + 20}" fill="var(--muted)" text-anchor="middle" font-size="12">${tick(value)}</text>`);
+  }
+  if (compact) {
+    const words = c.xLabel.split(' '), mid = Math.ceil(words.length / 2);
+    svg.push(`<text x="${left + pw / 2}" y="${bottom + 40}" fill="var(--muted)" text-anchor="middle" font-size="12"><tspan x="${left + pw / 2}">${escapeXml(words.slice(0, mid).join(' '))}</tspan><tspan x="${left + pw / 2}" dy="15">${escapeXml(words.slice(mid).join(' '))}</tspan></text>`);
+  } else svg.push(`<text x="${left + pw / 2}" y="${bottom + 40}" fill="var(--muted)" text-anchor="middle" font-size="12">${escapeXml(c.xLabel)}</text>`);
+  c.labels.forEach((label, i) => {
+    let path = '', pen = false;
+    for (let index = 0; index < c.rows.length; index++) {
+      const row = c.rows[index];
+      if (row[i + 1] === null) { pen = false; continue; }
+      const px = x(row[0]), py = y(row[i + 1]);
+      path += `${pen ? 'L' : 'M'}${px.toFixed(3)},${py.toFixed(3)}`;
+      if (!pen) {
+        const next = c.rows[index + 1];
+        if (!next || next[i + 1] === null) svg.push(`<circle cx="${px}" cy="${py}" r="3" fill="var(--${c.colors[i]})"><title>${escapeXml(label)}: ${escapeXml(tick(row[i + 1], true))}</title></circle>`);
+      }
+      pen = true;
+    }
+    svg.push(`<path d="${path}" fill="none" stroke="var(--${c.colors[i]})" stroke-width="2.5" stroke-linejoin="round"${i ? ` stroke-dasharray="${i === 1 ? '7 4' : '2 4'}"` : ''}><title>${escapeXml(label)}</title></path>`);
+  });
+  svg.push(...legend, '</svg>');
+  return svg.join('');
+}
+// END SVG RENDERER
+
+const sliderSpec = {
+  player: ["Player SFX strength", 0, 1, 0.01, percent],
+  enemy: ["Enemy SFX strength", 0, 1, 0.01, percent],
+  screen: ["Screen-effect strength", 0, 1, 0.01, percent],
+  footsteps: ["Footstep multiplier", 1, 6, 0.1, x => `${Number(x.toFixed(1))}×`],
+  near: ["Full strength through", 0, 99, 1, x => `${x} yalms`],
+  far: ["Fade to zero at", 1, 100, 1, x => `${x} yalms`],
+  sourceDistance: ["Source distance (simulation)", 0.05, 10, 0.05, x => `${Number(x.toFixed(2))} yalms`],
+  rumble: ["Rumble strength", 0, 1, 0.01, percent],
+  milliseconds: ["Impact duration", 60, 300, 10, x => `${x} ms`]
+};
+const controlsFor = { overview: ["player", "enemy", "screen"], shake: ["screen"], footsteps: ["footsteps"],
+  distance: ["near", "far"], spatial: ["sourceDistance"], rumble: ["player", "enemy", "rumble"], pulse: ["player", "enemy", "rumble", "milliseconds"] };
+const select = document.getElementById("view"), chart = document.getElementById("chart"), controls = document.getElementById("controls");
+const plot = document.getElementById("plot"), reading = document.getElementById("reading");
+let parameters = { ...defaults }, view = "overview", config;
+function draw() {
+  config = configFor(view, parameters);
+  document.getElementById("title").textContent = config.title;
+  document.getElementById("description").textContent = config.description;
+  document.getElementById("note").textContent = note[view];
+  plot.innerHTML = chartSvg(config, chart.clientWidth || 900);
+  hideInspection();
+  for (const field of controlsFor[view]) {
+    document.getElementById(`slider-${field}`).value = parameters[field];
+    document.getElementById(`value-${field}`).textContent = sliderSpec[field][4](parameters[field]);
+  }
+}
+function setUpControls() {
+  controls.replaceChildren();
+  for (const field of controlsFor[view]) {
+    const [name, min, max, step, format] = sliderSpec[field];
+    const wrapper = document.createElement("div"); wrapper.className = "slider";
+    const label = document.createElement("label"); label.htmlFor = `slider-${field}`; label.textContent = name;
+    const value = document.createElement("output"); value.id = `value-${field}`; value.htmlFor = `slider-${field}`; value.textContent = format(parameters[field]); label.append(value);
+    const slider = document.createElement("input"); Object.assign(slider, { type: "range", id: `slider-${field}`, min, max, step, value: parameters[field] });
+    slider.addEventListener("input", () => {
+      parameters[field] = clamp(Number(slider.value), min, max);
+      if (field === "near") parameters.far = Math.max(parameters.far, parameters.near + 1);
+      if (field === "far") parameters.near = Math.min(parameters.near, parameters.far - 1);
+      draw();
+    });
+    wrapper.append(label, slider); controls.append(wrapper);
+  }
+}
+select.addEventListener("change", () => { if (keys.includes(select.value)) { view = select.value; setUpControls(); draw(); } });
+document.getElementById("reset").addEventListener("click", () => { parameters = { ...defaults }; draw(); });
+function inspectPoint(event) {
+  const svg = plot.querySelector("svg"), bounds = svg.getBoundingClientRect();
+  const area = plotGeometry(config, svg.viewBox.baseVal.width);
+  const pointerX = (event.clientX - bounds.left) * area.w / bounds.width;
+  const pointerY = (event.clientY - bounds.top) * svg.viewBox.baseVal.height / bounds.height;
+  if (pointerX < area.left || pointerX > area.w - area.right || pointerY < area.top || pointerY > area.bottom) {
+    hideInspection(); return;
+  }
+  const target = config.xDomain[0] + (pointerX - area.left) / area.pw * (config.xDomain[1] - config.xDomain[0]);
+  const row = config.rows.reduce((best, next) => Math.abs(next[0] - target) < Math.abs(best[0] - target) ? next : best);
+  const details = config.labels.flatMap((label, i) => row[i + 1] === null ? [] : [{
+    label: label.split(" · ")[0].replace(/^Enemies$/, "Boss / regular enemy SFX").replace(/^Screen$/, "Screen effects"),
+    value: row[i + 1], color: config.colors[i]
+  }]);
+  if (!details.length) { hideInspection(); return; }
+  const input = {
+    overview: ["Input level", ""], shake: ["Motion magnitude", ""], footsteps: ["Native send gain", "×"],
+    distance: ["Source distance", " yalms"], spatial: ["Source angle", "°"],
+    rumble: ["Sound RMS", ""], pulse: ["Time since onset", " ms"]
+  }[view];
+  const format = v => config.percent ? `${Number((v * 100).toFixed(2))}%` : `${Number(v.toFixed(3))}×`;
+  reading.innerHTML = `<div class="tooltip-heading"><span>${input[0]}</span><strong>${Number(row[0].toPrecision(9))}${input[1]}</strong></div>` +
+    [...details].sort((a, b) => b.value - a.value).map(detail => `<div class="tooltip-row"><i style="background:var(--${detail.color})" aria-hidden="true"></i><span>${escapeXml(detail.label)}</span><strong>${format(detail.value)}</strong></div>`).join("");
+  reading.hidden = false;
+  const container = chart.getBoundingClientRect(), tip = reading.getBoundingClientRect();
+  const pointX = bounds.left - container.left + area.x(row[0]) * bounds.width / area.w;
+  const pointY = event.clientY - container.top;
+  const tipX = pointX + tip.width + 14 <= container.width - 8 ? pointX + 14 : pointX - tip.width - 14;
+  const tipY = pointY + tip.height + 14 <= container.height - 8 ? pointY + 14 : pointY - tip.height - 14;
+  reading.style.left = `${clamp(tipX, 8, Math.max(8, container.width - tip.width - 8))}px`;
+  reading.style.top = `${clamp(tipY, 8, Math.max(8, container.height - tip.height - 8))}px`;
+  let markers = svg.querySelector("[data-inspection]");
+  if (!markers) {
+    markers = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    markers.setAttribute("data-inspection", ""); markers.setAttribute("pointer-events", "none");
+    markers.setAttribute("aria-hidden", "true"); svg.append(markers);
+  }
+  markers.innerHTML = `<line x1="${area.x(row[0])}" x2="${area.x(row[0])}" y1="${area.top}" y2="${area.bottom}" stroke="var(--neutral)" opacity="0.7"/>` +
+    details.map(detail => `<circle cx="${area.x(row[0])}" cy="${area.y(detail.value)}" r="4.5" fill="var(--${detail.color})" stroke="var(--surface)" stroke-width="2"/>`).join("");
+}
+function hideInspection() {
+  reading.hidden = true;
+  plot.querySelector("[data-inspection]")?.remove();
+}
+chart.addEventListener("pointermove", inspectPoint);
+chart.addEventListener("pointerdown", inspectPoint);
+chart.addEventListener("pointerleave", event => { if (event.pointerType !== "touch") hideInspection(); });
+document.addEventListener("pointerdown", event => { if (!chart.contains(event.target)) hideInspection(); });
+document.addEventListener("keydown", event => { if (event.key === "Escape") hideInspection(); });
+setUpControls(); draw();
+new ResizeObserver(draw).observe(chart);
+</script>
+</body>
+</html>

@@ -151,11 +151,11 @@ internal static unsafe class EnemyHapticChecks
             helper with { EntityId = 0xE0000000 }, helper with { Actor = 0 }, helper with { Kind = EnemySoundKind.Regular } })
             check(GameAudioLayout.SelectEnemyActors(new[] { invalid, root }, selected) == 1 && selected[0] == root,
                 "An unrelated, invalid or unidentifiable helper acquired boss attribution");
-        foreach (var invalid in new[] { root with { Kind = EnemySoundKind.Regular }, root with { EntityId = 0 },
+        foreach (var invalid in new[] { root with { EntityId = 0 },
             root with { EntityId = 0xE0000000 }, root with { Actor = 0 }, root with { Role = EnemyActorRole.BossMechanic } })
         {
             count = GameAudioLayout.SelectEnemyActors(new[] { helper, invalid }, selected);
-            check(Array.IndexOf(selected, helper, 0, count) == -1, "A helper without a real boss anchor was registered");
+            check(Array.IndexOf(selected, helper, 0, count) == -1, "A helper without a real enemy anchor was registered");
         }
         check(GameAudioLayout.SelectEnemyActors(new[] { helper }, selected) == 0 &&
             GameAudioLayout.SelectEnemyActors(new[] { root, helper }, Span<GameAudioLayout.EnemyActor>.Empty) == 0,

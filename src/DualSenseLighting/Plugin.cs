@@ -24,7 +24,7 @@ using DualSenseLighting.Core;
 using DualSenseLighting.Windows;
 using DualSenseLighting.Ui;
 
-[assembly: System.Reflection.AssemblyVersion("0.18.0.0")]
+[assembly: System.Reflection.AssemblyVersion("0.19.8.0")]
 [assembly: System.Reflection.AssemblyTitle(PluginInfo.Name)]
 [assembly: System.Reflection.AssemblyProduct(PluginInfo.Name)]
 [assembly: System.Runtime.Versioning.SupportedOSPlatform("windows10.0")]
@@ -83,6 +83,7 @@ public sealed partial class Plugin : IDalamudPlugin
     private readonly ConfigurationSaveScheduler saves;
     private string? lastError;
     private bool reportedGuardError;
+    private bool reportedEnemyRelationError;
     private readonly DiagnosticRecordingCoordinator recording;
     private bool commandRegistered;
     private int disposed;
@@ -388,7 +389,7 @@ public sealed partial class Plugin : IDalamudPlugin
             clock.Elapsed.TotalSeconds, lbEnabled && Native.IsCurrentProcessForeground()) ?? LimitBreakState.Empty;
         Volatile.Write(ref limitBreakState, lb);
         if (audioInitialization == null && (snapshot.Enabled && LightingEffects.IsSfx(snapshot.Effect) || Volatile.Read(ref hapticSettings).NeedsAudio))
-            audioInitialization = Task.Run(() => new SfxAudioCapture(interop, scanner, data));
+            audioInitialization = Task.Run(() => new SfxAudioCapture(interop, scanner, data, ActionTargetPosition, pluginInterface.IsDev));
         if (audioInitialization?.IsCompleted == true && Volatile.Read(ref audioCapture) == null && audioError == null)
         {
             try { Volatile.Write(ref audioCapture, audioInitialization.GetAwaiter().GetResult()); }
@@ -431,6 +432,15 @@ public sealed partial class Plugin : IDalamudPlugin
             reportedGuardError = true;
             log.Warning("A controller output could not be inspected. Original game output was passed through.");
         }
+    }
+
+    private Vector3? ActionTargetPosition(ulong id)
+    {
+        // Receive runs on the game's update path. Off-thread callbacks retain
+        // emitter distance instead of traversing a concurrently changing table.
+        if (!framework.IsInFrameworkUpdateThread) return null;
+        var target = objects.SearchById(id);
+        return target != null && target.IsValid() && target.GameObjectId == id ? target.Position : null;
     }
 
     private unsafe void UpdateEnemyActors(SfxAudioCapture? capture, bool playerPresent)
@@ -482,9 +492,26 @@ public sealed partial class Plugin : IDalamudPlugin
                     actor.SubKind is 2 or 3 or 4 or 9)
                 { playerSources[playerSourceCount++] = actor.EntityId; continue; }
                 if (actor.ObjectKind != ObjectKind.BattleNpc || actor.SubKind is not (1 or 5 or 11)) continue;
-                var battleActor = actor.SubKind == (byte)BattleNpcSubKind.Combatant || actor.SubKind == (byte)BattleNpcSubKind.BNpcPart;
-                var combatant = battleActor && (actor.StatusFlags & StatusFlags.Hostile) != 0;
+                var combatNpc = actor.SubKind == (byte)BattleNpcSubKind.Combatant;
+                var battleActor = combatNpc || actor.SubKind == (byte)BattleNpcSubKind.BNpcPart;
                 if (!GameAudioLayout.TryReadActor(actor.Address, GameAudioLayout.GameObjectSize, actor.EntityId, out var fields)) continue;
+                if (combatNpc)
+                {
+                    var category = localPlayer != null ? GameTargetRelation.Read(actor.Address) : null;
+                    if (!GameTargetRelation.IsEnemy(category))
+                    {
+                        // Allies and unknown relationships must not enter regular
+                        // history or become enemies through encounter promotion.
+                        playerSources[playerSourceCount++] = actor.EntityId;
+                        if (!category.HasValue && haptics.EnemiesEnabled && !reportedEnemyRelationError)
+                        {
+                            reportedEnemyRelationError = true;
+                            log.Warning("Enemy target classification is unavailable; combat NPC audio is skipped.");
+                        }
+                        continue;
+                    }
+                }
+                var combatant = combatNpc || battleActor && (actor.StatusFlags & StatusFlags.Hostile) != 0;
                 // Membership and NPC rank are both required; nearby FATE trash is not a boss.
                 var boss = enemyEncounters.IsBoss(enemyDuty, actor.NameId, actor.BaseId, fields.FateId);
                 // The shared roster selector requires a live boss with the same

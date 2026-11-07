@@ -1,8 +1,116 @@
 # Public test QA report
 
-Version: **0.18.0.0** · Checked: **2026-11-05** · Target: **Windows x64, USB/Bluetooth DualSense, Dalamud API 15**
+Version: **0.19.8.0** · Checked: **2026-11-07** · Target: **Windows x64, USB/Bluetooth DualSense, Dalamud API 15**
 
-The local release build and automated checks pass. This report separates those results from earlier in-game observations and the checks still needed before a public release. It does not establish compatibility with every regional client or game patch.
+## Current verification: 0.19.8 review follow-up
+
+The final candidate passes the locked Release build and both complete suites:
+**60/60 groups and 519,872 assertions each**, with no skips. The allocation
+measurement and coverage-isolation changes are described below. A fresh
+user-assisted activation recording and native-effects smoke check also pass.
+
+The original November 7 review passed the normal Release suite but failed the coverage
+suite's strict allocation check. Its original result and failed coverage remain
+preserved under `artifacts/review-20261107`; later evidence uses the separate
+`artifacts/review-followup-20261107` directory. A passing normal run does not
+clear a failing instrumented run.
+
+The current candidate includes impact-aware distance, native friend/enemy
+classification, regular-enemy effect ownership and the fixed vehicle-motion
+filter. It suppresses the captured vehicle patterns without a learning period.
+The user confirmed quiet vehicle feedback with intended effects retained, the
+Engels arm fallback, and allied-NPC exclusion in the isolated Trust-party test.
+Those are user-assisted checks on earlier builds in this series, not fresh
+hardware verification of this follow-up. The tank-ring and missile-impact live
+checks remain pending; see [enemy coverage](ENEMY-HAPTICS-COVERAGE.md) and
+[screen-effect scope](SCREEN-EFFECT-HAPTICS.md).
+
+First-activation measurements used the installed Dalamud scanner and the actual
+game executable's 34,640,770-byte text section in a private mapped image. The
+five motion scans took 61.10 ms on the first batch and a 43.98 ms median across
+12 subsequent batches. The two recording-observer scans took 32.85 ms first
+and a 32.91 ms median. These isolate scanning; they do not measure live hook
+installation or a complete game-frame transition. The candidate now prepares
+disabled observers in the existing background audio-initialization task;
+recording-only observers prepare only for development installs. Existing focus,
+permission and recording gates still control activation. No extra task or
+initialization framework was added.
+
+Transition timings are saved in the screen trace's `ActivationTiming` field.
+Preparation timings cover observer constructors; first motion activation covers
+filter/session setup and hook enabling, and first trace start covers session allocation/start.
+They are separate intervals, not a total first-use latency or a claim about FPS
+or physical controller latency.
+
+The **2026-11-07 23:37 CST** live recording from this candidate reports:
+
+| Native stage | Measured duration | Scope |
+| --- | ---: | --- |
+| Motion observer preparation | **50.37 ms** | Background constructor: scans, validation and disabled-hook acquisition |
+| Recording observer preparation | **33.06 ms** | Background, development installs only |
+| First motion activation | **3.75 ms** | First UpdateMotion body: filter/session setup and hook enabling |
+| First recording start | **1.35 ms** | Recording-session allocation/start; excludes next-update hook enabling |
+
+All recorded bindings succeeded, with no observer/output errors or dropped or
+overwritten diagnostic frames. The user confirms ordinary feedback, native
+vibration/controller sound and Alt-Tab release work after reload. This is one
+live activation sample on the installed client, not a latency distribution or
+physical-controller timing measurement. Camera-composition intervals in the
+capture had a 32.64 ms median and 80.82 ms maximum; the maximum spans recording
+startup and its cause was not isolated. These stage timings do not establish an
+overall frame-time improvement or absence of unrelated frame gaps.
+
+| Fresh check | Result |
+| --- | --- |
+| Locked x64 Release, installed CN API 15.0.3.8 | Zero warnings/errors; SDK 10.0.403, runtime 10.0.14 |
+| Normal suite | **60/60 groups, 519,872 assertions**, no skips |
+| Static coverage suite | **60/60 groups, 519,872 assertions**, populated compiled-plugin report |
+| Source-union mapping | **4,287/7,107 lines (60.32%)**, 70/71 authored files mapped |
+| Compiled plugin mapping | **2,330/7,107 lines (32.78%)**; UI/native/orchestration gaps remain |
+| Real-allocation negative control | Private mutant fails the zero-byte assertion at **640,000 bytes**, exit 1; other 59 groups pass |
+| Coverage process checks | **49 pass**, including collector failure, missing/empty reports, changed/deleted originals and combined failures |
+| Build/runner process checks | **107 build assertions pass**; synchronous/async/malformed-argument failures retain later groups and nonzero exit status |
+| Python regressions | **44 pass** |
+| Uninstrumented helper benchmarks | Five cases report zero managed allocation; synthetic scope only |
+| Standard/Japanese packaging | Pass; original release binary hashes unchanged by coverage |
+| Fresh live activation/smoke | Recording verifies the stage timings above; user confirms feedback, native vibration/sound and Alt-Tab release |
+| Workflow/catalog/whitespace | Pass |
+
+Assertion totals include repeated checks, not independent cases. Coverage maps
+authored lines from loaded managed assemblies; it does not cover every plugin
+path, game-native function or physical controller behavior.
+
+The original 6,168-byte result and later failing probes are retained. A failing
+heap probe found an unused allocation-context filler matching the counter jump,
+but the precise runtime counter transition remains unresolved. Delegate
+preparation and switching instrumentation alone did not eliminate it; those
+passing probes are not presented as proof of its cause.
+
+The shared allocation harness now measures its unchanged callback/warmup/count
+contract inside a bounded, serial, process-wide no-GC region. Reservation or
+cleanup failure fails the check; the zero-byte threshold is unchanged. Setup is
+outside the counters and can perform GC-related work. Cold first-execution,
+recurring and real-cache allocation controls, plus exception/cleanup controls,
+remain strict. This is a controlled test environment, not a plugin GC policy or
+an unconstrained production-allocation guarantee.
+
+Coverage uses Microsoft's static managed instrumentation on isolated shadow
+copies. Original input hashes are checked even after failure. Each run retains
+its own settings, command, log, report and fingerprints; missing or unpopulated
+compiled-plugin coverage fails CI. No instrumented DLL is packaged for release.
+See [the allocation investigation](optimization/allocation-diagnostics.md) for
+the retained failures and measurement limits.
+
+Helper and stable-roster allocation results apply only to their tested paths.
+Device/report loops allocate, and autosave still performs synchronous storage
+when it actually saves. The fresh live check covers this initialization
+refactor on the tested setup; earlier hardware observations below remain
+historical evidence rather than fresh validation of every feature or device.
+
+## Historical evidence: 0.18.0 (2026-11-05)
+
+The following sections retain the earlier build counts, hardware observations
+and investigation history. They do not describe the current 0.19.8 candidate.
 
 ## Dialog title-bar cleanup
 
@@ -26,7 +134,7 @@ zero-allocation results do not apply to device loops or imply an in-game speedup
 autosave storage is still synchronous when it runs. See
 [current verification](optimization/verification.md) for identities and scope.
 
-## Current source: reliability and maintainability optimization
+## Historical reliability and maintainability optimization
 
 The follow-up refactor and verification are documented in
 [the optimization report](optimization/verification.md). Its results supersede

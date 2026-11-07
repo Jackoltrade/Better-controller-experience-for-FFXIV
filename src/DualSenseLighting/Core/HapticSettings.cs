@@ -6,7 +6,7 @@ namespace DualSenseLighting.Core;
 
 public enum HapticDistanceOrigin { Character, Camera }
 public enum EnemySoundKind { None, Boss, Regular }
-public enum HapticRoute { None, Native, Original, MissingPosition, MissingListener, SpatialUnavailable, Spatial, DistanceCutoff, NativeFootstep }
+public enum HapticRoute { None, Native, Original, MissingPosition, MissingListener, SpatialUnavailable, Spatial, DistanceCutoff, NativeFootstep, Animation }
 
 public sealed record HapticSettings(bool Enabled = false, float Strength = 0.25f,
     bool Spatial = false, bool DistanceFalloff = true,

@@ -10,7 +10,7 @@
 
 本指南提到的诊断页和诊断命令仅在通过开发插件流程加载时可用。
 
-[项目源码](https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-) · [版本下载](https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-/releases) · [提交问题](https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-/issues) · [Ko-fi 支持](https://ko-fi.com/K7C122MEWU)
+[项目源码](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV) · [版本下载](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/releases) · [提交问题](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/issues) · [Ko-fi 支持](https://ko-fi.com/K7C122MEWU)
 
 ![手柄灯光预览](../src/DualSenseLighting/Assets/dualsense-preview.png)
 
@@ -52,7 +52,7 @@
 1. 打开 `/xlsettings` →「实验性」→「自定义插件仓库」。
 2. 添加：
    ```text
-   https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-/releases/download/plugin-repository/pluginmaster.json
+   https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/releases/download/plugin-repository/pluginmaster.json
    ```
 3. 在 Dalamud 中启用测试插件，然后在 `/xlplugins` 搜索 **Better controller experience for FFXIV**，安装测试版。
 4. 连接手柄，输入 `/bcef`。
@@ -61,7 +61,7 @@
 
 ### 手动／开发插件安装
 
-1. 版本发布后，从[发布页](https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-/releases)下载 `latest.zip`；也可使用本地构建生成的 `artifacts/plugin/` 文件夹。
+1. 版本发布后，从[发布页](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/releases)下载 `latest.zip`；也可使用本地构建生成的 `artifacts/plugin/` 文件夹。
 2. 将整个 ZIP 解压到独立文件夹。
 3. 打开 `/xlsettings` →「实验性」→「开发插件位置」，添加该文件夹中的 `DualSenseLighting.dll`。
 4. 在 `/xlplugins` → **Dev Tools** 中启用插件。
@@ -242,7 +242,7 @@ USB DualSense 通过游戏原生振动处理，把音效变成更细腻的手感
 
 ## 反馈与支持
 
-可以[在 GitHub 提交问题](https://github.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-/issues/new)，或[发送反馈邮件](mailto:jackzhou.work@protonmail.com?subject=%5BBetter%20controller%20experience%20for%20FFXIV%5D%20Feedback)。请提供插件版本、客户端版本与地区、Dalamud 版本、手柄型号与固件、USB／蓝牙／XInput 输出方式、设置和复现步骤，有需要时附上短记录。「关于」按钮只打开草稿或议题表单，由你自行提交。
+可以[在 GitHub 提交问题](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/issues/new)，或[发送反馈邮件](mailto:jackzhou.work@protonmail.com?subject=%5BBetter%20controller%20experience%20for%20FFXIV%5D%20Feedback)。请提供插件版本、客户端版本与地区、Dalamud 版本、手柄型号与固件、USB／蓝牙／XInput 输出方式、设置和复现步骤，有需要时附上短记录。「关于」按钮只打开草稿或议题表单，由你自行提交。
 
 插件完全免费，放心用。喜欢的话，可以[通过 Ko-fi 请我喝杯奶茶](https://ko-fi.com/K7C122MEWU)，或[在爱发电支持我](https://afdian.com/a/jackoltrade)。
 

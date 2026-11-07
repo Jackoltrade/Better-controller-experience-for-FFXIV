@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing version tag, for example v0.18.0
+        description: Existing version tag, for example v0.19.8
         required: true
         type: string
       dalamud_url:

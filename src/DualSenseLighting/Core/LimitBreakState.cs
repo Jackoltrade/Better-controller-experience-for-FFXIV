@@ -36,6 +36,7 @@ public struct LimitBreakGauge
 [StructLayout(LayoutKind.Explicit, Size = 0x28)]
 public struct LimitBreakActionHeader
 {
+    [FieldOffset(0x00)] public ulong AnimationTargetId;
     [FieldOffset(0x08)] public uint ActionId;
     [FieldOffset(0x0C)] public uint GlobalSequence;
     [FieldOffset(0x1F)] public byte ActionType;

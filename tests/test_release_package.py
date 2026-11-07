@@ -340,7 +340,7 @@ class ReleasePackageChecks(unittest.TestCase):
         self.assertIn('[Setup](#setup)', packaged)
         self.assertIn(f'[QA](<{PACKAGER.REPOSITORY}/blob/v0.13.0/docs/QA%20report.md#checks> "Read the QA guide")', packaged)
         self.assertIn(f'[Details]({PACKAGER.REPOSITORY}/blob/v0.13.0/docs/%E8%AF%B4%E6%98%8E.md)', packaged)
-        self.assertIn('![Controller](https://raw.githubusercontent.com/Jackoltrade/PS5-DualSense-Controller-for-FFXIV-/v0.13.0/assets/controller.png)', packaged)
+        self.assertIn('![Controller](https://raw.githubusercontent.com/Jackoltrade/Better-controller-experience-for-FFXIV/v0.13.0/assets/controller.png)', packaged)
         self.assertIn('[Website](https://example.com/guide#setup)', packaged)
         self.assertEqual((self.root / "README.md").read_text(encoding="utf-8"), guide,
                          "Packaging must not rewrite the repository's guide")

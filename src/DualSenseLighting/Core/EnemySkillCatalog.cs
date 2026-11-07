@@ -87,6 +87,13 @@ public sealed class EnemySkillCatalog
             HasAttackType: id < definitions.Length && AttackEvidence(definitions[id].AttackType) == 2);
     }
 
+    public bool IsExecutionTimeline(uint actionId, uint timelineId) => actionId < definitions.Length && timelineId != 0 &&
+        (definitions[actionId].End == timelineId || definitions[actionId].Hit == timelineId);
+
+    public static bool CanUseAnimationFallback(EnemyActionTag timeline, EnemySoundBinding binding) =>
+        timeline.IsSkill && timeline.Phase == EnemyActionPhase.Execution &&
+        binding is EnemySoundBinding.Caster or EnemySoundBinding.CasterOrigin;
+
     // Live cast metadata supplies first-use evidence before the result callback.
     // Keep it on this exact identity; matching still uses the existing templates.
     public bool ObserveCast(GameAudioLayout.PlayerIdentity actor, uint actorEntityId, uint actionId, byte actionType)
