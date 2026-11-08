@@ -1,6 +1,6 @@
-# Public test releases
+# Public releases
 
-The distribution target is an **opt-in custom Dalamud testing repository**, not official main-repository approval. The public user guides are [English](../README.md), [简体中文](../README.zh-CN.md) and [日本語](../README.ja.md).
+The distribution target is a **custom Dalamud repository** using the normal release channel. Users do not need to enable testing builds. This does not imply official main-repository approval. The public user guides are [English](../README.md), [简体中文](../README.zh-CN.md) and [日本語](../README.ja.md).
 
 For official main-repository review, see [Official Dalamud listing](OFFICIAL-LISTING.md).
 
@@ -40,15 +40,17 @@ The public packaging tool requires that exact standard ZIP and sidecars, an opti
 | File | Purpose |
 | --- | --- |
 | `artifacts/release/latest.zip` | Plugin DLL, English/Chinese manifest, icon, notices and three concise READMEs |
-| `artifacts/release/latest-ja.zip` | Same plugin files, with Japanese installer metadata |
-| `artifacts/release/pluginmaster.json` | Default testing feed, with Chinese launcher translations |
-| `artifacts/release/pluginmaster-ja.json` | Japanese testing feed |
+| `artifacts/release/latest-ja.zip` | Legacy package for subscribers to the older Japanese installer feed |
+| `artifacts/release/pluginmaster.json` | Default installer feed, with Chinese launcher translations |
+| `artifacts/release/pluginmaster-ja.json` | Legacy Japanese installer feed; new installs use the shared `repo.json` |
 | `artifacts/release/SHA256SUMS.txt` | SHA-256 for both ZIPs |
 | `artifacts/release/release-summary.json` | Tag, version, target download URL and archive contents |
 
 The supplied `thumbnail.png` is copied unchanged to the 512×512 plugin icon, `src/DualSenseLighting/Assets/icon.png`. Both build paths copy it to `images/icon.png` beside the DLL, and packaging checks it matches the source. The manifest's `IconUrl` supplies the repository image for third-party listings once published; development plugins load the bundled file. This follows [Dalamud's icon loader](https://github.com/goatcorp/Dalamud/blob/master/Dalamud/Interface/Internal/Windows/PluginImageCache.cs).
 
-The store entry sets `IsTestingExclusive=true`, a placeholder stable version `0.0.0.0`, and the actual `TestingAssemblyVersion`/`TestingDalamudApiLevel`. Each feed points all three download links to its matching versioned ZIP. Bundled user guides keep links to other bundled files local; images and technical documents outside the ZIP link to the matching source tag. Do not promote it to stable by editing a version number without the corresponding testing and review.
+The store entry sets `IsTestingExclusive=false` and uses the verified DLL's actual `AssemblyVersion` and `DalamudApiLevel`. It has no separate `TestingAssemblyVersion` or `TestingDalamudApiLevel`. Each feed points all three download links to its matching versioned ZIP; the testing download link is retained for existing clients without advertising a separate beta. Bundled user guides keep links to other bundled files local; images and technical documents outside the ZIP link to the matching source tag.
+
+The root feed advertises the existing `v0.19.8` package on the normal channel. This metadata change reuses the published ZIP and does not rebuild or replace it. Existing release-hosted feeds will adopt the normal channel when the next release is explicitly published.
 
 ## Installer descriptions
 
@@ -58,13 +60,15 @@ launcher reads `DescriptionLoc` / `PunchlineLoc` and shows the original on hover
 this is a [CN launcher feature](https://github.com/ottercorp/Dalamud/blob/5f72511ebfddf65db3cbca5aaec4317dbb7e6d62/Dalamud/Interface/Internal/Windows/PluginInstaller/PluginInstallerWindow.cs#L2227), independent of the character's server or plugin UI language.
 
 [Official Dalamud manifests](https://github.com/goatcorp/Dalamud/blob/a74096043b58d69b08af214ac724f3d42c3a238b/Dalamud/Plugin/Internal/Types/PluginManifest.cs)
-use default description fields. Japanese copy lives in
+use default description fields. The shared `repo.json` contains English defaults
+and the Chinese launcher's localized fields. The plugin settings UI independently
+supports English, Chinese and Japanese.
+
+For compatibility with existing Japanese-feed subscribers, Japanese copy remains in
 `src/DualSenseLighting/Manifest.ja.json`, containing only `Description` and
-`Punchline`. Packaging generates a Japanese feed and ZIP with Japanese defaults
-and the same DLL, internal ID and version. This keeps both available and installed
-listings localized. Users choose one feed; changing the settings UI language does
-not switch installer metadata. Existing installations need an update or reinstall
-from the selected package to replace local English metadata.
+`Punchline`. Packaging retains its release-hosted feed and ZIP with the same DLL,
+internal ID and version. These are legacy endpoints; all new installation guides
+use the one shared raw feed.
 
 Publishing verifies both versioned ZIPs before uploading missing assets, then
 updates both installer feeds. Translation edits cannot override plugin identity,
@@ -78,34 +82,85 @@ The release workflow is manual-only; neither branch nor tag pushes publish.
 
 1. Review and commit the intended source, user guides and workflows, then push them to `main`.
 2. Create and push the matching version tag, for example `v0.19.8`.
-3. Once a release is explicitly requested, manually run **Publish an opt-in public test release** from GitHub Actions with that existing tag and a compatible Dalamud library URL.
+3. Once a release is explicitly requested, manually run **Publish a public plugin release** from GitHub Actions with that existing tag and a compatible Dalamud library URL.
 4. The reusable build job checks out the tag, compiles and runs the tests, validates the DLL, and uploads the public package artifact.
-5. Only after all checks pass does the publishing job create a **prerelease**, upload the ZIP/checksum/summary, and update the `plugin-repository` release's `pluginmaster.json` asset.
+5. Only after all checks pass does the publishing job create a normal GitHub release, upload the ZIP/checksum/summary, and update the `plugin-repository` release's installer feeds.
 
 The build job has read-only repository permissions. Only the manual publishing job receives `contents: write`. No workflow commits to `main`, force-pushes a branch, sends feedback email, or uses a personal access token.
 
 The publishing job first exercises its recovery logic offline. If publication
 stops partway through, retry with the original build artifact: existing versioned
 assets must match byte for byte, missing assets are added, and a completed draft
-is published before the installer feed is updated. A stable release or a differing
-asset stops the retry without overwriting versioned files. A rebuilt artifact may
+is published before the installer feed is updated. A matching prerelease is
+promoted only after all assets have been verified. A differing asset stops the
+retry without overwriting versioned files or changing release status. A rebuilt artifact may
 differ even at the same source tag; use a new version when the bytes differ.
 
 ## Installer feed
 
-The persistent installer URL is:
+The primary installer URL reads `repo.json` from the root of `main`:
 
 ```text
-https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/releases/download/plugin-repository/pluginmaster.json
+https://raw.githubusercontent.com/Jackoltrade/Better-controller-experience-for-FFXIV/main/repo.json
 ```
 
-It becomes valid after the first successful publishing run. Subsequent runs replace that JSON asset after uploading the new versioned ZIP; users opt into testing plugins in Dalamud. An initial GitHub repository or an uploaded Actions artifact alone does not make this feed live.
+All languages use this one store-entry array. After each new release, refresh
+it from the published `pluginmaster.json` asset. Its download links point to versioned
+GitHub Release ZIPs. English installer descriptions and Chinese launcher
+translations share the same JSON. Japanese remains available in the plugin UI.
+The raw URL becomes available when `repo.json` is committed and pushed to `main`;
+GitHub Pages is independent of this feed.
 
-After publishing, fetch the public feed and ZIP in a fresh session, verify the checksum, then test installer discovery/install/update with testing enabled. Confirm the built-in name, internal ID and version match. A stable plugin already installed at a higher version will not downgrade into the test feed.
+The existing release-hosted installer URLs remain supported. The release
+workflow refreshes those assets after uploading each verified package, so
+existing subscribers can keep their current URLs.
+
+### Raw-feed setup and updates
+
+1. After an explicitly requested release finishes successfully, download the
+   published default feed into the project root. In PowerShell, from the project folder:
+
+   ```powershell
+   $bcefFeedBase = 'https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/releases/download/plugin-repository'
+   Invoke-WebRequest -UseBasicParsing -Uri "$bcefFeedBase/pluginmaster.json" -OutFile repo.json
+   ```
+
+2. Check that `AssemblyVersion` matches the published version,
+   `IsTestingExclusive` is `false`, and `DownloadLinkInstall` points to its published ZIP. Preserve the plugin
+   identity and localized descriptions. This command displays
+   the relevant fields:
+
+   ```powershell
+   Get-Content repo.json -Raw -Encoding UTF8 | ConvertFrom-Json |
+     Select-Object InternalName, AssemblyVersion, IsTestingExclusive, DownloadLinkInstall
+   ```
+
+3. Review and commit the root feed with the installation instructions:
+
+   ```text
+   git add repo.json README.md README.zh-CN.md README.ja.md docs/RELEASING.md docs/USER-GUIDE.md docs/USER-GUIDE.zh-CN.md docs/USER-GUIDE.ja.md
+   git commit -m "Use one shared installer repository feed"
+   git push origin main
+   ```
+
+4. Open the raw URL in a browser. Confirm that it returns a JSON array with
+   `InternalName: DualSenseLighting` and the expected version. Then add the
+   same URL in `/xlsettings` under **Experimental → Custom Plugin
+   Repositories** and check installation in `/xlplugins` with testing builds disabled.
+
+5. After each later release, repeat the download, validation and feed commit.
+   Use an update message such as `Update installer feed for v0.19.9`.
+
+**The release workflow currently updates only the release-hosted feeds. The root
+`repo.json` needs this separate commit after each publication.** A commit or push
+of this JSON snapshot advertises an already published package; it does not
+create another plugin release.
+
+After publishing, fetch the public feed and ZIP in a fresh session, verify the checksum, then test installer discovery/install/update with testing builds disabled. Confirm the built-in name, internal ID and version match. An installed newer version will not downgrade through this feed.
 
 ## Manual publishing alternative
 
-Upload the verified ZIP, checksum and summary to a GitHub prerelease for the matching tag. Upload `pluginmaster.json` as the `plugin-repository` release's asset, replacing its previous copy. Keep the source tag available for GPL correspondence. Check all three user guides' links and install through the public feed before announcing the release.
+Upload the verified ZIP, checksum and summary to a normal GitHub release for the matching tag. Upload `pluginmaster.json` and `pluginmaster-ja.json` as the `plugin-repository` release's assets, replacing their previous copies, then refresh the root feed as described above. Keep the source tag available for GPL correspondence. Check all three user guides' links and install through the public feed before announcing the release.
 
 ## Interactive documentation
 

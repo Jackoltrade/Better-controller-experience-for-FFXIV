@@ -6,7 +6,7 @@
 
 DualSenseのライトと振動をFFXIVに合わせて楽しめる、Dalamud用プラグインです。自分のスキル、敵の効果音、カメラの揺れを振動で伝え、ゲーム標準のDualSense機能も維持します。
 
-**公開テスト版 · Windows x64 · Dalamud API 15**
+**Windows x64 · Dalamud API 15**
 
 このガイドの診断タブと診断コマンドは、開発用プラグインとして読み込んだ場合のみ利用できます。
 
@@ -41,29 +41,29 @@ DualSenseのライトと振動をFFXIVに合わせて楽しめる、Dalamud用�
 - Bluetooth DualSenseにはHIDコマンドを直接送るため、変換ソフト、仮想コントローラードライバー、常駐アプリは不要です。Bluetoothでの音声ハプティクスのストリーミングやスピーカー音声は提供しません。
 - XInputでは、追加分をゲーム本来のモーター指令と合成します。DirectInput専用機器にはXInput変換ソフトが必要です。ボタンの割り当て変更やコントローラーのペアリングは行いません。
 
-本プロジェクトは、利用者が選んで導入する**公開テスト版**です。Dalamud公式リポジトリの審査を受けたプラグインではありません。ネイティブの音声・カメラ処理は、XIVLauncherCNとクライアント `2026.10.06.0000.0000` で確認しています。開発環境でのユーザーテストでは、USBの標準機能と、Bluetoothのライト・振動・方向・距離を確認していますが、すべての機種・ファームウェア・リージョン・今後のパッチでの動作を保証するものではありません。[QAレポート](QA-REPORT.md)に、自動チェック、過去の実機結果、未確認事項を分けて記載しています。対応していないネイティブ構造では該当機能を停止し、診断タブに理由を表示します。
+本プラグインはカスタムリポジトリで配布しており、Dalamud公式リポジトリの審査は受けていません。ネイティブの音声・カメラ処理は、XIVLauncherCNとクライアント `2026.10.06.0000.0000` で確認しています。開発環境でのユーザーテストでは、USBの標準機能と、Bluetoothのライト・振動・方向・距離を確認していますが、すべての機種・ファームウェア・リージョン・今後のパッチでの動作を保証するものではありません。[QAレポート](QA-REPORT.md)に、自動チェック、過去の実機結果、未確認事項を分けて記載しています。対応していないネイティブ構造では該当機能を停止し、診断タブに理由を表示します。
 
 ## 導入
 
-**公開用ワークフローとインストーラーの配信先は用意していますが、最初の公開リリースはまだありません。** それまでは[ソースからビルド](#ソースからビルド)してください。ソースの公開やGitHub Actionsの成果物だけでは、インストーラーから利用できるようにはなりません。
+すべての表示言語で、下記の共通リポジトリを使います。公開済みのパッケージは[リリースページ](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/releases)からもダウンロードできます。
 
-### 最初のリリース後にDalamudインストーラーを使う
+### Dalamudインストーラーを使う
 
 1. `/xlsettings` → **Experimental** → **Custom Plugin Repositories**を開きます。
 2. 次のURLを追加します。
    ```text
-   https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/releases/download/plugin-repository/pluginmaster-ja.json
+   https://raw.githubusercontent.com/Jackoltrade/Better-controller-experience-for-FFXIV/main/repo.json
    ```
 
-   日本語の説明文を表示するためのリポジトリです。通常版と同時に登録せず、どちらか一方を使ってください。設定画面の言語とは別の仕組みです。既存の英語版は、日本語版から更新または入れ直すと説明文も切り替わります。
-3. Dalamudでテスト版プラグインを有効にし、`/xlplugins`で **Better controller experience for FFXIV** を検索してテスト版をインストールします。
+   インストーラーの説明文は英語（中国語版ランチャーでは中国語）です。プラグインの画面は日本語・英語・中国語に切り替えられます。従来のリリース配布用URLも引き続き使えます。
+3. `/xlplugins`で **Better controller experience for FFXIV** を検索し、「Install」を選びます。
 4. コントローラーを接続し、`/bcef`を実行します。
 
-この配信先はテスト版専用です。これらのビルドを安定版として配信することはありません。
+Dalamudのテスト版設定を有効にする必要はありません。
 
 ### 手動・開発用プラグインとして導入する
 
-1. リリース公開後に[リリースページ](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/releases)から `latest-ja.zip` をダウンロードするか、ローカルでビルドした `artifacts/plugin/` を使います。
+1. [リリースページ](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/releases)から `latest.zip` をダウンロードするか、ローカルでビルドした `artifacts/plugin/` を使います。
 2. ZIPを使う場合は、全体を専用フォルダーに展開します。
 3. `/xlsettings` → **Experimental** → **Dev Plugin Locations**に、そのフォルダーの `DualSenseLighting.dll` を追加します。
 4. `/xlplugins` → **Dev Tools**で有効にします。
@@ -276,7 +276,7 @@ python3 tools/generate-enemy-bosses.py --check
 python3 tools/package-release.py
 ```
 
-`artifacts/release/` に `latest-ja.zip`、テスト版専用 `pluginmaster.json`、チェックサム、リリース概要を作ります。3言語のREADMEと必要なライセンスを含み、ユーザー設定、診断記録、Dalamudライブラリ、コンパイラー依存ファイルは除外します。ローカルでのパッケージ作成だけでは公開されません。
+`artifacts/release/` に `latest.zip`、通常版のインストーラーフィード `pluginmaster.json`、チェックサム、リリース概要を作ります。3言語のREADMEと必要なライセンスを含み、ユーザー設定、診断記録、Dalamudライブラリ、コンパイラー依存ファイルは除外します。ローカルでのパッケージ作成だけでは公開されません。
 
 [リリース手順](RELEASING.md) · [QAと検証結果](QA-REPORT.md) · [開発記録](DEVELOPMENT-NOTES.md) · [敵の対応範囲](ENEMY-HAPTICS-COVERAGE.md) · [所有者不明の召喚物の調査](OWNERLESS-SUMMON-INVESTIGATION.md) · [データの出典](../data/README.md) · [変更履歴](../CHANGELOG.md)
 

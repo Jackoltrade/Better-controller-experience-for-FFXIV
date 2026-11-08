@@ -6,7 +6,7 @@
 
 用自定义 DualSense 灯光和振动，让手柄体验更爽。自己的技能、敌方音效和镜头震动都能带来更丰富的手感，同时保留游戏原生 DualSense 功能。插件基于 Dalamud 运行。
 
-**公开测试版 · Windows x64 · Dalamud API 15**
+**Windows x64 · Dalamud API 15**
 
 本指南提到的诊断页和诊断命令仅在通过开发插件流程加载时可用。
 
@@ -41,23 +41,23 @@
 - 蓝牙 DualSense 直接使用 HID 指令，无需映射软件、虚拟手柄驱动或配套应用；不提供蓝牙音频触觉流或手柄扬声器音频。
 - XInput 会将额外振动与游戏原有的马达指令合并。仅支持 DirectInput 的设备需要 XInput 映射软件。本插件不负责按键映射或手柄配对。
 
-这是供用户自行选择安装的**公开测试项目**，尚未经过 Dalamud 官方主仓库审核。原生音频与镜头绑定曾在 XIVLauncherCN 的 `2026.10.06.0000.0000` 客户端上检查。开发环境的用户测试覆盖了 USB 原生功能，以及蓝牙灯光、振动、方位和距离；并不代表所有手柄型号、固件、地区客户端及后续补丁均已验证。[QA 报告](QA-REPORT.md)分别记录了自动检查、历次实机结果和待测项目。不兼容的原生布局会暂停相关功能，并在「诊断」中显示原因。
+本插件通过自定义仓库发布，尚未经过 Dalamud 官方主仓库审核。原生音频与镜头绑定曾在 XIVLauncherCN 的 `2026.10.06.0000.0000` 客户端上检查。开发环境的用户测试覆盖了 USB 原生功能，以及蓝牙灯光、振动、方位和距离；并不代表所有手柄型号、固件、地区客户端及后续补丁均已验证。[QA 报告](QA-REPORT.md)分别记录了自动检查、历次实机结果和待测项目。不兼容的原生布局会暂停相关功能，并在「诊断」中显示原因。
 
 ## 安装
 
-**公开发布流程与安装器地址已准备好，但首个公开版本尚未发布。** 在此之前，请[从源码构建](#从源码构建)。仅有源码仓库或 GitHub Actions 构建产物，并不代表安装器地址已经可用。
+所有界面语言共用下方这个仓库，也可以从[发布页](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/releases)下载已发布的安装包。
 
-### 首次发布后，通过 Dalamud 安装器安装
+### 通过 Dalamud 安装器安装
 
 1. 打开 `/xlsettings` →「实验性」→「自定义插件仓库」。
 2. 添加：
    ```text
-   https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/releases/download/plugin-repository/pluginmaster.json
+   https://raw.githubusercontent.com/Jackoltrade/Better-controller-experience-for-FFXIV/main/repo.json
    ```
-3. 在 Dalamud 中启用测试插件，然后在 `/xlplugins` 搜索 **Better controller experience for FFXIV**，安装测试版。
+3. 在 `/xlplugins` 搜索 **Better controller experience for FFXIV**，点击「安装」。
 4. 连接手柄，输入 `/bcef`。
 
-这个地址只提供测试版，不会将它们标记为稳定版。默认显示中文插件介绍；想看日文介绍，可改用同一路径下的 `pluginmaster-ja.json`，两个地址只选一个。
+安装时无需开启测试版本。仓库包含英文介绍和中文启动器使用的中文介绍，插件界面仍可独立切换中、英、日三种语言。已经添加过旧 release 仓库地址的用户可以继续使用原地址。
 
 ### 手动／开发插件安装
 
@@ -274,7 +274,7 @@ python3 tools/generate-enemy-bosses.py --check
 python3 tools/package-release.py
 ```
 
-`artifacts/release/` 中会生成 `latest.zip`、仅供测试的 `pluginmaster.json`、校验和与发布摘要。包内含三语 README 与所需许可，不含用户配置、诊断记录、Dalamud 库和编译器依赖。本地打包不会发布任何内容。
+`artifacts/release/` 中会生成 `latest.zip`、普通安装仓库 `pluginmaster.json`、校验和与发布摘要。包内含三语 README 与所需许可，不含用户配置、诊断记录、Dalamud 库和编译器依赖。本地打包不会发布任何内容。
 
 [发布指南](RELEASING.md) · [QA 与证据](QA-REPORT.md) · [开发记录](DEVELOPMENT-NOTES.md) · [敌方覆盖](ENEMY-HAPTICS-COVERAGE.md) · [无主召唤物研究](OWNERLESS-SUMMON-INVESTIGATION.md) · [数据来源](../data/README.md) · [更新记录](../CHANGELOG.md)
 

@@ -44,9 +44,9 @@ try:
             state["feed_exists"] = True
         else:
             assert args[2] == os.environ["RELEASE_TAG"] and not state["version_exists"], args
-            assert "--verify-tag" in args and "--prerelease" in args, args
+            assert "--verify-tag" in args and "--prerelease" not in args, args
             state["version_exists"] = True
-            state["prerelease"] = True
+            state["prerelease"] = False
             state["draft"] = False
             for asset in args[3:]:
                 if asset.startswith("--"):
@@ -86,9 +86,10 @@ try:
                 assert name not in state["assets"], args
                 state["assets"][name] = Path(asset).read_bytes().hex()
     elif args[:2] == ["release", "edit"]:
-        assert args[2] == os.environ["RELEASE_TAG"] and "--draft=false" in args and "--prerelease" in args, args
+        assert args[2] == os.environ["RELEASE_TAG"] and "--draft=false" in args and "--prerelease=false" in args, args
         assert set(state["assets"]) == set(state["required_assets"])
         state["draft"] = False
+        state["prerelease"] = False
     elif args[0] == "api":
         print("a" * 40)
     else:
@@ -126,7 +127,7 @@ class ReleaseWorkflowChecks(unittest.TestCase):
         for name in ASSETS:
             (self.root / "release" / name).write_bytes(("verified " + name + "\n").encode())
         for name in FEEDS:
-            (self.root / "release" / name).write_text(json.dumps([{"testing": name}]) + "\n")
+            (self.root / "release" / name).write_text(json.dumps([{"release": name}]) + "\n")
         bin_dir = self.root / "bin"
         bin_dir.mkdir()
         mock = bin_dir / "gh"
@@ -138,7 +139,7 @@ class ReleaseWorkflowChecks(unittest.TestCase):
         Path(self.env["TMPDIR"]).mkdir()
         self.assertEqual(shutil.which("gh", path=self.env["PATH"]), str(mock))
         workflow = (ROOT / ".github/workflows/release.yml").read_text()
-        publish_step = workflow.split("      - name: Publish testing ZIP and update the installer feed\n", 1)[1]
+        publish_step = workflow.split("      - name: Publish ZIP and update the installer feeds\n", 1)[1]
         block = publish_step.split("        run: |\n", 1)[1]
         lines = []
         for line in block.splitlines():
@@ -147,7 +148,7 @@ class ReleaseWorkflowChecks(unittest.TestCase):
             lines.append(line)
         self.script = textwrap.dedent("\n".join(lines))
         self.assertTrue(self.script.startswith("set -euo pipefail"))
-        self.state = {"version_exists": True, "prerelease": True, "draft": False,
+        self.state = {"version_exists": True, "prerelease": False, "draft": False,
                       "assets": self.local_assets(), "feed_exists": True, "calls": [],
                       "required_assets": ASSETS, "required_feeds": FEEDS}
 
@@ -179,7 +180,8 @@ class ReleaseWorkflowChecks(unittest.TestCase):
         result = self.run_publish()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.state["assets"], self.local_assets())
-        self.assertTrue(self.state["prerelease"] and self.state["feed_exists"])
+        self.assertFalse(self.state["prerelease"])
+        self.assertTrue(self.state["feed_exists"])
         self.assertEqual(self.state["feeds"], self.local_feeds())
         self.assertEqual(len(self.version_writes()), 1)
         lookup = next(call for call in self.state["calls"] if call[0] == "api")
@@ -257,11 +259,32 @@ class ReleaseWorkflowChecks(unittest.TestCase):
         self.assert_no_feed_change()
         self.assertTrue(self.state["draft"])
 
-    def test_stable_release_is_not_repurposed(self):
-        self.state["prerelease"] = False
+    def test_matching_prerelease_is_promoted_only_after_asset_verification(self):
+        self.state["prerelease"] = True
+        result = self.run_publish()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(self.state["prerelease"])
+        self.assertEqual(self.state["assets"], self.local_assets())
+        self.assertEqual([c[1] for c in self.version_writes()], ["edit"])
+        last_download = max(i for i, c in enumerate(self.state["calls"]) if c[:2] == ["release", "download"])
+        promote = next(i for i, c in enumerate(self.state["calls"]) if c[:2] == ["release", "edit"])
+        feed = next(i for i, c in enumerate(self.state["calls"]) if c[:3] == ["release", "upload", "plugin-repository"])
+        self.assertLess(last_download, promote)
+        self.assertLess(promote, feed)
+
+    def test_changed_stable_release_is_not_repurposed(self):
+        self.state["assets"]["latest.zip"] = b"different stable artifact".hex()
         result = self.run_publish()
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("must be a prerelease", result.stderr)
+        self.assertIn("differs", result.stderr)
+        self.assertEqual(self.version_writes(), [])
+        self.assert_no_feed_change()
+
+    def test_changed_prerelease_is_not_promoted(self):
+        self.state.update(prerelease=True, assets={"latest.zip": b"different prerelease artifact".hex()})
+        result = self.run_publish()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(self.state["prerelease"])
         self.assertEqual(self.version_writes(), [])
         self.assert_no_feed_change()
 

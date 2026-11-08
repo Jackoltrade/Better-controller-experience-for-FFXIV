@@ -4,7 +4,7 @@
 
 Custom controller lighting and vibration for Final Fantasy XIV. Feel skills, enemy effects and screen shake while keeping the game's native controller features.
 
-**Public testing project · Windows x64 · Dalamud API 15**
+**Windows x64 · Dalamud API 15**
 
 ## Features
 
@@ -23,14 +23,15 @@ Use XIVLauncher with Dalamud enabled.
 2. Under **Custom Plugin Repositories**, add this URL with **+**, enable the entry, then **Save and Close**:
 
    ```text
-   https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/releases/download/plugin-repository/pluginmaster.json
+   https://raw.githubusercontent.com/Jackoltrade/Better-controller-experience-for-FFXIV/main/repo.json
    ```
 
-3. Enable **Get plugin testing builds** in Dalamud settings. This repository currently provides testing builds.
-4. Run `/xlplugins`, search for **Better controller experience for FFXIV**, and click **Install**.
-5. Open `/bcef` to configure the plugin.
+3. Run `/xlplugins`, search for **Better controller experience for FFXIV**, and click **Install**.
+4. Open `/bcef` to configure the plugin.
 
 For updates, open `/xlplugins` and click **Update plugins**. If you previously loaded the development DLL, disable that copy before installing from the repository.
+
+All interface languages use this repository. Existing release-hosted repository URLs remain supported. Maintainers: see [raw-feed setup and updates](docs/RELEASING.md#raw-feed-setup-and-updates).
 
 ## Vibration curves
 
@@ -77,7 +78,7 @@ Features: `lighting`, `haptics`, `combathaptics`, `playersfx`, `footsteps`, `spa
 
 **Diagnostics** and `/bcef trace` are available only for plugins loaded through the development flow. Regular installs can report problems through **About → GitHub**. On a development install, check Diagnostics for connection and output errors. For a missing or unwanted reaction, run `/bcef trace` before the effect, reproduce it, then run it again to stop. Recordings contain diagnostic metadata, not audio; nothing uploads automatically. Review files before sharing. Size, locations and confirmed cleanup are available in Diagnostics.
 
-This is a testing project; support can vary by client, patch and controller. See the [user guide](docs/USER-GUIDE.md), [coverage limits](docs/ENEMY-HAPTICS-COVERAGE.md) and [QA report](docs/QA-REPORT.md).
+Support can vary by client, patch and controller. See the [user guide](docs/USER-GUIDE.md), [coverage limits](docs/ENEMY-HAPTICS-COVERAGE.md) and [QA report](docs/QA-REPORT.md).
 
 [Report an issue](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/issues/new) with your plugin/client version, controller, connection type and reproduction steps. A short recording helps with sound-routing issues.
 

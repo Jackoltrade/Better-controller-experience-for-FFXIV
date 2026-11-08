@@ -13,6 +13,21 @@ PACKAGER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(PACKAGER)
 
 
+class PublishedFeedChecks(unittest.TestCase):
+    def test_raw_feed_offers_a_regular_versioned_release(self):
+        feed, = json.loads((PACKAGER.ROOT / "repo.json").read_text(encoding="utf-8"))
+        self.assertEqual(feed["InternalName"], "DualSenseLighting")
+        self.assertIs(feed["IsTestingExclusive"], False)
+        self.assertIs(feed["IsHide"], False)
+        self.assertRegex(feed["AssemblyVersion"], r"^\d+\.\d+\.\d+\.\d+$")
+        self.assertNotEqual(feed["AssemblyVersion"], "0.0.0.0")
+        self.assertNotIn("TestingAssemblyVersion", feed)
+        self.assertNotIn("TestingDalamudApiLevel", feed)
+        tag = "v" + feed["AssemblyVersion"].removesuffix(".0")
+        for key in ("DownloadLinkInstall", "DownloadLinkUpdate", "DownloadLinkTesting"):
+            self.assertEqual(feed[key], PACKAGER.REPOSITORY + f"/releases/download/{tag}/latest.zip")
+
+
 class ReleasePackageChecks(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -76,7 +91,7 @@ class ReleasePackageChecks(unittest.TestCase):
     def assert_candidate_unchanged(self, previous):
         self.assertEqual(previous, {path.name: path.read_bytes() for path in self.output.iterdir()})
 
-    def test_testing_only_store_and_exact_payload(self):
+    def test_regular_release_store_and_exact_payload(self):
         (self.build / "sfx-trace.json").write_text("private diagnostic")
         (self.build / "Dalamud.dll").write_text("runtime dependency")
         (self.build / "private").mkdir()
@@ -92,10 +107,11 @@ class ReleasePackageChecks(unittest.TestCase):
                 self.assertIsNone(bundle.testzip())
         # Public feeds are UTF-8, even when the Windows test runner defaults to CP1252.
         store, = json.loads((self.output / "pluginmaster.json").read_text(encoding="utf-8"))
-        self.assertTrue(store["IsTestingExclusive"])
-        self.assertEqual(store["AssemblyVersion"], "0.0.0.0")
-        self.assertEqual(store["TestingAssemblyVersion"], "0.13.0.0")
-        self.assertEqual(store["TestingDalamudApiLevel"], 15)
+        self.assertIs(store["IsTestingExclusive"], False)
+        self.assertEqual(store["AssemblyVersion"], "0.13.0.0")
+        self.assertNotIn("TestingAssemblyVersion", store)
+        self.assertNotIn("TestingDalamudApiLevel", store)
+        self.assertEqual(store["DalamudApiLevel"], 15)
         self.assertEqual(store["DownloadLinkTesting"], store["DownloadLinkInstall"])
         self.assertTrue(store["DownloadLinkTesting"].endswith("/v0.13.0/latest.zip"))
         self.assertEqual(store["IconUrl"], self.manifest["IconUrl"])
@@ -164,8 +180,10 @@ class ReleasePackageChecks(unittest.TestCase):
                          {k: v for k, v in default_feed.items() if k not in localized_keys | links})
         self.assertEqual(feed["InternalName"], self.manifest["InternalName"])
         self.assertEqual(feed["Name"], self.manifest["Name"])
-        self.assertEqual(feed["AssemblyVersion"], "0.0.0.0")
-        self.assertEqual(feed["TestingAssemblyVersion"], installed["AssemblyVersion"])
+        self.assertEqual(feed["AssemblyVersion"], installed["AssemblyVersion"])
+        self.assertIs(feed["IsTestingExclusive"], False)
+        self.assertNotIn("TestingAssemblyVersion", feed)
+        self.assertNotIn("TestingDalamudApiLevel", feed)
 
         checksums = dict(line.split("  ", 1)[::-1] for line in (self.output / "SHA256SUMS.txt").read_text(encoding="utf-8").splitlines())
         self.assertEqual(set(checksums), {"latest.zip", "latest-ja.zip"})
@@ -173,6 +191,7 @@ class ReleasePackageChecks(unittest.TestCase):
             self.assertEqual(checksum, PACKAGER.sha256((self.output / name).read_bytes()))
         summary = json.loads((self.output / "release-summary.json").read_text(encoding="utf-8"))
         self.assertEqual(summary["Archive"], "latest.zip")
+        self.assertEqual(summary["Channel"], "release")
         self.assertEqual(summary["DownloadUrl"], default_feed["DownloadLinkTesting"])
         self.assertEqual(summary["LocalizedPackages"], {"ja": {
             "Archive": "latest-ja.zip", "InstallerFeed": "pluginmaster-ja.json",
@@ -383,7 +402,8 @@ class ReleasePackageChecks(unittest.TestCase):
 
     def test_store_downloads_ignore_manifest_supplied_urls(self):
         manifest = dict(self.manifest, DownloadLinkInstall="file:///private.zip",
-                        DownloadLinkUpdate="https://example.invalid/other.zip", DownloadLinkTesting="javascript:invalid")
+                        DownloadLinkUpdate="https://example.invalid/other.zip", DownloadLinkTesting="javascript:invalid",
+                        IsTestingExclusive=True, TestingAssemblyVersion="99.0.0.0", TestingDalamudApiLevel=99)
         source = self.root / "src/DualSenseLighting"
         (source / "DualSenseLighting.json").write_text(json.dumps(manifest), encoding="utf-8")
         generated = dict(LoadPriority=0, AcceptsFeedback=True,
@@ -397,6 +417,9 @@ class ReleasePackageChecks(unittest.TestCase):
         PACKAGER.package(self.root, self.build, self.output)
         for feed, archive in [("pluginmaster.json", "latest.zip"), ("pluginmaster-ja.json", "latest-ja.zip")]:
             store, = json.loads((self.output / feed).read_text(encoding="utf-8"))
+            self.assertIs(store["IsTestingExclusive"], False)
+            self.assertNotIn("TestingAssemblyVersion", store)
+            self.assertNotIn("TestingDalamudApiLevel", store)
             for key in ["DownloadLinkInstall", "DownloadLinkUpdate", "DownloadLinkTesting"]:
                 self.assertEqual(store[key], PACKAGER.REPOSITORY + "/releases/download/v0.13.0/" + archive)
 

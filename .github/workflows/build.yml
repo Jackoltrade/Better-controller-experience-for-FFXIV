@@ -1,4 +1,4 @@
-name: Build and verify public test package
+name: Build and verify public package
 
 on:
   push:
@@ -92,7 +92,7 @@ jobs:
         run: python tools/generate-enemy-bosses.py --check
       - name: Check package boundaries
         run: python -m unittest discover -s tests -p "test_*.py" -v
-      - name: Package verified SDK output for opt-in public testing
+      - name: Package verified SDK output for the public repository
         shell: pwsh
         env:
           RELEASE_TAG: ${{ inputs.tag }}
@@ -111,7 +111,7 @@ jobs:
           retention-days: 30
       - uses: actions/upload-artifact@v7
         with:
-          name: public-test-package
+          name: public-plugin-package
           path: artifacts/release/*
           if-no-files-found: error
           retention-days: 30

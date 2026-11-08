@@ -6,7 +6,7 @@
 
 Custom DualSense lighting and game-driven vibration for Final Fantasy XIV, built with Dalamud. Feel your own skills, enemy effects and camera shake, while keeping the game's native DualSense features.
 
-**Public test build · Windows x64 · Dalamud API 15**
+**Windows x64 · Dalamud API 15**
 
 Diagnostics and diagnostic commands described in this guide are available only for development installs.
 
@@ -41,25 +41,25 @@ When FFXIV loses focus, the plugin turns its lights off once, releases lighting 
 - Bluetooth DualSense support uses direct HID commands. It needs no mapper, virtual-controller driver or companion app, but does not provide Bluetooth audio-haptic streaming or controller-speaker audio.
 - XInput output combines added rumble with the game's motor requests. A DirectInput-only device needs an XInput mapper. The plugin does not remap buttons or pair controllers.
 
-This is an opt-in **public test project**, not a plugin reviewed for Dalamud's official main repository. Native audio/camera bindings were checked against the `2026.10.06.0000.0000` client with XIVLauncherCN. User tests cover USB native features and Bluetooth lighting, rumble, direction and distance on the development setup; they do not verify every controller model, firmware, regional client or future patch. See the [QA report](QA-REPORT.md) for automated checks, historical hardware results and pending live checks. Unsupported native layouts pause the affected feature and report the reason in Diagnostics.
+This plugin is distributed through a custom repository and has not been reviewed for Dalamud's official main repository. Native audio/camera bindings were checked against the `2026.10.06.0000.0000` client with XIVLauncherCN. User tests cover USB native features and Bluetooth lighting, rumble, direction and distance on the development setup; they do not verify every controller model, firmware, regional client or future patch. See the [QA report](QA-REPORT.md) for automated checks, historical hardware results and pending live checks. Unsupported native layouts pause the affected feature and report the reason in Diagnostics.
 
 ## Install
 
-**The public release workflow and installer feed are prepared, but the first public release has not yet been published.** Until it is available, [build from source](#build-from-source). A source repository or GitHub Actions artifact alone does not make the installer feed available.
+Use the shared repository below for all interface languages. Packages are also available from [Releases](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/releases).
 
-### Dalamud installer, after the first release
+### Dalamud installer
 
 1. Open `/xlsettings` → **Experimental** → **Custom Plugin Repositories**.
 2. Add:
    ```text
-   https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/releases/download/plugin-repository/pluginmaster.json
+   https://raw.githubusercontent.com/Jackoltrade/Better-controller-experience-for-FFXIV/main/repo.json
    ```
-3. Enable testing plugins in Dalamud. Find **Better controller experience for FFXIV** in `/xlplugins` and install its testing build.
+3. Find **Better controller experience for FFXIV** in `/xlplugins` and click **Install**.
 4. Connect your controller, then run `/bcef`.
 
-The default feed includes English descriptions and Chinese launcher translations. For Japanese descriptions, use `pluginmaster-ja.json` at the same URL instead, or download `latest-ja.zip`. Add only one feed. Japanese metadata is supplied by the selected package/repository, independently of the plugin UI language; switching an existing installation requires an update or reinstall from that package.
+The shared feed includes English descriptions and Chinese launcher translations. The plugin's own interface supports English, Chinese and Japanese independently of the installer text. Existing release-hosted repository URLs remain supported for current subscribers.
 
-The feed is testing-only; these builds are not advertised as stable.
+Enabling testing builds in Dalamud is not required.
 
 ### Manual/dev-plugin installation
 
@@ -276,7 +276,7 @@ python3 tools/generate-enemy-bosses.py --check
 python3 tools/package-release.py
 ```
 
-Packaging creates `latest.zip`, testing-only `pluginmaster.json`, checksum and release summary in `artifacts/release/`. It includes the three READMEs and required licenses, and excludes user settings, traces, Dalamud libraries and compiler dependencies. Packaging locally does not publish anything.
+Packaging creates `latest.zip`, the regular installer feed `pluginmaster.json`, checksum and release summary in `artifacts/release/`. It includes the three READMEs and required licenses, and excludes user settings, traces, Dalamud libraries and compiler dependencies. Packaging locally does not publish anything.
 
 [Release guide](RELEASING.md) · [QA and evidence](QA-REPORT.md) · [Development notes](DEVELOPMENT-NOTES.md) · [Enemy coverage](ENEMY-HAPTICS-COVERAGE.md) · [Ownerless-summon research](OWNERLESS-SUMMON-INVESTIGATION.md) · [Data provenance](../data/README.md) · [Changelog](../CHANGELOG.md)
 

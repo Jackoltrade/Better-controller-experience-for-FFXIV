@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Package a verified build for Dalamud's opt-in public testing channel."""
+"""Package a verified build for a public Dalamud custom repository."""
 import argparse
 import hashlib
 import json
@@ -193,8 +193,9 @@ def package(root, build, output, tag=None):
         write_archive(archive, files)
         download = f"{REPOSITORY}/releases/download/{tag}/{filename}"
         store = dict(metadata)
-        store.update(AssemblyVersion="0.0.0.0", TestingAssemblyVersion=version,
-                     TestingDalamudApiLevel=manifest["DalamudApiLevel"], IsTestingExclusive=True, IsHide=False,
+        store.pop("TestingAssemblyVersion", None)
+        store.pop("TestingDalamudApiLevel", None)
+        store.update(AssemblyVersion=version, IsTestingExclusive=False, IsHide=False,
                      DownloadLinkInstall=download, DownloadLinkUpdate=download, DownloadLinkTesting=download,
                      LastUpdate=updated)
         (output / feed).write_text(json.dumps([store], ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -204,7 +205,7 @@ def package(root, build, output, tag=None):
     download = f"{REPOSITORY}/releases/download/{tag}/latest.zip"
     (output / "SHA256SUMS.txt").write_text("".join(checksums), encoding="utf-8")
     (output / "release-summary.json").write_text(json.dumps({"Tag": tag, "AssemblyVersion": version,
-        "InternalName": manifest["InternalName"], "Channel": "testing", "Archive": "latest.zip",
+        "InternalName": manifest["InternalName"], "Channel": "release", "Archive": "latest.zip",
         "DownloadUrl": download, "Files": sorted(payload), "LocalizedPackages": localized_packages}, indent=2) + "\n", encoding="utf-8")
     return output / "latest.zip"
 
@@ -215,4 +216,4 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=Path, default=ROOT / "artifacts/release")
     parser.add_argument("--tag", help="Optional release tag; must agree with the compiled manifest")
     args = parser.parse_args()
-    print("Public test package:", package(ROOT, args.build_dir, args.output, args.tag))
+    print("Public package:", package(ROOT, args.build_dir, args.output, args.tag))

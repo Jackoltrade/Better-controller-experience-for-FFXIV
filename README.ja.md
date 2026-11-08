@@ -4,7 +4,7 @@
 
 FFXIVのコントローラーに、好みのライトと振動を。スキルや敵の効果音、画面の揺れを振動で感じながら、ゲーム標準の機能も使えます。
 
-**公開テストプロジェクト · Windows x64 · Dalamud API 15**
+**Windows x64 · Dalamud API 15**
 
 ## 主な機能
 
@@ -23,14 +23,17 @@ XIVLauncherでDalamudを有効にして、ゲームを起動してください�
 2. 「Custom Plugin Repositories」に次のURLを貼り付け、**+**で追加します。追加した項目を有効にして、「Save and Close」で保存します。
 
    ```text
-   https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/releases/download/plugin-repository/pluginmaster-ja.json
+   https://raw.githubusercontent.com/Jackoltrade/Better-controller-experience-for-FFXIV/main/repo.json
    ```
 
-3. Dalamudの設定で「Get plugin testing builds」を有効にします。このリポジトリでは、現在テスト版を配布しています。
-4. `/xlplugins`で **Better controller experience for FFXIV** を検索し、「Install」を選びます。
-5. `/bcef`でプラグインの設定を開きます。
+3. `/xlplugins`で **Better controller experience for FFXIV** を検索し、「Install」を選びます。
+4. `/bcef`でプラグインの設定を開きます。
 
 更新は`/xlplugins`の「Update plugins」から行えます。開発用DLLを読み込んでいた場合は、そのコピーを無効にしてからリポジトリ版をインストールしてください。
+
+すべての表示言語で同じURLを使います。インストーラーの説明文は英語（中国語版ランチャーでは中国語）ですが、プラグインの画面は日本語にも対応しています。
+
+従来のリリース配布用リポジトリURLも引き続き使えます。メンテナー向けの手順は[Rawフィードの設定と更新](docs/RELEASING.md#raw-feed-setup-and-updates)をご覧ください。
 
 ## 振動のカーブ
 
@@ -77,7 +80,7 @@ XIVLauncherでDalamudを有効にして、ゲームを起動してください�
 
 診断タブと `/bcef trace` は、開発用プラグインとして読み込んだ場合のみ利用できます。通常のインストールでは「このプラグインについて → GitHub」から問題をご報告ください。開発用では、まず診断タブで接続や出力を確認してください。反応しない効果や意図しない振動は、直前に `/bcef trace` を実行し、再現後にもう一度実行して記録を止めます。音声は録音せず、診断情報の自動送信もしません。共有前に内容を確認してください。容量・保存先の確認や、確認画面を経ての削除も診断タブから行えます。
 
-テスト中のため、クライアント・パッチ・コントローラーによって対応状況が異なる場合があります。[ユーザーガイド](docs/USER-GUIDE.ja.md)、[対応範囲](docs/ENEMY-HAPTICS-COVERAGE.md)、[QAレポート](docs/QA-REPORT.md)をご覧ください。
+クライアント・パッチ・コントローラーによって対応状況が異なる場合があります。[ユーザーガイド](docs/USER-GUIDE.ja.md)、[対応範囲](docs/ENEMY-HAPTICS-COVERAGE.md)、[QAレポート](docs/QA-REPORT.md)をご覧ください。
 
 [Issue](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/issues/new)には、プラグイン／クライアントのバージョン、機種、接続方法、再現手順を添えてください。効果音の分類に関する問題は、短い記録があると調べやすくなります。
 

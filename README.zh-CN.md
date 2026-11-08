@@ -4,7 +4,7 @@
 
 给 FFXIV 加上自定义灯光和振动，让手柄体验更爽。自己的技能、敌方音效和镜头震动都能带来更丰富的手感，同时保留游戏原生手柄效果。
 
-**公开测试项目 · Windows x64 · Dalamud API 15**
+**Windows x64 · Dalamud API 15**
 
 ## 功能
 
@@ -23,14 +23,15 @@
 2. 在「自定义插件仓库（Custom Plugin Repositories）」中粘贴以下地址，点击 **+**，勾选启用，再「保存并关闭」：
 
    ```text
-   https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/releases/download/plugin-repository/pluginmaster.json
+   https://raw.githubusercontent.com/Jackoltrade/Better-controller-experience-for-FFXIV/main/repo.json
    ```
 
-3. 在 Dalamud 设置中开启「获取插件测试版本（Get plugin testing builds）」。此仓库目前提供测试版本。
-4. 输入 `/xlplugins`，搜索 **Better controller experience for FFXIV**，点击「安装」。
-5. 输入 `/bcef` 打开插件设置。
+3. 输入 `/xlplugins`，搜索 **Better controller experience for FFXIV**，点击「安装」。
+4. 输入 `/bcef` 打开插件设置。
 
 后续更新只需打开 `/xlplugins`，点击「更新插件」。如果之前通过开发插件流程加载过 DLL，请先停用开发版，再从仓库安装。
+
+所有界面语言共用这个仓库。之前使用的 release 仓库地址仍然有效。维护者可查看 [Raw 仓库的设置与更新步骤](docs/RELEASING.md#raw-feed-setup-and-updates)。
 
 ## 振动曲线
 
@@ -77,7 +78,7 @@ DualSense 触觉反馈和手柄扬声器效果需要 **USB** 连接，并在 FFX
 
 「诊断」和 `/bcef trace` 仅在通过开发插件流程加载时可用。普通安装遇到问题，可以从「关于 → GitHub」反馈；开发安装可先查看「诊断」。排查漏反应或乱振时，在效果出现前输入 `/bcef trace`，复现后再输一次停止记录。记录只包含诊断信息，不会录制音频或自动上传，分享前记得检查内容。诊断页可以查看容量、文件位置，并在确认后删除记录。
 
-本项目仍在测试，兼容性可能随客户端、补丁和手柄而变化。详见[使用指南](docs/USER-GUIDE.zh-CN.md)、[覆盖范围](docs/ENEMY-HAPTICS-COVERAGE.md)和 [QA 报告](docs/QA-REPORT.md)。
+兼容性可能随客户端、补丁和手柄而变化。详见[使用指南](docs/USER-GUIDE.zh-CN.md)、[覆盖范围](docs/ENEMY-HAPTICS-COVERAGE.md)和 [QA 报告](docs/QA-REPORT.md)。
 
 [提交问题](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/issues/new)时，请附插件／客户端版本、手柄型号、连接方式和复现步骤。音效归类问题可附一段简短记录。
 

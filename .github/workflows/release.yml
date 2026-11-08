@@ -1,4 +1,4 @@
-name: Publish an opt-in public test release
+name: Publish a public plugin release
 
 on:
   workflow_dispatch:
@@ -47,9 +47,9 @@ jobs:
         run: python -m unittest discover -s tests -p "test_release_workflow.py" -v
       - uses: actions/download-artifact@v8
         with:
-          name: public-test-package
+          name: public-plugin-package
           path: release
-      - name: Publish testing ZIP and update the installer feed
+      - name: Publish ZIP and update the installer feeds
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -58,9 +58,9 @@ jobs:
           set -euo pipefail
           if release_state=$(gh release view "$RELEASE_TAG" --json isPrerelease,isDraft --jq '[.isPrerelease, .isDraft] | @tsv' 2>/dev/null); then
             case "$release_state" in
-              $'true\ttrue') is_draft=true ;;
-              $'true\tfalse') is_draft=false ;;
-              *) echo 'Existing version release must be a prerelease.' >&2; exit 1 ;;
+              $'true\ttrue'|$'false\ttrue'|$'true\tfalse') finalize_release=true ;;
+              $'false\tfalse') finalize_release=false ;;
+              *) echo 'Invalid existing release state.' >&2; exit 1 ;;
             esac
             existing_assets=$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')
             compare_dir=$(mktemp -d)
@@ -79,12 +79,14 @@ jobs:
               fi
             done
             if ((${#missing[@]})); then gh release upload "$RELEASE_TAG" "${missing[@]}"; fi
-            if [ "$is_draft" = true ]; then gh release edit "$RELEASE_TAG" --draft=false --prerelease; fi
+            if [ "$finalize_release" = true ]; then
+              gh release edit "$RELEASE_TAG" --draft=false --prerelease=false
+            fi
           else
-            gh release create "$RELEASE_TAG" release/latest.zip release/latest-ja.zip release/SHA256SUMS.txt release/release-summary.json --verify-tag --prerelease --title "Better controller experience for FFXIV $RELEASE_TAG" --notes "Opt-in public test build. See the README for compatibility, installation and known limitations."
+            gh release create "$RELEASE_TAG" release/latest.zip release/latest-ja.zip release/SHA256SUMS.txt release/release-summary.json --verify-tag --title "Better controller experience for FFXIV $RELEASE_TAG" --notes "See the README for compatibility, installation and known limitations."
           fi
           if ! gh release view plugin-repository >/dev/null 2>&1; then
             target_sha=$(gh api "repos/$GH_REPO/commits/refs/tags/$RELEASE_TAG" --jq .sha)
-            gh release create plugin-repository --target "$target_sha" --prerelease --title "Testing plugin repository" --notes "Installer metadata for opt-in public test builds."
+            gh release create plugin-repository --target "$target_sha" --title "Plugin repository" --notes "Installer metadata for public plugin builds."
           fi
           gh release upload plugin-repository release/pluginmaster.json release/pluginmaster-ja.json --clobber
