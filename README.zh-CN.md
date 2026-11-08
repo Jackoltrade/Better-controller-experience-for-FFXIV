@@ -12,9 +12,25 @@
 - **战斗振动：** 玩家技能音效联动、Boss 技能、小怪技能和挨打时的振动可分别开关，共用方位与距离设置。
 - **画面特效：** 让手柄跟着镜头震动等画面效果一起振动。
 - **脚步增强：** 可增强 USB DualSense 的原生脚步振动。
-- **前后台切换：** 切出游戏时暂停额外效果，返回或重新连接后恢复。
 
 界面支持简体中文、英语和日语，设置自动保存。
+
+## 安装
+
+使用 XIVLauncher 启动游戏，并开启 Dalamud。
+
+1. 输入 `/xlsettings`，打开「实验性（Experimental）」页。
+2. 在「自定义插件仓库（Custom Plugin Repositories）」中粘贴以下地址，点击 **+**，勾选启用，再「保存并关闭」：
+
+   ```text
+   https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/releases/download/plugin-repository/pluginmaster.json
+   ```
+
+3. 在 Dalamud 设置中开启「获取插件测试版本（Get plugin testing builds）」。此仓库目前提供测试版本。
+4. 输入 `/xlplugins`，搜索 **Better controller experience for FFXIV**，点击「安装」。
+5. 输入 `/bcef` 打开插件设置。
+
+后续更新只需打开 `/xlplugins`，点击「更新插件」。如果之前通过开发插件流程加载过 DLL，请先停用开发版，再从仓库安装。
 
 ## 振动曲线
 
@@ -22,7 +38,9 @@
 
 ![默认设置下的振动响应曲线](docs/assets/haptics-curves.svg)
 
-[下载交互曲线](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/raw/refs/heads/main/docs/haptics-curves.html)，用浏览器打开 HTML 文件，就能用图表下方的滑块试试强度、脚步增强、距离衰减、左右手感和振动时长。页面为英文，支持离线使用，不会改动插件设置。GitHub 的 README 不支持直接操作这些滑块。
+[**打开交互曲线 →**](https://jackoltrade.github.io/Better-controller-experience-for-FFXIV/)
+
+选一条曲线，拖动下方滑块，就能看到设置如何影响振动；悬停或点击图表可查看具体数值。页面为英文，直接在浏览器中使用，无需下载，也不会改动插件设置。
 
 ## 支持的手柄
 

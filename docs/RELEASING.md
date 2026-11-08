@@ -107,6 +107,23 @@ After publishing, fetch the public feed and ZIP in a fresh session, verify the c
 
 Upload the verified ZIP, checksum and summary to a GitHub prerelease for the matching tag. Upload `pluginmaster.json` as the `plugin-repository` release's asset, replacing its previous copy. Keep the source tag available for GPL correspondence. Check all three user guides' links and install through the public feed before announcing the release.
 
+## Interactive documentation
+
+The README links to the browser-based curve explorer at
+`https://jackoltrade.github.io/Better-controller-experience-for-FFXIV/`.
+GitHub's README renderer removes scripts, so the interactive controls run on
+GitHub Pages rather than inside the README.
+
+Enable hosting once in **Settings → Pages → Build and deployment → Source →
+GitHub Actions**. After these changes are committed and pushed to `main`,
+**Publish interactive documentation** stages `docs/haptics-curves.html` as the
+site's `index.html` and deploys it. Future changes to that page or its Pages
+workflow deploy automatically. The workflow can also be run manually on `main`.
+
+After the first successful deployment, open the site and check the curve picker,
+sliders and hover details. The page is self-contained and needs no build tools
+or external runtime downloads. See [GitHub Pages configuration](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site).
+
 ## Compatibility and review
 
 USB lighting uses the standard DualSense report. Audio, camera and LB integration depend on native game layouts and must be tested after patches. Current historical in-game evidence is documented in [development notes](DEVELOPMENT-NOTES.md); the latest QA report distinguishes that evidence from current tests and pending checks.

@@ -12,9 +12,25 @@ Custom controller lighting and vibration for Final Fantasy XIV. Feel skills, ene
 - **Combat haptics:** separate player, boss, regular-enemy and hit-reaction controls, with shared direction and distance settings.
 - **Screen effects:** vibration follows camera shake and other visual effects.
 - **Footsteps:** optional amplification of native USB DualSense footsteps.
-- **Background protection:** added effects pause when you switch apps and resume when you return or reconnect.
 
 The interface supports English, Simplified Chinese and Japanese. Settings save automatically.
+
+## Installation
+
+Use XIVLauncher with Dalamud enabled.
+
+1. Run `/xlsettings` and open **Experimental**.
+2. Under **Custom Plugin Repositories**, add this URL with **+**, enable the entry, then **Save and Close**:
+
+   ```text
+   https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/releases/download/plugin-repository/pluginmaster.json
+   ```
+
+3. Enable **Get plugin testing builds** in Dalamud settings. This repository currently provides testing builds.
+4. Run `/xlplugins`, search for **Better controller experience for FFXIV**, and click **Install**.
+5. Open `/bcef` to configure the plugin.
+
+For updates, open `/xlplugins` and click **Update plugins**. If you previously loaded the development DLL, disable that copy before installing from the repository.
 
 ## Vibration curves
 
@@ -22,7 +38,9 @@ Player and enemy effects scale with their sound; screen effects use a stronger r
 
 ![Vibration response curves at default settings](docs/assets/haptics-curves.svg)
 
-[Download the interactive curves](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/raw/refs/heads/main/docs/haptics-curves.html), then open the HTML file in your browser. Choose a curve and use the sliders below it to explore strength, footsteps, distance fade, grip separation and rumble duration. It works offline and does not change your plugin settings. GitHub READMEs cannot run interactive controls directly.
+[**Open the interactive curves →**](https://jackoltrade.github.io/Better-controller-experience-for-FFXIV/)
+
+Choose a curve, adjust the sliders below it, and hover or tap for exact values. No download is needed, and changes do not affect your plugin settings.
 
 ## Controllers
 

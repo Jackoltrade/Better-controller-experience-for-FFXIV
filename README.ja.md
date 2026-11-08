@@ -12,9 +12,25 @@ FFXIVのコントローラーに、好みのライトと振動を。スキルや
 - **戦闘振動：** 自分・ボス・通常の敵・被ダメージ時の振動を個別に切り替え、方向と距離の設定を共有します。
 - **画面エフェクト：** カメラの揺れなどの視覚効果に合わせて振動します。
 - **足音の強化：** USB DualSenseの標準の足音振動を強められます。
-- **アプリ切り替え対応：** ゲームを離れると追加効果を停止し、戻ったときや再接続時に再開します。
 
 表示言語は日本語・英語・簡体字中国語。設定は自動保存されます。
+
+## インストール
+
+XIVLauncherでDalamudを有効にして、ゲームを起動してください。
+
+1. `/xlsettings`を実行し、「Experimental」タブを開きます。
+2. 「Custom Plugin Repositories」に次のURLを貼り付け、**+**で追加します。追加した項目を有効にして、「Save and Close」で保存します。
+
+   ```text
+   https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/releases/download/plugin-repository/pluginmaster-ja.json
+   ```
+
+3. Dalamudの設定で「Get plugin testing builds」を有効にします。このリポジトリでは、現在テスト版を配布しています。
+4. `/xlplugins`で **Better controller experience for FFXIV** を検索し、「Install」を選びます。
+5. `/bcef`でプラグインの設定を開きます。
+
+更新は`/xlplugins`の「Update plugins」から行えます。開発用DLLを読み込んでいた場合は、そのコピーを無効にしてからリポジトリ版をインストールしてください。
 
 ## 振動のカーブ
 
@@ -22,7 +38,9 @@ FFXIVのコントローラーに、好みのライトと振動を。スキルや
 
 ![初期設定の振動カーブ](docs/assets/haptics-curves.svg)
 
-[操作できるカーブをダウンロード](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/raw/refs/heads/main/docs/haptics-curves.html)して、HTMLファイルをブラウザーで開いてください。グラフの下のスライダーで、強さ・足音・距離減衰・左右の振り分け・振動時間を試せます。ページは英語で、オフラインでも使えます。プラグインの設定は変更しません。GitHubのREADME上では、スライダーを直接操作できません。
+[**操作できるカーブを開く →**](https://jackoltrade.github.io/Better-controller-experience-for-FFXIV/)
+
+カーブを選び、下のスライダーを動かすと、設定による違いを確認できます。グラフにカーソルを合わせるかタップすると、数値も表示されます。ページは英語で、ダウンロードせずにブラウザーで使えます。プラグインの設定は変更しません。
 
 ## 対応コントローラー
 
