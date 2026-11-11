@@ -30,19 +30,24 @@ internal sealed unsafe class NativeHapticOutput
     private ActiveImpact? activeImpact;
     private HapticListenerPose? listener;
     private float[]? stereo8, stereo16;
+#if BCEF_DIAGNOSTICS
     private long mixedBlocks, preservedNativeBlocks;
     private long spatialBlocks, unpositionedBlocks, spatialTime;
     private long suppressedBlocks, cutoffBlocks, biasedBlocks;
     private long footstepBlocks;
     private long bossBlocks, regularEnemyBlocks, hitReactionBlocks;
+#endif
     private int enemyContext;
     private int footstepContext;
+#if BCEF_DIAGNOSTICS
     private float spatialLeft, spatialRight, spatialDistance, spatialPan;
+#endif
     private int available, faulted;
     private HapticEnableCue? enableCue;
     private sealed record ScreenFrame(ScreenEffectSample Sample, HapticSettings Settings);
     private ScreenFrame? screenFrame;
     private readonly ScreenEffectHaptics screenRenderer = new();
+#if BCEF_DIAGNOSTICS
     private long screenBlocks, screenSuppressedBlocks;
     public readonly record struct ScreenMixSnapshot(long Clock, long SourceTimestamp, int InputCount,
         float GripPeak, float OtherPeak, bool InputInvalid, float Headroom, int LimitedFrames, float OutputPeak,
@@ -51,6 +56,7 @@ internal sealed unsafe class NativeHapticOutput
     public ScreenMixSnapshot LastScreenMix { get; private set; }
     public long ScreenBlocks => Interlocked.Read(ref screenBlocks);
     public long ScreenSuppressedBlocks => Interlocked.Read(ref screenSuppressedBlocks);
+#endif
     public bool ScreenEffectsActive => !Faulted && Volatile.Read(ref screenSettings) is { ScreenEffects: true, ScreenStrength: > 0 };
     public ScreenEffectSample? ScreenSample => Volatile.Read(ref screenFrame)?.Sample;
 
@@ -65,17 +71,22 @@ internal sealed unsafe class NativeHapticOutput
         get { var current = Volatile.Read(ref settings); return !Faulted && current.FootstepAmplifier &&
             current.FootstepMultiplier > 1 && Volatile.Read(ref footstepContext) != 0; }
     }
+#if BCEF_DIAGNOSTICS
     public bool FootstepContextReady => Volatile.Read(ref footstepContext) != 0;
     public long FootstepBlocks => Interlocked.Read(ref footstepBlocks);
     public long BossBlocks => Interlocked.Read(ref bossBlocks);
     public long RegularEnemyBlocks => Interlocked.Read(ref regularEnemyBlocks);
+#endif
     public bool EnemiesActive => !Faulted && Volatile.Read(ref enemyContext) != 0 &&
         Volatile.Read(ref settings) is { EnemiesEnabled: true, EnemyStrength: > 0 };
     public bool HitReactionsActive => !Faulted && Volatile.Read(ref enemyContext) != 0 &&
         Volatile.Read(ref settings) is { HitReactions: true, EnemyStrength: > 0 };
+#if BCEF_DIAGNOSTICS
     public long HitReactionBlocks => Interlocked.Read(ref hitReactionBlocks);
+#endif
     public bool Available => Volatile.Read(ref available) != 0;
     public bool Faulted => Volatile.Read(ref faulted) != 0;
+#if BCEF_DIAGNOSTICS
     public long MixedBlocks => Interlocked.Read(ref mixedBlocks);
     public long PreservedNativeBlocks => Interlocked.Read(ref preservedNativeBlocks);
     public long SpatialBlocks => Interlocked.Read(ref spatialBlocks);
@@ -83,6 +94,7 @@ internal sealed unsafe class NativeHapticOutput
     public long SuppressedBlocks => Interlocked.Read(ref suppressedBlocks);
     public long CutoffBlocks => Interlocked.Read(ref cutoffBlocks);
     public long BiasedBlocks => Interlocked.Read(ref biasedBlocks);
+#endif
     public HapticSettings CurrentSettings => Volatile.Read(ref settings);
     public HapticSettings ScreenSettings => Volatile.Read(ref screenSettings);
     public HapticImpactCue? ImpactCue
@@ -108,10 +120,12 @@ internal sealed unsafe class NativeHapticOutput
     {
         get { var pose = Volatile.Read(ref listener); return pose != null && Stopwatch.GetTimestamp() - pose.Timestamp <= Stopwatch.Frequency / 2 ? pose : null; }
     }
+#if BCEF_DIAGNOSTICS
     public bool ListenerReady => Listener != null;
     public HapticSpatialFrame LastSpatial => Stopwatch.GetTimestamp() - Interlocked.Read(ref spatialTime) <= Stopwatch.Frequency / 3
         ? new(true, Volatile.Read(ref spatialPan), Volatile.Read(ref spatialDistance), Volatile.Read(ref spatialLeft), Volatile.Read(ref spatialRight)) : default;
 
+#endif
     public void SetSpatialMatrices(float[] bed, float[] ambisonic) { stereo8 = bed; stereo16 = ambisonic; }
     public void SetListener(HapticListenerPose? pose) => Volatile.Write(ref listener, pose);
     public void SetEnemyContext(bool allowed)
@@ -157,7 +171,9 @@ internal sealed unsafe class NativeHapticOutput
                 Volatile.Write(ref screenFrame, null);
             }
             Volatile.Write(ref settings, effective);
+#if BCEF_DIAGNOSTICS
             Interlocked.Exchange(ref spatialTime, 0);
+#endif
             ResetImpactCue();
             ResetRumbleSignals();
         }
@@ -212,6 +228,7 @@ internal sealed unsafe class NativeHapticOutput
     {
         var frame = Volatile.Read(ref screenFrame);
         var current = Volatile.Read(ref screenSettings);
+#if BCEF_DIAGNOSTICS
         var snapshot = new ScreenMixSnapshot(now, frame?.Sample.Timestamp ?? 0, -1, 0, 0, false, 1, 0, 0, 0, false, "quiet");
         void Record(string state, float level = 0, bool mixed = false)
         {
@@ -222,53 +239,103 @@ internal sealed unsafe class NativeHapticOutput
             !ScreenEffectsActive ? "disabled" : frame == null ? "quiet" :
             destination == 0 || destination != FindVibrationDestination() ? "invalid-destination" :
             !ReferenceEquals(frame.Settings, current) ? "settings-changed" : null;
-        if (guard != null) { screenRenderer.Reset(); Record(guard); return; }
-        var sample = frame!.Sample;
+#endif
+        if (UsesRumble || !foreground || !layoutSupported || !ScreenEffectsActive || frame == null ||
+            destination == 0 || destination != FindVibrationDestination() || !ReferenceEquals(frame.Settings, current))
+        {
+            screenRenderer.Reset();
+#if BCEF_DIAGNOSTICS
+            Record(guard!);
+#endif
+            return;
+        }
+        var sample = frame.Sample;
         var level = ScreenEffectHaptics.Amplitude(sample, now, current.ScreenStrength);
         if (level <= 0)
         {
             screenRenderer.Reset();
+#if BCEF_DIAGNOSTICS
             Record(now < sample.Timestamp ? "future" : now - sample.Timestamp > ScreenEffectHaptics.FreshTicks ? "stale" :
                 sample.ExpiresAt > 0 && now >= sample.ExpiresAt ? "expired" : "quiet");
+#endif
             return;
         }
-        // Read only the current native block. Source identities, input counts
-        // and previous sounds never decide whether the camera may respond.
+        // Validate the current native block even when diagnostic peaks are compiled out.
         var count = *(short*)(destination + 0x122);
+#if BCEF_DIAGNOSTICS
         snapshot = snapshot with { InputCount = count };
-        if (count < 0) { screenRenderer.Reset(); Record("invalid-native-input", level); return; }
+#endif
+        if (count < 0)
+        {
+            screenRenderer.Reset();
+#if BCEF_DIAGNOSTICS
+            Record("invalid-native-input", level);
+#endif
+            return;
+        }
         ReadOnlySpan<float> nativeInput = default;
         if (count > 0)
         {
             var input = *(float**)(destination + 0x80);
             if (input == null || *(int*)(destination + 0x88) < ScreenEffectHaptics.Frames)
-            { screenRenderer.Reset(); Record("invalid-native-input", level); return; }
+            {
+                screenRenderer.Reset();
+#if BCEF_DIAGNOSTICS
+                Record("invalid-native-input", level);
+#endif
+                return;
+            }
             nativeInput = new(input, ScreenEffectHaptics.Frames * ScreenEffectHaptics.Channels);
+#if BCEF_DIAGNOSTICS
             var gripPeak = 0f; var otherPeak = 0f;
+#endif
             for (var index = 0; index < nativeInput.Length; index++)
             {
                 var value = nativeInput[index];
                 if (!float.IsFinite(value))
                 {
+                    screenRenderer.Reset();
+#if BCEF_DIAGNOSTICS
                     snapshot = snapshot with { InputInvalid = true };
-                    screenRenderer.Reset(); Record("invalid-native-input", level); return;
+                    Record("invalid-native-input", level);
+#endif
+                    return;
                 }
+#if BCEF_DIAGNOSTICS
                 if (index % ScreenEffectHaptics.Channels < 2) gripPeak = Math.Max(gripPeak, Math.Abs(value));
                 else otherPeak = Math.Max(otherPeak, Math.Abs(value));
+#endif
             }
+#if BCEF_DIAGNOSTICS
             snapshot = snapshot with { GripPeak = gripPeak, OtherPeak = otherPeak };
+#endif
         }
         Span<float> samples = stackalloc float[ScreenEffectHaptics.Frames * ScreenEffectHaptics.Channels];
         var rendered = screenRenderer.Render(samples, level, sample.Texture, nativeInput);
+#if BCEF_DIAGNOSTICS
         snapshot = snapshot with { Headroom = screenRenderer.MinimumHeadroom, LimitedFrames = screenRenderer.LimitedFrames,
             OutputPeak = screenRenderer.OutputPeak };
-        if (!rendered) { Record("headroom", level); return; }
+#endif
+        if (!rendered)
+        {
+#if BCEF_DIAGNOSTICS
+            Record("headroom", level);
+#endif
+            return;
+        }
         if (!ReferenceEquals(current, Volatile.Read(ref screenSettings)) || !ReferenceEquals(frame, Volatile.Read(ref screenFrame)))
-        { Record("settings-changed", level); return; }
+        {
+#if BCEF_DIAGNOSTICS
+            Record("settings-changed", level);
+#endif
+            return;
+        }
         fixed (float* pcm = samples)
             ((delegate* unmanaged<nint, float*, uint, float, uint, void>)mixIn)(destination, pcm, ScreenEffectHaptics.Frames, 1, 0);
+#if BCEF_DIAGNOSTICS
         Interlocked.Increment(ref screenBlocks);
         Record("mixed", level, true);
+#endif
     }
 
     public void MixEnableCue(nint destination, bool foreground, bool layoutSupported)
@@ -326,7 +393,11 @@ internal sealed unsafe class NativeHapticOutput
         if (combatGain <= 0 && !footstepCandidate)
         {
             if ((current.Enabled && owned || enemy != EnemySoundKind.None) && (flags & 0xE) != 0)
-            { Interlocked.Increment(ref preservedNativeBlocks); return new(0, current, 0, Route: HapticRoute.Native); }
+            {
+#if BCEF_DIAGNOSTICS
+                Interlocked.Increment(ref preservedNativeBlocks);
+#endif
+ return new(0, current, 0, Route: HapticRoute.Native); }
             return default;
         }
         var pose = Listener;
@@ -340,7 +411,11 @@ internal sealed unsafe class NativeHapticOutput
             Volatile.Write(ref available, 1);
             if (!rumble && GameAudioLayout.TryGetSendGain(voice, destination, out var nativeGain))
             {
+
+#if BCEF_DIAGNOSTICS
                 Interlocked.Increment(ref preservedNativeBlocks);
+#endif
+
                 var extraGain = footstepCandidate ? current.NativeFootstepExtraGain(bus, true, nativeGain) : 0;
                 return extraGain > 0 ? new(destination, current, extraGain, Route: HapticRoute.NativeFootstep,
                     SoundId: soundId, Epoch: epoch) : new(0, current, 0, Route: HapticRoute.Native);
@@ -350,7 +425,11 @@ internal sealed unsafe class NativeHapticOutput
             if (current.DistanceFalloff && (!SpatialSupported || !position.HasValue ||
                 !HapticSpatializer.ValidPosition(position.Value) || pose == null))
             {
+
+#if BCEF_DIAGNOSTICS
                 Interlocked.Increment(ref suppressedBlocks);
+#endif
+
                 return new(0, current, 0, Route: !SpatialSupported ? HapticRoute.SpatialUnavailable :
                     !position.HasValue || !HapticSpatializer.ValidPosition(position.Value) ? HapticRoute.MissingPosition : HapticRoute.MissingListener);
             }
@@ -360,7 +439,11 @@ internal sealed unsafe class NativeHapticOutput
             var spatial = (current.Spatial || current.DistanceFalloff) && SpatialSupported && position.HasValue
                 ? HapticSpatializer.Evaluate(current, pose, position.Value, Stopwatch.GetTimestamp(), distancePosition, animation) : default;
             if (current.DistanceFalloff && !spatial.Valid)
-            { Interlocked.Increment(ref suppressedBlocks); return new(0, current, 0, Route: HapticRoute.MissingListener); }
+            {
+#if BCEF_DIAGNOSTICS
+                Interlocked.Increment(ref suppressedBlocks);
+#endif
+ return new(0, current, 0, Route: HapticRoute.MissingListener); }
             var biased = false;
             if (owned && !hitReaction && current.Spatial && spatial.Valid && pose != null && position.HasValue && ImpactCue is { } impact)
             {
@@ -370,7 +453,11 @@ internal sealed unsafe class NativeHapticOutput
             }
             if (spatial.Valid && spatial.Left <= 0 && spatial.Right <= 0)
             {
+
+#if BCEF_DIAGNOSTICS
                 Interlocked.Increment(ref cutoffBlocks);
+#endif
+
                 return new(0, current, 0, spatial, HapticRoute.DistanceCutoff);
             }
             return new(destination, current, combatGain, spatial, spatial.Valid
@@ -382,20 +469,22 @@ internal sealed unsafe class NativeHapticOutput
         return default;
     }
 
-    public void Mix(Frame frame, float* scratch, int sampleCount, uint format)
+    public float? Mix(Frame frame, float* scratch, int sampleCount, uint format)
     {
         if (!frame.HasOutput || frame.Rumble != UsesRumble || scratch == null || sampleCount <= 0 || frame.Gain <= 0 ||
             !ReferenceEquals(frame.Settings, Volatile.Read(ref settings)) ||
             !ReferenceEquals(frame.Epoch, Volatile.Read(ref impactEpoch)) || !Active ||
             frame.Enemy != EnemySoundKind.None && !EnemiesActive ||
             frame.HitReaction && !HitReactionsActive ||
-            frame.Route == HapticRoute.NativeFootstep && !FootstepsActive) return;
+            frame.Route == HapticRoute.NativeFootstep && !FootstepsActive) return null;
+        float? measured = null;
         try
         {
             // Validate the complete block before adding it. MixIn reads the same
             // processed samples as native sends; it does not modify this buffer.
             var rms = SfxLoudness.MeasureRms(new ReadOnlySpan<float>(scratch, sampleCount));
-            if (rms <= 0) return;
+            measured = rms;
+            if (rms <= 0) return rms;
             if (frame.Rumble)
             {
                 Span<float> level = stackalloc float[1];
@@ -414,36 +503,45 @@ internal sealed unsafe class NativeHapticOutput
                     var output = stackalloc float[2048];
                     var matrix = sampleCount == 4096 ? stereo16 : stereo8;
                     if (matrix == null || !HapticSpatializer.Render(new ReadOnlySpan<float>(scratch, sampleCount), matrix,
-                        new Span<float>(output, 2048), frame.Spatial)) return;
+                        new Span<float>(output, 2048), frame.Spatial)) return rms;
                     ((delegate* unmanaged<nint, float*, uint, float, uint, void>)mixIn)(frame.Destination, output, 256, frame.Gain, 0);
                 }
+#if BCEF_DIAGNOSTICS
                 Interlocked.Increment(ref spatialBlocks);
                 if (frame.Biased) Interlocked.Increment(ref biasedBlocks);
+#endif
                 if (frame.Enemy == EnemySoundKind.None && !frame.HitReaction && frame.Settings is { Spatial: true, FollowImpact: true } && frame.Source is { } point && Listener is { } pose)
                 {
                     var offset = point - pose.Origin;
                     if (new Vector2(offset.X, offset.Z).Length() >= 0.75f)
                         impacts.Observe(frame.Epoch!, frame.SoundId, point, rms, Stopwatch.GetTimestamp());
                 }
+#if BCEF_DIAGNOSTICS
                 Volatile.Write(ref spatialLeft, frame.Spatial.Left * frame.Gain);
                 Volatile.Write(ref spatialRight, frame.Spatial.Right * frame.Gain);
                 Volatile.Write(ref spatialDistance, frame.Spatial.Distance);
                 Volatile.Write(ref spatialPan, frame.Spatial.Pan);
                 Interlocked.Exchange(ref spatialTime, Stopwatch.GetTimestamp());
+#endif
             }
             else
             {
                 if (!frame.Rumble)
                     ((delegate* unmanaged<nint, float*, uint, float, uint, void>)mixIn)(frame.Destination, scratch, 256, frame.Gain, format);
+#if BCEF_DIAGNOSTICS
                 if (frame.Route != HapticRoute.NativeFootstep && frame.Settings?.Spatial == true)
                     Interlocked.Increment(ref unpositionedBlocks);
+#endif
             }
+#if BCEF_DIAGNOSTICS
             if (frame.Route == HapticRoute.NativeFootstep) Interlocked.Increment(ref footstepBlocks);
             else Interlocked.Increment(ref mixedBlocks);
             if (frame.Enemy == EnemySoundKind.Boss) Interlocked.Increment(ref bossBlocks);
             else if (frame.Enemy == EnemySoundKind.Regular) Interlocked.Increment(ref regularEnemyBlocks);
             if (frame.HitReaction) Interlocked.Increment(ref hitReactionBlocks);
+#endif
         }
         catch { Interlocked.Exchange(ref faulted, 1); Configure(new HapticSettings(), false, false); }
+        return measured;
     }
 }

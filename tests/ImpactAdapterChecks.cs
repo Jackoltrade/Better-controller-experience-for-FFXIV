@@ -99,7 +99,7 @@ internal static class ImpactAdapterChecks
         }
         finally { scopeField.SetValue(null, original); }
         CheckSelfTargetedTimeline(check, plugin);
-        CheckTraceSerialization(check, plugin, impact);
+        if (ProductionBoundaryChecks.Diagnostics(plugin)) CheckTraceSerialization(check, plugin, impact);
     }
 
     private static unsafe void CheckSelfTargetedTimeline(Action<bool, string> check, Assembly plugin)

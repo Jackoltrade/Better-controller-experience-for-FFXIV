@@ -2,14 +2,16 @@
 // Read-only action/timeline bindings adapted from FFXIVClientStructs; see THIRD-PARTY-NOTICES.txt.
 #nullable enable
 using System;
+#if BCEF_DIAGNOSTICS
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Diagnostics;
+using System.Text;
+#endif
+using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Threading;
-using System.Text;
 using Dalamud.Hooking;
 using Dalamud.Plugin.Services;
 using DualSenseLighting.Core;
@@ -33,6 +35,9 @@ internal sealed unsafe class EnemySkillFilter : IDisposable
     public string? EffectBindingError { get; }
     public bool EffectBindingSupported => Ready && effects != null;
     private int faulted, disposed;
+    private int impactDistance;
+    public void SetImpactDistance(bool value) => Volatile.Write(ref impactDistance, value ? 1 : 0);
+#if BCEF_DIAGNOSTICS
     private long skills, autoAttacks, unknown;
     public long Skills => Interlocked.Read(ref skills);
     public long AutoAttacks => Interlocked.Read(ref autoAttacks);
@@ -50,14 +55,12 @@ internal sealed unsafe class EnemySkillFilter : IDisposable
     public void ClearRecordedKeys()
     { recordedKeys.Clear(); effectOwners.Clear(); effectClips.Clear(); actionResults.Clear(); traceClock.Restart(); }
     private int tracing;
-    private int impactDistance;
     private readonly Stopwatch traceClock = new();
     public sealed record ActionResult(double Seconds, string Caster, uint CasterEntityId, uint ActionId, uint Sequence,
         ulong AnimationTargetId, ulong[] Targets, bool AreaTarget, Vector3? NativeTargetPosition, HapticImpactPosition? Impact);
     private readonly ConcurrentDictionary<uint, ActionResult> actionResults = new();
     public ActionResult[] ActionResults => actionResults.Values.ToArray();
     public void SetTracing(bool value) => Volatile.Write(ref tracing, value ? 1 : 0);
-    public void SetImpactDistance(bool value) => Volatile.Write(ref impactDistance, value ? 1 : 0);
     public void RecordEffectClip(nint clip, GameAudioLayout.PlayerIdentity? caster, EnemyActionTag tag)
     {
         if (caster == null || ownership.ActorOf(caster)?.Kind is not (EnemySoundKind.Boss or EnemySoundKind.Regular)) return;
@@ -108,10 +111,12 @@ internal sealed unsafe class EnemySkillFilter : IDisposable
         fixed (byte* data = bytes)
             return ReadProcessMemory(-1, address, data, (nuint)size, out var read) && read == (nuint)size ? bytes : null;
     }
+#endif
     private readonly record struct ActionScope(GameAudioLayout.PlayerIdentity? Caster, EnemyActionTag Tag,
         GameAudioLayout.PlayerIdentity? HitPlayer = null, HapticImpactPosition? Impact = null);
     [ThreadStatic] private static ActionScope currentAction;
 
+#if BCEF_DIAGNOSTICS
     // Diagnostics only: exact synchronous action context at a native sound
     // acquisition. It is evidence to inspect, never a fallback audio owner.
     public (nint Actor, uint Entity, EnemyActionTag Action) DiagnosticScope
@@ -123,6 +128,7 @@ internal sealed unsafe class EnemySkillFilter : IDisposable
             return source is { } actor ? (actor.Actor, actor.EntityId, scope.Tag) : default;
         }
     }
+#endif
     public bool Ready => Volatile.Read(ref faulted) == 0 && Volatile.Read(ref disposed) == 0;
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -243,7 +249,10 @@ internal sealed unsafe class EnemySkillFilter : IDisposable
                 new ReadOnlySpan<byte>((void*)timeline, GameAudioLayout.TargetedTimelineBytes), ownerIndex);
     }
 
-    public EnemyActionTag Timeline(nint timeline, nint table, GameAudioLayout.PlayerIdentity caster, bool tracing,
+    public EnemyActionTag Timeline(nint timeline, nint table, GameAudioLayout.PlayerIdentity caster,
+#if BCEF_DIAGNOSTICS
+        bool tracing,
+#endif
         out bool selfTargetedExecution, int ownerIndex, nint clip = 0)
     {
         selfTargetedExecution = false;
@@ -260,12 +269,18 @@ internal sealed unsafe class EnemySkillFilter : IDisposable
         var length = text.IndexOf((byte)0);
         if (length <= 0) return default;
         var player = ReferenceEquals(caster, ownership.Player);
+#if BCEF_DIAGNOSTICS
         if (tracing && recordedKeys.Count < 64)
             recordedKeys.TryAdd((player ? "player:" : "enemy:") + Encoding.UTF8.GetString(text[..length]), 0);
+#endif
         var reaction = player ? catalog.PlayerTimelineKey(text[..length]) : default;
         var tag = reaction.IsHitReaction ? reaction : catalog.TimelineKey(text[..length], player ? null : caster);
         var binding = GameAudioLayout.ClipSoundBinding(clip, actorVtable, casterOriginSupported);
-        selfTargetedExecution = (tracing || Volatile.Read(ref impactDistance) != 0) &&
+        selfTargetedExecution = (
+#if BCEF_DIAGNOSTICS
+            tracing ||
+#endif
+            Volatile.Read(ref impactDistance) != 0) &&
             EnemySkillCatalog.CanUseAnimationFallback(tag, binding) && SelfTargetedTimeline(timeline, table, ownerIndex);
         if (player) return tag with { Binding = binding };
         var source = ownership.ActorOf(caster);
@@ -283,15 +298,21 @@ internal sealed unsafe class EnemySkillFilter : IDisposable
             var targets = targetIds != 0 && count is >= 1 and <= 32
                 ? new ReadOnlySpan<ulong>((void*)targetIds, count) : default;
             var area = areaActions.Contains(header->ActionId);
+#if BCEF_DIAGNOSTICS
             var recording = Volatile.Read(ref tracing) != 0;
             Vector3? point = targetPosition != 0 && (area || recording) ? *(Vector3*)targetPosition : null;
+#else
+            Vector3? point = targetPosition != 0 && area ? *(Vector3*)targetPosition : null;
+#endif
             var impact = tag.IsSkill ? HapticImpactPosition.FromAction(header->ActionId, header->GlobalSequence,
                 area, point, header->AnimationTargetId, targets, this.targetPosition, casterEntityId) : null;
+#if BCEF_DIAGNOSTICS
             if (recording && actionResults.Count < 1024)
                 actionResults.TryAdd(header->GlobalSequence, new(traceClock.Elapsed.TotalSeconds,
                     $"{caster:X}", casterEntityId, header->ActionId, header->GlobalSequence,
                     header->AnimationTargetId, targets.ToArray(), area,
                     point is { } p && HapticSpatializer.ValidPosition(p) ? p : null, impact));
+#endif
             return impact;
         }
         catch { return null; }
@@ -309,7 +330,11 @@ internal sealed unsafe class EnemySkillFilter : IDisposable
                 if (identity != null && identity.EntityId == casterEntityId)
                 {
                     currentAction = new(identity, catalog.Action(header->ActionId, header->ActionType));
-                    if (Volatile.Read(ref impactDistance) != 0 || Volatile.Read(ref tracing) != 0)
+                    if (Volatile.Read(ref impactDistance) != 0
+#if BCEF_DIAGNOSTICS
+                        || Volatile.Read(ref tracing) != 0
+#endif
+                       )
                         currentAction = currentAction with
                         { Impact = ReadImpact(casterEntityId, caster, targetPosition, header, targetIds, currentAction.Tag) };
                     if (!ReferenceEquals(identity, ownership.Player))
@@ -321,9 +346,11 @@ internal sealed unsafe class EnemySkillFilter : IDisposable
                             GameAudioLayout.PlayerSoundOwnership.HitsPlayer(player.EntityId,
                                 new ReadOnlySpan<ulong>((void*)targetIds, count), new ReadOnlySpan<byte>((void*)effects, count * 64)))
                             currentAction = currentAction with { HitPlayer = player };
+#if BCEF_DIAGNOSTICS
                         if (currentAction.Tag.Kind == EnemyActionKind.Skill) Interlocked.Increment(ref skills);
                         else if (currentAction.Tag.Kind == EnemyActionKind.AutoAttack) Interlocked.Increment(ref autoAttacks);
                         else Interlocked.Increment(ref unknown);
+#endif
                     }
                 }
             }

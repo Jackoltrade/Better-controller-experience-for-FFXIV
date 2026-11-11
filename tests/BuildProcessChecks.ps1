@@ -100,7 +100,31 @@ public static class BuildProcessProbe {
     Check $failed 'A failed process start did not stop the build'
 
     $parameters = @($ast.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath })
-    Check (($parameters -join ',') -eq 'DalamudLibPath,Probe,DotnetPath,LockedRestore') 'SDK build parameters changed'
+    Check (($parameters -join ',') -eq 'DalamudLibPath,Probe,DotnetPath,LockedRestore,Development') 'SDK build parameters changed'
+    $flavorNames = @('flavor', 'diagnostics', 'pluginOutput', 'publishOutput', 'pluginIntermediate', 'buildProperties')
+    $flavorStatements = @($ast.EndBlock.Statements | Where-Object {
+        $_ -is [Management.Automation.Language.AssignmentStatementAst] -and
+        $_.Left -is [Management.Automation.Language.VariableExpressionAst] -and
+        $_.Left.VariablePath.UserPath -in $flavorNames
+    })
+    Check ($flavorStatements.Count -eq $flavorNames.Count) 'Build flavor declarations are incomplete'
+    foreach ($development in @($false, $true)) {
+        & {
+            param($Statements, $Development)
+            $projectRoot = $temporary
+            $DalamudLibPath = Join-Path $temporary 'fixture Dalamud libraries'
+            foreach ($statement in $Statements) { . ([scriptblock]::Create($statement.Extent.Text)) }
+            $expectedFlavor = if ($Development) { 'development' } else { 'production' }
+            $expectedDiagnostics = if ($Development) { 'true' } else { 'false' }
+            $expectedPublish = if ($Development) { 'artifacts\dev-plugin' } else { 'artifacts\plugin' }
+            Check ($flavor -ceq $expectedFlavor -and $diagnostics -ceq $expectedDiagnostics) 'Build flavor or diagnostics default changed'
+            Check ($pluginOutput -ceq (Join-Path $temporary "artifacts\build\$expectedFlavor")) 'Build flavor lost its isolated output'
+            Check ($publishOutput -ceq (Join-Path $temporary $expectedPublish)) 'Development build can overwrite the public staging directory'
+            Check ($pluginIntermediate -ceq (Join-Path $temporary "artifacts\obj\$expectedFlavor\")) 'Build flavors share intermediate compiler state'
+            Check ($buildProperties -contains "-p:EnableDiagnostics=$expectedDiagnostics") 'Compiler diagnostics flag differs from the selected flavor'
+            Check ($buildProperties -contains "-p:BaseIntermediateOutputPath=$pluginIntermediate") 'Compiler did not receive its isolated intermediate path'
+        } $flavorStatements $development
+    }
     $selector = @($ast.EndBlock.Statements | Where-Object { $_.Extent.Text -match '^\$dotnetCommand\s*=' -or $_.Extent.Text -match '^\$dotnet\s*=' })
     Check ($selector.Count -eq 2) 'Actual host selector was not found'
     foreach ($found in @($true, $false)) {

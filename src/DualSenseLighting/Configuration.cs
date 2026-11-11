@@ -13,7 +13,9 @@ public sealed class Configuration : IPluginConfiguration
     public UiLanguage Language { get; set; } = UiLanguage.English;
     public bool HasSeenGeneralInfo { get; set; }
     public bool HasCompletedSetup { get; set; }
+#if BCEF_DIAGNOSTICS
     public bool HasAcknowledgedRecording { get; set; }
+#endif
     public bool Enabled { get; set; } = true;
     public LightingEffect Effect { get; set; }
     public byte Red { get; set; } = 119;
@@ -164,7 +166,9 @@ public sealed class Configuration : IPluginConfiguration
         HasCompletedSetup = HasSeenGeneralInfo = true;
     }
 
+#if BCEF_DIAGNOSTICS
     public bool CanRecordDiagnostics() => HasCompletedSetup && HasAcknowledgedRecording;
+#endif
 
     public HapticSettings HapticsSnapshot(bool requireSetup = false)
     {

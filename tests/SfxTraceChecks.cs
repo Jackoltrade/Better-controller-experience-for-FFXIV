@@ -31,6 +31,10 @@ internal static class SfxTraceChecks
         try
         {
             var assembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(Path.GetFullPath(pluginPath));
+            ProductionBoundaryChecks.Run(check, assembly);
+            CompiledAudioPerformanceChecks.Run(check, assembly);
+            CompiledRenderChecks.Run(check, assembly);
+            IdleRosterChecks.Run(check, assembly);
             ImpactAdapterChecks.Run(check, assembly);
             RegularEffectAdapterChecks.Run(check, assembly);
             GameTargetRelationChecks.Run(check, assembly);
@@ -43,6 +47,7 @@ internal static class SfxTraceChecks
             RecordingCoordinatorChecks.Run(check, assembly);
             SettingsConsentChecks.Run(check, assembly);
             GameObjectLayoutChecks.CheckInstalledLayout(check, assembly);
+            if (!ProductionBoundaryChecks.Diagnostics(assembly)) return;
             var harness = new Harness(assembly);
             var boundary = CheckSegmentBoundary(check, harness);
             var final = CheckFinalSample(check, harness);

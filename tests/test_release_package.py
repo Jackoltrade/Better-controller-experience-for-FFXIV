@@ -63,7 +63,7 @@ class ReleasePackageChecks(unittest.TestCase):
         self.japanese = {"Description": "コントローラーの日本語の説明。", "Punchline": "日本語の概要。"}
         self.japanese_path = source / "Manifest.ja.json"
         self.japanese_path.write_text(json.dumps(self.japanese, ensure_ascii=False), encoding="utf-8")
-        proof = dict(self.manifest, Architecture="x64", Optimized=True, DllSha256=PACKAGER.sha256(dll))
+        proof = dict(self.manifest, Architecture="x64", Optimized=True, DiagnosticsEnabled=False, DllSha256=PACKAGER.sha256(dll))
         proof["SourceSha256"] = PACKAGER.source_fingerprint(source)
         (self.build / "build-verification.json").write_text(json.dumps(proof), encoding="utf-8")
         for name in PACKAGER.LICENSES + PACKAGER.GUIDES:
@@ -292,6 +292,30 @@ class ReleasePackageChecks(unittest.TestCase):
         PACKAGER.package(self.root, self.build, self.output)
         self.assertEqual(path.read_bytes(), first)
         self.assertEqual((self.output / "latest-ja.zip").read_bytes(), japanese)
+
+    def test_diagnostic_or_unattested_build_cannot_replace_public_package(self):
+        PACKAGER.package(self.root, self.build, self.output)
+        previous = {path.name: path.read_bytes() for path in self.output.iterdir()}
+        proof_path = self.build / "build-verification.json"
+        original = json.loads(proof_path.read_text(encoding="utf-8"))
+        for value in [True, None, "false", 0]:
+            with self.subTest(diagnostics=value):
+                proof = dict(original, DiagnosticsEnabled=value)
+                if value is None:
+                    del proof["DiagnosticsEnabled"]
+                proof_path.write_text(json.dumps(proof), encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "production build without diagnostics"):
+                    PACKAGER.package(self.root, self.build, self.output)
+                self.assert_candidate_unchanged(previous)
+
+    def test_development_build_is_rejected_without_an_installer_directory(self):
+        proof_path = self.build / "build-verification.json"
+        proof = json.loads(proof_path.read_text(encoding="utf-8"))
+        proof_path.write_text(json.dumps(dict(proof, DiagnosticsEnabled=True)), encoding="utf-8")
+        self.standard.rename(self.root / "unused-standard-fixture")
+        with self.assertRaisesRegex(ValueError, "production build without diagnostics"):
+            PACKAGER.package(self.root, self.build, self.output)
+        self.assertFalse(self.output.exists())
 
     def test_missing_japanese_localization_preserves_previous_candidate(self):
         PACKAGER.package(self.root, self.build, self.output)

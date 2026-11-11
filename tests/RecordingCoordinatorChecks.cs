@@ -17,6 +17,11 @@ internal static class RecordingCoordinatorChecks
 
     internal static void Run(Action<bool, string> check, Assembly plugin)
     {
+        if (!ProductionBoundaryChecks.Diagnostics(plugin))
+        {
+            check(plugin.GetType("DualSenseLighting.DiagnosticRecordingCoordinator") == null, "Production includes recorder");
+            return;
+        }
         var directory = Path.Combine(Path.GetTempPath(), "record-coordinator-" + Guid.NewGuid());
         Directory.CreateDirectory(directory);
         var type = plugin.GetType("DualSenseLighting.DiagnosticRecordingCoordinator", true)!;

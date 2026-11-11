@@ -6,10 +6,12 @@ using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Numerics;
 using System.Runtime.InteropServices;
+#if BCEF_DIAGNOSTICS
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Threading;
 using System.Threading.Tasks;
+#endif
+using System.Threading;
 using Dalamud.Hooking;
 using Dalamud.Plugin.Services;
 using DualSenseLighting.Core;
@@ -34,15 +36,19 @@ internal sealed class GameScreenEffects : IDisposable
     private readonly nint postGlobal, cameraGlobal, moduleStart, moduleEnd;
     private readonly nint scriptedSource, control;
     private readonly NativeHapticOutput output;
+#if BCEF_DIAGNOSTICS
     private ScreenEffectSourceObserver? sourceObserver;
     private string? sourceTraceError;
+#endif
     private SecondaryMotionObserver? motionObserver;
     private SecondaryMotionSession? motionSession;
     private KnownMotionFilter? motionFilter;
     private string? motionBindingError;
+#if BCEF_DIAGNOSTICS
     private readonly long motionPreparationTicks;
     private readonly long? sourcePreparationTicks;
     private long? firstMotionActivationTicks, firstTraceStartTicks;
+#endif
     private readonly Hook<CameraUpdateDelegate> cameraUpdate;
     private Hook<ScriptedShakeDelegate>? scriptedShake;
     private sealed record ScriptedSample(nint SceneCamera, long Timestamp, Vector3 Position, Vector3 Rotation);
@@ -56,14 +62,21 @@ internal sealed class GameScreenEffects : IDisposable
     }
     private CaptureContext context = new();
     private int allowed, disposed, scriptedFaulted;
-    private string? error, scriptedError, traceError;
-    public string? Error => Volatile.Read(ref error) ?? Volatile.Read(ref scriptedError) ?? Volatile.Read(ref traceError) ??
+    private string? error, scriptedError;
+#if BCEF_DIAGNOSTICS
+    private string? traceError;
+#endif
+    public string? Error => Volatile.Read(ref error) ?? Volatile.Read(ref scriptedError) ??
+#if BCEF_DIAGNOSTICS
+        Volatile.Read(ref traceError) ??
+#endif
         (output.ScreenEffectsActive ? motionBindingError ?? motionObserver?.Error : null);
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
     private delegate void CameraUpdateDelegate(nint manager);
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
     private delegate byte ScriptedShakeDelegate(nint source, nint first, nint second);
 
+#if BCEF_DIAGNOSTICS
     // Opt-in companion to /bcef trace. Native/audio callbacks never wait for disk.
     private const int TraceCapacity = 4096;
     private sealed class TimingSession
@@ -116,10 +129,16 @@ internal sealed class GameScreenEffects : IDisposable
     // Snapshot after stopping tracing; callers must prevent a new session while awaiting it.
     public Task TraceSaveCompletion => Volatile.Read(ref traceSave);
 
+#endif
+
     [DllImport("kernel32.dll")]
     private static extern unsafe bool ReadProcessMemory(nint process, nint address, void* bytes, nuint size, out nuint read);
 
-    public unsafe GameScreenEffects(IGameInteropProvider interop, ISigScanner scanner, NativeHapticOutput output, bool developmentInstall = false)
+    public unsafe GameScreenEffects(IGameInteropProvider interop, ISigScanner scanner, NativeHapticOutput output
+#if BCEF_DIAGNOSTICS
+        , bool developmentInstall = false
+#endif
+        )
     {
         this.output = output;
         moduleStart = scanner.Module.BaseAddress;
@@ -195,9 +214,12 @@ internal sealed class GameScreenEffects : IDisposable
             }
             // This constructor already runs in Plugin's audio initialization task.
             // Prepare disabled hooks here; activation must not scan the game image.
+#if BCEF_DIAGNOSTICS
             var started = Stopwatch.GetTimestamp();
+#endif
             try { motionObserver = new SecondaryMotionObserver(interop, scanner, CurrentMotion); }
             catch (Exception failure) { motionBindingError = failure.Message; }
+#if BCEF_DIAGNOSTICS
             finally { motionPreparationTicks = Stopwatch.GetTimestamp() - started; }
             if (developmentInstall)
             {
@@ -206,10 +228,15 @@ internal sealed class GameScreenEffects : IDisposable
                 catch (Exception failure) { sourceTraceError = failure.Message; }
                 finally { sourcePreparationTicks = Stopwatch.GetTimestamp() - started; }
             }
+#endif
         }
         catch (Exception failure)
         {
-            try { ResourceCleanup.Run(() => sourceObserver?.Dispose(), () => motionObserver?.Dispose(),
+            try { ResourceCleanup.Run(
+#if BCEF_DIAGNOSTICS
+                () => sourceObserver?.Dispose(),
+#endif
+                () => motionObserver?.Dispose(),
                 () => scriptedShake?.Dispose(), cameraUpdate.Dispose); }
             catch (Exception cleanup) { throw new AggregateException("Screen effect initialization and rollback failed.", failure, cleanup); }
             throw;
@@ -223,8 +250,14 @@ internal sealed class GameScreenEffects : IDisposable
         Volatile.Write(ref allowed, permitted ? 1 : 0);
         var foreground = Native.IsCurrentProcessForeground();
         UpdateMotion(permitted, foreground);
+#if BCEF_DIAGNOSTICS
         sourceObserver?.SetActive(permitted && Volatile.Read(ref timing) != null && foreground);
-        var active = permitted && foreground && (output.ScreenEffectsActive || Volatile.Read(ref timing) != null);
+#endif
+        var active = permitted && foreground && (output.ScreenEffectsActive
+#if BCEF_DIAGNOSTICS
+            || Volatile.Read(ref timing) != null
+#endif
+            );
         if (active)
         {
             try { if (!cameraUpdate.IsEnabled) cameraUpdate.Enable(); }
@@ -265,21 +298,36 @@ internal sealed class GameScreenEffects : IDisposable
 
     private void UpdateMotion(bool permitted, bool foreground)
     {
+#if BCEF_DIAGNOSTICS
         var recording = Volatile.Read(ref timing)?.Sources;
+#endif
         var filtering = output.ScreenEffectsActive;
-        var active = permitted && foreground && (filtering || recording != null);
+        var active = permitted && foreground && (filtering
+#if BCEF_DIAGNOSTICS
+            || recording != null
+#endif
+            );
+#if BCEF_DIAGNOSTICS
         var started = active && motionObserver != null && !firstMotionActivationTicks.HasValue ? Stopwatch.GetTimestamp() : 0;
         try
         {
+#endif
             if (active && motionObserver != null)
             {
                 var filter = filtering ? motionFilter ??= new KnownMotionFilter() : null;
                 var current = Volatile.Read(ref motionSession);
-                if (current == null || !current.Active || !ReferenceEquals(current.Recording, recording) ||
+                if (current == null || !current.Active ||
+#if BCEF_DIAGNOSTICS
+                    !ReferenceEquals(current.Recording, recording) ||
+#endif
                     !ReferenceEquals(current.Filter, filter))
                 {
                     if (!ReferenceEquals(current?.Filter, filter)) motionFilter?.Invalidate();
-                    var next = new SecondaryMotionSession(recording, filter);
+                    var next = new SecondaryMotionSession(
+#if BCEF_DIAGNOSTICS
+                        recording,
+#endif
+                        filter);
                     Interlocked.Exchange(ref motionSession, next)?.Retire(Stopwatch.GetTimestamp());
                 }
             }
@@ -294,8 +342,10 @@ internal sealed class GameScreenEffects : IDisposable
                 Interlocked.Exchange(ref motionSession, null)?.Retire(Stopwatch.GetTimestamp());
                 motionFilter?.Invalidate();
             }
+#if BCEF_DIAGNOSTICS
         }
         finally { if (started != 0) firstMotionActivationTicks = Stopwatch.GetTimestamp() - started; }
+#endif
     }
 
     private SecondaryMotionSession? CurrentMotion()
@@ -394,10 +444,16 @@ internal sealed class GameScreenEffects : IDisposable
         var rotation = new Vector3(vectors[8] + vectors[12], vectors[9] + vectors[13], vectors[10] + vectors[14]);
         var managerLevel = epoch.Shake.Observe(position, rotation, now);
         var observedScripted = Volatile.Read(ref epoch.Scripted);
+#if BCEF_DIAGNOSTICS
         var scriptedState = observedScripted == null ? "not-observed" : observedScripted.SceneCamera != sceneCamera ? "different-camera" :
             observedScripted.Timestamp > now ? "future" : now - observedScripted.Timestamp > ScreenEffectHaptics.FreshTicks ? "stale" :
             observedScripted.Timestamp <= epoch.LastCompositionClock ? "already-consumed" : "applied";
         var scripted = scriptedState == "applied" ? observedScripted : null;
+#else
+        var scripted = observedScripted != null && observedScripted.SceneCamera == sceneCamera &&
+            observedScripted.Timestamp <= now && now - observedScripted.Timestamp <= ScreenEffectHaptics.FreshTicks &&
+            observedScripted.Timestamp > epoch.LastCompositionClock ? observedScripted : null;
+#endif
         epoch.LastCompositionClock = now;
         var scriptedLevel = epoch.ScriptedShake.Observe(scripted?.Position ?? Vector3.Zero, scripted?.Rotation ?? Vector3.Zero, now);
         // Select a current observed signal, never add duplicate camera motion.
@@ -428,7 +484,9 @@ internal sealed class GameScreenEffects : IDisposable
             expiresAt = Math.Min(now + hold, tracker.LastChangeTimestamp + hold);
         }
         var sample = measured.At(now, multiplier, expiresAt);
+#if BCEF_DIAGNOSTICS
         RecordCamera(sample, position, rotation, vectors, epoch, managerLevel, scriptedLevel, scripted, observedScripted?.Timestamp ?? 0, scriptedState);
+#endif
         return sample;
     }
 
@@ -439,6 +497,7 @@ internal sealed class GameScreenEffects : IDisposable
         output.SetScreenEffects(null, output.ScreenSettings);
     }
 
+#if BCEF_DIAGNOSTICS
     public void SetTracing(bool enabled)
     {
         if (enabled)
@@ -565,6 +624,8 @@ internal sealed class GameScreenEffects : IDisposable
         finally { Monitor.Exit(session.Sync); }
     }
 
+#endif
+
     public void Dispose()
     {
         if (Interlocked.Exchange(ref disposed, 1) != 0) return;
@@ -576,12 +637,18 @@ internal sealed class GameScreenEffects : IDisposable
             try { scriptedShake?.Dispose(); }
             finally
             {
-                try { ResourceCleanup.Run(() => motionObserver?.Dispose(), () => sourceObserver?.Dispose()); }
+                try { ResourceCleanup.Run(() => motionObserver?.Dispose()
+#if BCEF_DIAGNOSTICS
+                    , () => sourceObserver?.Dispose()
+#endif
+                    ); }
                 finally
                 {
                     Reset();
+#if BCEF_DIAGNOSTICS
                     SetTracing(false);
                     traceSave.GetAwaiter().GetResult();
+#endif
                 }
             }
         }

@@ -1,6 +1,6 @@
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>0.19.8</Version>
+    <Version>0.20.0</Version>
     <Title>Better controller experience for FFXIV</Title>
     <Product>Better controller experience for FFXIV</Product>
     <RepositoryUrl>https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV</RepositoryUrl>
@@ -8,7 +8,13 @@
     <AssemblyName>DualSenseLighting</AssemblyName>
     <RootNamespace>DualSenseLighting</RootNamespace>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <DefaultItemExcludes>$(DefaultItemExcludes);obj/**;bin/**</DefaultItemExcludes>
+    <EnableDiagnostics Condition="'$(EnableDiagnostics)' == ''">false</EnableDiagnostics>
+    <DefineConstants Condition="'$(EnableDiagnostics)' == 'true'">$(DefineConstants);BCEF_DIAGNOSTICS</DefineConstants>
   </PropertyGroup>
+  <ItemGroup Condition="'$(EnableDiagnostics)' != 'true'">
+    <Compile Remove="DiagnosticRecordingCoordinator.cs;Ui/SettingsUi.Diagnostics.cs;Windows/SfxTrace.cs;Windows/SfxNativeTrace.cs;Windows/NpcSpawnObserver.cs;Windows/ScreenEffectSourceObserver.cs;Core/TraceArchive.cs;Core/UpdateTiming.cs;Core/NpcSpawnMetadata.cs;Core/ScreenEffectSourceRecording.cs" />
+  </ItemGroup>
   <ItemGroup>
     <Content Include="Assets/icon.png" TargetPath="images/icon.png" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="../../LICENSE.txt;../../LICENSE-HidLibrary.txt;../../LICENSE-FFXIVClientStructs.txt;../../THIRD-PARTY-NOTICES.txt" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />

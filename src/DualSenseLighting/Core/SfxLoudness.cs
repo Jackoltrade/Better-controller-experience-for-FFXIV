@@ -32,7 +32,17 @@ public sealed class SfxLoudness
     {
         var before = Volatile.Read(ref state);
         if ((generation & 1) == 0 || (uint)((ulong)before >> 32) != generation || samples.IsEmpty) return;
-        var bits = BitConverter.SingleToUInt32Bits(MeasureRms(samples));
+        ObserveLevel(MeasureRms(samples), generation);
+    }
+
+    // Accept only a level produced by whole-block PCM validation. Generation
+    // and level remain one atomic value, exactly as in the span entry point.
+    public void ObserveLevel(float rms, uint generation)
+    {
+        var before = Volatile.Read(ref state);
+        if ((generation & 1) == 0 || (uint)((ulong)before >> 32) != generation ||
+            !float.IsFinite(rms) || rms <= 0 || rms > 1) return;
+        var bits = BitConverter.SingleToUInt32Bits(rms);
         for (var attempt = 0; attempt < 4 && (uint)((ulong)before >> 32) == generation; attempt++)
         {
             if ((uint)before >= bits) return;

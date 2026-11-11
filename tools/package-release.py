@@ -134,13 +134,15 @@ def standard_payload(build, expected, icon):
 
 
 def package(root, build, output, tag=None):
+    proof = json.loads((build / "build-verification.json").read_text(encoding="utf-8"))
+    if proof.get("DiagnosticsEnabled") is not False:
+        raise ValueError("Public packages require a verified production build without diagnostics")
     japanese = japanese_manifest_text(root / "src/DualSenseLighting/Manifest.ja.json")
     source = json.loads((root / "src/DualSenseLighting/DualSenseLighting.json").read_text(encoding="utf-8"))
     # The flat manifest serves Dev Tools and may contain local metadata. Public
     # packages always start from the untouched SDK output, verified against its ZIP.
     manifest_bytes = (build / "DualSenseLighting/DualSenseLighting.json").read_bytes()
     manifest = json.loads(manifest_bytes)
-    proof = json.loads((build / "build-verification.json").read_text(encoding="utf-8"))
     version = manifest["AssemblyVersion"]
     if not re.fullmatch(r"\d+\.\d+\.\d+\.\d+", version):
         raise ValueError("Invalid assembly version")

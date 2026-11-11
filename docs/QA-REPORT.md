@@ -1,10 +1,121 @@
 # Public test QA report
 
-Version: **0.19.8.0** · Checked: **2026-11-08** · Target: **Windows x64, USB/Bluetooth DualSense, Dalamud API 15**
+Version: **0.20.0.0 local release candidate** · Checked: **2026-11-11** · Target: **Windows x64, USB/Bluetooth DualSense, XInput, Dalamud API 15**
 
-## Current verification: 0.19.8 review follow-up
+## Current verification: v0.20.0 preparation
 
-The final candidate passes the locked Release build and both complete suites:
+The project, assembly and plugin manifest agree on **0.20.0 / 0.20.0.0**.
+Both optimized build variants pass **61/61 groups with no skips**, normally and
+under isolated coverage: production **519,956** assertions; development
+**520,035**. Fresh Python checks pass **50 tests**; build-process checks pass
+**120 assertions**; runner failure propagation, workflow lint and generated
+catalog validation pass. The standard/Japanese local package was generated for
+`v0.20.0` from the verified production DLL.
+
+Source SHA-256: `a9ee32979c690b3865b94779d119fe83abd78888901f27da870f4871f77d3507`.
+Production DLL: `3c427c5ecab6df7bee65d745e9cb43c3035d591914f629a7979ecd34594ab39b`.
+Development DLL: `6575aba0cb4a0d7c24cf66547b16e44fe49591873df4b141b195d19977df9b1d`.
+Receipts are under `work/release-0.20.0/`; the independent read-only review found
+no confirmed release-blocking code issue.
+
+The local advisory audit remains unavailable (`NU1900`/`NU1905`). A fully green
+release gate, whole-game FPS improvement and fresh international-client hardware
+coverage are not claimed. The Chinese-client smoke below preceded the rollback
+and version bump. The user's latest instruction is **commit locally; do not
+push yet**, so neither remote CI nor publication has been triggered.
+
+## Earlier November 11 verification: SN30 Pro workaround rollback
+
+At the user's request, the experimental XInput quiet-SFX boost was reverted.
+The original linear loudness response, shared pulse input/amplitude and existing
+120 ms default are restored. The extra paired response handoff and its tests
+were removed. A regression fixture verifies the original motor level and pulse
+stop for player, boss and regular-enemy SFX. Performance optimizations and the
+production/development diagnostic boundary remain in place.
+
+Both rebuilt variants pass **61/61 groups with no skips**, normally and under
+isolated coverage: production **519,956** assertions; development **520,035**.
+The source-union mapping is **4,189/6,305** and **4,574/7,322** lines respectively;
+compiled-plugin mapping is **2,365/5,730** and **2,924/7,322**. These are partial
+managed-code coverage measures. The lower assertion count reflects removal of
+the abandoned response-curve tests; the new linear-output regression adds six
+assertions. Results and the initial fixture-setup failure are retained under
+`work/revert-sn30-20261111/`.
+
+Source SHA-256: `2936804225a2edd6370d6eb1b2601beac1a5bcebc920120544460c0502847251`.
+Production DLL: `61182729727f351dffa64dfe21b96478370885829ffbc6ab5a14cee849b80100`
+(606,208 bytes, diagnostics excluded).
+Development DLL: `caca05c1303874cdc277212934b91da7a212a52f1718eb67f24cdc40e8ed57b9`
+(887,808 bytes, diagnostics included).
+
+The earlier Chinese-client gameplay confirmation below preceded this rollback;
+no new hardware test is claimed. Restore still reports the previously documented
+`NU1900` advisory-feed warning; no compiler warning/error occurred. No release
+was published.
+
+## Earlier November 11 performance and production-boundary verification
+
+The optimized candidate skips unnecessary voice-ownership scans and reuses a
+validated PCM loudness measurement when the same block feeds lighting and haptics.
+Production compiles out diagnostic UI, recording, timing, probes, buffers,
+snapshot-only storage and 157 diagnostic translation entries. Functional motion
+filtering, native finite/headroom checks, impact ownership and effect cadence stay.
+When audio capture is absent, the update loop also skips unused enemy cast reads
+while preserving regular-enemy history and friendly exclusions.
+
+Both normal suites pass **61/61 groups with no skips**: production **520,972**
+assertions and development **521,051**. Both isolated coverage suites pass the same
+groups. Compiled-adapter tests execute each actual DLL's admission policy, managed
+audio path and `Render` callback using owned native-layout buffers. The callback
+fixtures cover both output formats, shared lighting/haptics, screen-only operation,
+unrelated buses, native haptic flags, invalid PCM, original error results and
+player-only ownership. They verify original playback exactly once and unchanged
+PCM; they install no live hook and send no controller output.
+The compiled full-roster fixture reproduces the prior unnecessary cast reads and
+checks that both capture states retain the same regular-enemy mark and roster.
+
+That run's source-union mapping is **4,202/6,319** lines for production and
+**4,587/7,336** for development. Within the compiled plugin alone, it is
+**2,385/5,744** and **2,944/7,336**, respectively. The source union includes linked
+Core code in the test executable; neither measure establishes complete native,
+UI or orchestration coverage. The integration receipt and isolated reports are
+under `work/performance-20261111/final-builds.log`, `final-coverage.log` and
+`coverage-final/`. Earlier integration and negative-control receipts are retained.
+Additional checks pass: **50 Python tests**, **120 build-process assertions**,
+**49 coverage-process fixtures**, runner failure propagation, catalog and workflow
+validation. Intentionally wrong-flavor verification rejects both actual DLLs
+without changing accepted proofs. Public packaging rejects the actual development
+build before reading installer inputs; standard/Japanese candidate ZIPs contain
+only the verified production DLL and allowlisted public files.
+
+Production is **607,744 bytes**, compared with **888,832 bytes** for the separate
+development DLL. These are binary sizes, not resident-memory savings. Source
+SHA-256: `48b4fc79eaeb679d5e16b895878c717792bfb0559814b086e08da1239dc8b531`.
+Production DLL: `abbe7496ab07fef358079184a39d97f4628d41b1ca52398e5b443060e4956a9b`.
+Development DLL: `e5df7a54877dcb0889f5d85428f68d7da9fd3b7fcd14e8c397b9191597ccdbdb`.
+
+The explicit dependency audit is **incomplete**: the official advisory feed was
+unreachable (`NU1900`/`NU1905`). Normal restore also emitted `NU1900`; there were
+no compiler errors or compiler warnings. Do not report a completely green release
+gate or a completed vulnerability audit. No new dependency or release publication
+was introduced. Raw results are under `work/performance-20261111/`.
+
+Paired component timings and zero-allocation controls are described in
+[performance verification](PERFORMANCE.md). They do not establish whole-game FPS,
+frame-time improvements or physical controller latency. On November 11, the user
+completed the requested Chinese-client production-DLL smoke check and reported
+**“Available features pass; Diagnostics is absent.”** The requested scope was
+usual lighting/SFX/haptics, language switching, Info/Reset Escape handling,
+Alt-Tab release and reconnect. This confirms the available features in that
+session, not every device/connection combination or an FPS improvement. The
+confirmation is retained in `work/performance-20261111/chinese-user-confirmation.json`.
+The international 7.58 check is deferred until that installation is updated; see
+[compatibility scope](COMPATIBILITY.md). Earlier hardware observations below
+remain historical evidence.
+
+## Historical verification: November 8 review follow-up
+
+The November 8 candidate passed the locked Release build and both complete suites:
 **60/60 groups and 519,872 assertions each**, with no skips. The allocation
 measurement and coverage-isolation changes are described below. A fresh
 user-assisted activation recording and native-effects smoke check also pass.
@@ -15,7 +126,7 @@ preserved under `artifacts/review-20261107`; later evidence uses the separate
 `artifacts/review-followup-20261107` directory. A passing normal run does not
 clear a failing instrumented run.
 
-The current candidate includes impact-aware distance, native friend/enemy
+That candidate included impact-aware distance, native friend/enemy
 classification, regular-enemy effect ownership and the fixed vehicle-motion
 filter. It suppresses the captured vehicle patterns without a learning period.
 The user confirmed quiet vehicle feedback with intended effects retained, the

@@ -1,4 +1,8 @@
 <Project>
+  <PropertyGroup>
+    <ControllerMakeZip>false</ControllerMakeZip>
+    <ControllerMakeZip Condition="'$(Configuration)' == 'Release' And '$(EnableDiagnostics)' != 'true'">true</ControllerMakeZip>
+  </PropertyGroup>
   <!-- Keep framework assemblies, symbols, runtime configs and local diagnostic
        recordings out of the installer. Images use Packager's standard sidecar. -->
   <Target Name="PackageControllerPlugin" AfterTargets="Build">
@@ -6,7 +10,7 @@
                     OutputPath="$(OutputPath)"
                     AssemblyName="$(AssemblyName)"
                     ManifestType="json"
-                    MakeZip="$([System.String]::Equals('$(Configuration)', 'Release'))"
+                    MakeZip="$(ControllerMakeZip)"
                     Include="$(AssemblyName).dll;$(AssemblyName).json;LICENSE.txt;LICENSE-HidLibrary.txt;LICENSE-FFXIVClientStructs.txt;THIRD-PARTY-NOTICES.txt" />
   </Target>
 </Project>

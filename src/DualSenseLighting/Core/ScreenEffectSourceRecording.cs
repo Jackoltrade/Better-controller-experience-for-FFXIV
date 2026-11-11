@@ -22,9 +22,6 @@ internal readonly record struct ScreenEffectSourceFields(long Source, long Owner
         BitConverter.SingleToUInt32Bits(value.Field1D0), BitConverter.SingleToUInt32Bits(value.Field1D4));
 }
 
-internal readonly record struct SecondaryVectorSample(long Source, long Context, long Config,
-    int Slot, bool Scoped, float X, float Y, float Z);
-
 internal readonly record struct SecondaryVectorFields(long Source, long Context, long Config,
     int Slot, bool Scoped, uint XBits, uint YBits, uint ZBits)
 {

@@ -33,11 +33,18 @@ internal static class SettingsConsentChecks
         ExpectFailure("PersistSetupChoice");
         check(!FlagValue("HasCompletedSetup") && !FlagValue("HasSeenGeneralInfo") && !FlagValue("Enabled") &&
             !FlagValue("HapticEnabled") && publications == 0, "Failed setup save did not roll back every modified consent/effect flag");
-        ExpectFailure("PersistRecordingConsent");
-        check(!FlagValue("HasAcknowledgedRecording"), "Failed recording consent save granted recording permission");
+        var diagnostics = ProductionBoundaryChecks.Diagnostics(plugin);
+        if (diagnostics)
+        {
+            ExpectFailure("PersistRecordingConsent");
+            check(!FlagValue("HasAcknowledgedRecording"), "Failed recording consent save granted recording permission");
+        }
+        else check(type.GetMethod("PersistRecordingConsent", BindingFlags.Instance | BindingFlags.NonPublic) == null,
+            "Production includes recording consent workflow");
         fail = false; Invoke("PersistSetupChoice");
         check(FlagValue("HasCompletedSetup") && FlagValue("Enabled") && FlagValue("HapticEnabled") && publications == 1,
             "Successful setup consent did not publish the selected effects exactly once");
+        if (!diagnostics) return;
         Invoke("PersistRecordingConsent");
         check(FlagValue("HasAcknowledgedRecording"), "Successful recording consent was not retained");
         fail = true; ExpectFailure("PersistRecordingConsent");

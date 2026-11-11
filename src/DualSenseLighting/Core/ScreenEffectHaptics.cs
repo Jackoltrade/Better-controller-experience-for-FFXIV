@@ -35,8 +35,10 @@ internal sealed class ScreenEffectHaptics
     private int pattern = -1;
     private float amplitude;
     public float OutputPeak { get; private set; }
+#if BCEF_DIAGNOSTICS
     public float MinimumHeadroom { get; private set; } = 1;
     public int LimitedFrames { get; private set; }
+#endif
 
     // Compute texture once during output setup, never on the audio render thread.
     static ScreenEffectHaptics() { patterns = CreatePatterns(); }
@@ -100,7 +102,10 @@ internal sealed class ScreenEffectHaptics
         if (!nativeInput.IsEmpty && nativeInput.Length != output.Length)
             throw new ArgumentException("Expected one native bed block.", nameof(nativeInput));
         output.Clear();
-        OutputPeak = 0; MinimumHeadroom = 1; LimitedFrames = 0;
+        OutputPeak = 0;
+#if BCEF_DIAGNOSTICS
+        MinimumHeadroom = 1; LimitedFrames = 0;
+#endif
         var nextPattern = (effect & ScreenEffectKind.Shake) != 0 ? 0 :
             (effect & ScreenEffectKind.RadialBlur) != 0 ? 1 :
             (effect & ScreenEffectKind.DirectionalBlur) != 0 ? 2 :
@@ -120,8 +125,10 @@ internal sealed class ScreenEffectHaptics
             {
                 var peak = Math.Max(Math.Abs(nativeInput[frame * Channels]), Math.Abs(nativeInput[frame * Channels + 1]));
                 var headroom = float.IsFinite(peak) ? Math.Max(0, 1 - peak) : 0;
+#if BCEF_DIAGNOSTICS
                 MinimumHeadroom = Math.Min(MinimumHeadroom, headroom);
                 if (Math.Abs(value) > headroom) LimitedFrames++;
+#endif
                 value = Math.Clamp(value, -headroom, headroom);
             }
             output[frame * Channels] = output[frame * Channels + 1] = value;
@@ -132,7 +139,12 @@ internal sealed class ScreenEffectHaptics
     }
 
     public void Reset()
-    { amplitude = 0; position = 0; pattern = -1; OutputPeak = 0; MinimumHeadroom = 1; LimitedFrames = 0; }
+    {
+        amplitude = 0; position = 0; pattern = -1; OutputPeak = 0;
+#if BCEF_DIAGNOSTICS
+        MinimumHeadroom = 1; LimitedFrames = 0;
+#endif
+    }
 
     private static float[][] CreatePatterns()
     {

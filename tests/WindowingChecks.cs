@@ -315,7 +315,7 @@ internal static class WindowingChecks
             check(keyState.EscapeDown && keyState.Clears == clears,
                 "A closed parent allowed its dialog to consume Escape");
             check(!(bool)configType.GetProperty("HasCompletedSetup")!.GetValue(config)! &&
-                !(bool)configType.GetProperty("HasAcknowledgedRecording")!.GetValue(config)!,
+                (!ProductionBoundaryChecks.Diagnostics(plugin) || !(bool)configType.GetProperty("HasAcknowledgedRecording")!.GetValue(config)!),
                 "Closing first-run/recording dialogs granted consent");
             open.SetValue(settings, false); request.SetValue(settings, false);
             dialogType.GetMethod("OnClose")!.Invoke(dialog, null);

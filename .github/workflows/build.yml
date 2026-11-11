@@ -65,6 +65,9 @@ jobs:
       - name: Verify complete failure reporting and process exit status
         shell: pwsh
         run: ./tests/CheckRunnerProcessChecks.ps1
+      - name: Verify the separately compiled development diagnostic build
+        shell: pwsh
+        run: ./tools/build.ps1 -DalamudLibPath $env:DALAMUD_HOME -LockedRestore -Development
       - name: Audit all build dependencies against the official vulnerability feed
         shell: pwsh
         run: ./tools/audit-dependencies.ps1

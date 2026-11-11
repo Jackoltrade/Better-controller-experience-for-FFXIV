@@ -8,39 +8,58 @@ namespace DualSenseLighting.Windows;
 /// <summary>One foreground observation epoch sharing a fixed-pattern filter with the recorder.</summary>
 internal sealed class SecondaryMotionSession
 {
+#if BCEF_DIAGNOSTICS
     internal readonly ScreenEffectSourceRecording? Recording;
+#endif
     internal readonly KnownMotionFilter? Filter;
     private int retired;
     internal bool Active => Volatile.Read(ref retired) == 0;
 
-    internal SecondaryMotionSession(ScreenEffectSourceRecording? recording, KnownMotionFilter? filter)
-    { Recording = recording; Filter = filter; }
+    internal SecondaryMotionSession(
+#if BCEF_DIAGNOSTICS
+        ScreenEffectSourceRecording? recording,
+#endif
+        KnownMotionFilter? filter)
+    {
+#if BCEF_DIAGNOSTICS
+        Recording = recording;
+#endif
+        Filter = filter;
+    }
 
     internal void Observe(SecondaryVectorSample value, bool position, long clock)
     {
         if (!Active) return;
+#if BCEF_DIAGNOSTICS
         if (position) Recording?.OnPosition(value, clock);
         else Recording?.OnRotation(value, clock);
+#endif
         Filter?.Observe(value, position, clock);
     }
 
     internal void Reset(long source, long context, long config, uint cursor, uint state, long clock)
     {
         if (!Active) return;
+#if BCEF_DIAGNOSTICS
         Recording?.OnReset(source, context, config, cursor, state, clock);
+#endif
         Filter?.Realign(source, context, config, clock);
     }
 
     internal void Gap(long clock)
     {
         if (!Active) return;
+#if BCEF_DIAGNOSTICS
         Recording?.OnGap(clock);
+#endif
         Filter?.Invalidate();
     }
 
     internal void Retire(long clock)
     {
         if (Interlocked.Exchange(ref retired, 1) != 0) return;
+#if BCEF_DIAGNOSTICS
         Recording?.OnGap(clock);
+#endif
     }
 }

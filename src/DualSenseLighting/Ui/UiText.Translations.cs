@@ -10,11 +10,14 @@ internal sealed partial class UiText
         new Dictionary<string, (string Chinese, string Japanese)>
     {
         ["Could not save settings; retrying automatically: {0}"] = ("无法保存设置；将自动重试：{0}", "設定を保存できませんでした。自動的に再試行します：{0}"),
+#if BCEF_DIAGNOSTICS
         ["Measure framework updates"] = ("测量框架更新耗时", "フレームワーク更新の時間を計測"),
         ["Elapsed time includes thread pauses. Samples accumulate until reload, up to 1,000,000. Phase maxima may come from different updates."] = ("耗时包含线程暂停的时间。重载插件前会持续累积，最多记录 100 万次。各环节的最大耗时可能来自不同次更新。", "計測時間にはスレッドの停止時間も含まれます。再読み込みまで最大100万回分を累積します。各処理の最大値は同じ更新で発生したとは限りません。"),
         ["Timing breakdown"] = ("耗时明细", "処理別の計測結果"),
         ["Updates ≥1 ms: {0}; ≥5 ms: {1}; ≥16.7 ms: {2}"] = ("更新耗时 ≥1 毫秒：{0} 次；≥5 毫秒：{1} 次；≥16.7 毫秒：{2} 次", "更新時間 ≥1 ms：{0} 回、≥5 ms：{1} 回、≥16.7 ms：{2} 回"),
+#endif
         ["Phase"] = ("环节", "処理"),
+#if BCEF_DIAGNOSTICS
         ["Samples"] = ("采样次数", "計測回数"),
         ["Average (ms)"] = ("平均（毫秒）", "平均 (ms)"),
         ["Maximum (ms)"] = ("最大（毫秒）", "最大 (ms)"),
@@ -26,6 +29,7 @@ internal sealed partial class UiText
         ["Save / guard"] = ("保存 / 输出保护", "保存・出力の保護"),
         ["Framework timing: not collected"] = ("框架耗时：尚未采集", "フレームワーク時間：未計測"),
         ["Framework updates: {0}; average {1:F3} ms; maximum {2:F3} ms"] = ("框架更新：{0} 次；平均 {1:F3} 毫秒；最大 {2:F3} 毫秒", "フレームワーク更新：{0} 回、平均 {1:F3} ms、最大 {2:F3} ms"),
+#endif
         ["Player SFX based"] = ("玩家技能音效联动", "自分の効果音に連動"),
         ["Enemy SFX based"] = ("敌方音效联动", "敵の効果音に連動"),
         ["Boss skills"] = ("Boss 技能", "ボスのスキル"),
@@ -38,6 +42,7 @@ internal sealed partial class UiText
         ["Shown during silence and quiet sounds."] = ("安静或音量较小时显示。", "無音時や静かな音のときに表示します。"),
         ["Reached by the loudest sounds."] = ("音效最响时，就会变成这个颜色。", "最も大きい音でこの色になります。"),
         ["Chase, Blink and Loading use the chosen positions. Bounce, Sparkle and Heartbeat use the count."] = ("追逐、闪烁和加载使用所选灯位；往返、随机闪光和心跳按数量点亮。", "チェイス・点滅・ローディングは選んだ位置を使います。バウンス・きらめき・ハートビートでは点灯数を指定します。"),
+#if BCEF_DIAGNOSTICS
         ["Use /bcef trace to start or stop. Buffered data appears in the size after saving."] = ("输入 /bcef trace 开始或停止记录，占用空间会在保存后更新。", "/bcef trace で開始・停止します。記録中のデータは保存後に容量へ反映されます。"),
         ["Stop recording and wait for saves to finish."] = ("请停止记录，并等待保存完成。", "記録を停止し、保存が終わるまでお待ちください。"),
         ["Deleting recordings..."] = ("正在删除记录…", "記録を削除しています…"),
@@ -48,12 +53,15 @@ internal sealed partial class UiText
         ["Delete recordings"] = ("删除记录", "記録を削除"),
         ["Recordings deleted."] = ("记录已删除。", "記録を削除しました。"),
         ["Could not delete recordings: {0}"] = ("无法删除记录：{0}", "記録を削除できませんでした：{0}"),
+#endif
         ["Choose your controller effects in Info before using feature commands."] = ("请先在「使用说明」中选择要启用的手柄效果，再使用功能指令。", "機能コマンドを使う前に、Infoで有効にするコントローラーの効果を選んでください。"),
         ["Controller effects are paused. Open Info to choose what to enable."] = ("手柄效果已暂停。请打开「使用说明」，选择要启用的功能。", "コントローラーの効果は停止中です。Infoを開いて、有効にする機能を選んでください。"),
         ["How it works"] = ("工作原理", "動作について"),
         ["The plugin reads sound, camera and encounter data inside FFXIV and hooks native functions to add controller effects. Game updates and other plugins can affect compatibility."] = ("插件会读取 FFXIV 内的音效、镜头和战斗数据，通过挂接游戏原生函数来添加手柄效果。游戏更新或其他插件可能影响兼容性。", "FFXIV内の音・カメラ・戦闘データを読み取り、ゲーム内部の関数にフックしてコントローラーの効果を追加します。ゲームの更新や他のプラグインによって互換性に影響が出ることがあります。"),
         ["Privacy"] = ("隐私", "プライバシー"),
+#if BCEF_DIAGNOSTICS
         ["Game audio is processed locally. No extra controller drivers or services are installed. There is no microphone recording, telemetry or automatic upload. Diagnostic recording is optional."] = ("游戏音频只在你的电脑上处理，不会安装额外的手柄驱动或常驻服务。不会录制麦克风、收集遥测数据或自动上传。诊断记录由你手动开启。", "ゲーム音声はPC内で処理し、追加のコントローラードライバーや常駐サービスはインストールしません。マイク録音、利用状況の収集、自動アップロードは行いません。診断の記録は必要なときだけ手動で開始します。"),
+#endif
         ["Choose your effects"] = ("选择要启用的效果", "使う機能を選ぶ"),
         ["Nothing changes until you save. You can adjust these choices later."] = ("保存前不会启用任何效果，之后也可以随时调整。", "保存するまで効果は有効になりません。後からいつでも変更できます。"),
         ["RGB lightbar and bottom LEDs. DualSense only."] = ("自定义 RGB 灯带和下方 LED，仅支持 DualSense。", "RGBライトバーと下部LEDをカスタマイズします。DualSense専用です。"),
@@ -63,6 +71,7 @@ internal sealed partial class UiText
         ["Effects use native game hooks and run locally. No microphone recording, telemetry or automatic uploads."] = ("插件通过挂接游戏原生函数在你的电脑上生成效果。不会录制麦克风、收集遥测数据或自动上传。", "ゲーム内部の関数にフックし、PC内で効果を生成します。マイク録音、利用状況の収集、自動アップロードは行いません。"),
         ["Compatibility and game settings"] = ("兼容性与游戏设置", "対応機種とゲーム設定"),
         ["How it works and privacy"] = ("工作原理与隐私", "動作とプライバシー"),
+#if BCEF_DIAGNOSTICS
         ["What is saved"] = ("记录内容", "保存する内容"),
         ["Sharing"] = ("分享前请留意", "共有するときの注意"),
         ["Storage"] = ("保存方式", "保存のしくみ"),
@@ -72,23 +81,30 @@ internal sealed partial class UiText
         ["Camera-timing recordings"] = ("镜头时序记录", "カメラのタイミング記録"),
         ["Latest file: {0}"] = ("最新文件：{0}", "最新ファイル：{0}"),
         ["Archive folder: {0}"] = ("历史存档文件夹：{0}", "履歴フォルダー：{0}"),
+#endif
         ["Could not save your choice: {0}"] = ("无法保存选择：{0}", "選択を保存できませんでした：{0}"),
         ["Could not save your choice. Hover for details."] = ("没能保存选择，把鼠标移过来查看原因。", "選択を保存できませんでした。マウスを合わせると詳細を確認できます。"),
         ["Later"] = ("稍后再说", "後で"),
         ["Enable selected effects"] = ("启用所选效果", "選んだ効果を有効にする"),
         ["Keep effects off"] = ("暂不开启效果", "効果をオフのままにする"),
+#if BCEF_DIAGNOSTICS
         ["Before recording"] = ("开始记录前", "記録を始める前に"),
         ["Diagnostics saves game-state metadata, not audio. It can include timestamps, sound-resource paths, positions, entity IDs, memory addresses and small native-memory snapshots."] = ("诊断记录保存的是游戏状态信息，不是音频。内容可能包括时间戳、音效资源路径、位置、实体 ID、内存地址和少量原生内存快照。", "診断では音声そのものではなく、ゲームの状態に関する情報を保存します。日時、音声リソースのパス、位置、エンティティID、メモリアドレス、一部のネイティブメモリの内容が含まれる場合があります。"),
         ["Files stay on your computer. Nothing is uploaded automatically. Review recordings before sharing them, especially on public GitHub issues."] = ("文件只存在你的电脑上，不会自动上传。分享前记得检查内容，尤其是发到公开的 GitHub Issue 时。", "ファイルはPC内に保存し、自動ではアップロードしません。共有する前に内容を確認してください。特にGitHubの公開Issueに添付する際はご注意ください。"),
         ["SFX records one-minute segments until you stop it. Each location normally keeps the latest 20 archives plus a latest-file copy. Recordings can become large; stop when finished."] = ("音效记录会一直运行，直到你手动停止，每分钟保存一段。每个位置通常保留最近 20 份存档和一份最新文件。文件可能会很大，测完记得停止。", "効果音の記録は手動で止めるまで続き、1分ごとに分割して保存します。各保存先では通常、最新20件の履歴と最新ファイルのコピーを保持します。容量が大きくなることがあるため、確認が終わったら停止してください。"),
         ["Start recording"] = ("开始记录", "記録を開始"),
+#endif
         ["Plays a weak pulse, then a strong one. Other added vibration pauses during the test."] = ("先轻后重，各振一下。测试时暂停其他额外振动。", "弱い振動、強い振動の順に再生します。テスト中は他の追加振動を止めます。"),
+#if BCEF_DIAGNOSTICS
         ["Strength test writes: {0}; motor range {1}–{2}/255"] = ("强弱测试已发送：{0} 次；振动指令范围 {1}–{2}/255", "強弱テスト送信：{0} 回、モーター指令範囲 {1}–{2}/255"),
         ["Bluetooth motor command: left {0}/255; right {1}/255"] = ("蓝牙振动指令：左侧 {0}/255；右侧 {1}/255", "Bluetooth振動指令：左 {0}/255、右 {1}/255"),
         ["Test pulse 1: left {0}/255; right {1}/255"] = ("测试第 1 次：左侧 {0}/255；右侧 {1}/255", "テスト1回目：左 {0}/255、右 {1}/255"),
         ["Test pulse 2: left {0}/255; right {1}/255"] = ("测试第 2 次：左侧 {0}/255；右侧 {1}/255", "テスト2回目：左 {0}/255、右 {1}/255"),
+#endif
         ["Test left/right motors"] = ("测试左右振动", "左右の振動をテスト"),
+#if BCEF_DIAGNOSTICS
         ["Plays left, then right, using your current balance. Commands remain visible in Diagnostics."] = ("按当前平衡设置依次振动左、右侧，指令值保留在诊断页。", "現在のバランスで左、右の順に振動します。指令値は診断タブに残ります。"),
+#endif
         ["Bluetooth motor balance"] = ("蓝牙振动左右平衡", "Bluetooth振動の左右バランス"),
         ["Positive values soften the left motor; negative values soften the right. The motors have different textures."] = ("正数会减弱左边，负数会减弱右边。两边的振动手感本来就不一样。", "プラスは左、マイナスは右の振動を弱めます。左右で振動の質感は異なります。"),
         ["Basic rumble"] = ("普通振动", "通常振動"),
@@ -97,7 +113,9 @@ internal sealed partial class UiText
         ["Test rumble strength"] = ("测试振动强弱", "振動の強弱をテスト"),
         ["Caps the strength of added combat rumble."] = ("设置额外战斗振动的强度上限。", "追加する戦闘の通常振動の強さを制限します。"),
         ["Longer pulses feel heavier. Sustained sounds do not keep the motors buzzing."] = ("振动时间越长，手感越厚重。长音效也不会让手柄一直嗡嗡振。", "長いほど重い衝撃になります。音が続いても振動し続けません。"),
+#if BCEF_DIAGNOSTICS
         ["Bluetooth rumble mode: {0}"] = ("蓝牙振动模式：{0}", "Bluetooth振動モード：{0}"),
+#endif
         ["Improved"] = ("改良模式", "改良モード"),
         ["Legacy"] = ("旧版模式", "従来モード"),
         ["Detailed DualSense haptics require a USB cable. Bluetooth supports RGB lighting and basic rumble."] = ("想体验 DualSense 的触觉反馈，需要连接 USB 线。蓝牙支持 RGB 灯光和普通振动。", "DualSenseの精細なハプティクスにはUSBケーブルが必要です。BluetoothではRGBライトと通常の振動を利用できます。"),
@@ -108,9 +126,11 @@ internal sealed partial class UiText
         ["Connection"] = ("连接方式", "接続方式"),
         ["Detailed DualSense haptics, native footstep amplification and controller-speaker effects require USB. Bluetooth supports lighting and basic rumble."] = ("DualSense 的触觉反馈、原生脚步增强和手柄扬声器效果都需要连接 USB。蓝牙支持灯光和普通振动。", "DualSenseの精細なハプティクス、標準の足音振動の強化、コントローラースピーカーにはUSB接続が必要です。Bluetoothではライトと通常の振動を利用できます。"),
         ["Use your lighting over USB or Bluetooth while FFXIV is active. Switching apps turns the lights off and releases control."] = ("FFXIV 在前台时，USB 和蓝牙都能使用自定义灯光。切到其他应用时，灯光会熄灭并交还控制权。", "FFXIVの操作中にUSB・Bluetooth経由でライトを変更します。別のアプリに切り替えると消灯し、ライトの制御を手放します。"),
+#if BCEF_DIAGNOSTICS
         ["Connected controllers: USB {0}; Bluetooth {1}"] = ("已连接手柄：USB {0}；蓝牙 {1}", "接続中のコントローラー：USB {0}、Bluetooth {1}"),
         ["Bluetooth rumble: ready"] = ("蓝牙普通振动：已就绪", "Bluetooth振動：準備完了"),
         ["Bluetooth rumble: waiting for a DualSense"] = ("蓝牙普通振动：等待 DualSense 连接", "Bluetooth振動：DualSenseの接続を待機中"),
+#endif
         ["Connect a DualSense or DualSense Edge by USB and select Automatic or DualSense haptics."] = ("请用 USB 连接 DualSense 或 DualSense Edge，再选择「自动」或「DualSense 触觉反馈」输出。", "DualSenseまたはDualSense EdgeをUSBで接続し、出力を「自動」または「DualSenseハプティクス」にしてください。"),
         ["Setup and controller compatibility."] = ("连接设置与手柄兼容性。", "接続設定と対応コントローラー。"),
         ["Combat"] = ("战斗", "戦闘"),
@@ -126,16 +146,20 @@ internal sealed partial class UiText
         ["Sounds without a known position are skipped while enabled."] = ("开启后，找不到音源位置的音效会被跳过。", "オンの間は、位置が分からない音を除外します。"),
         ["Saved. Enable combat haptics to use this setting."] = ("已保存。开启战斗振动后，此设置才会生效。", "保存しました。この設定を使うには、戦闘振動をオンにしてください。"),
         ["Features: lighting, haptics, combathaptics, playersfx, footsteps, spatialhaptics, distancefade, followimpact."] = ("功能名：lighting（灯光）、haptics（振动总开关）、combathaptics（战斗振动）、playersfx（玩家技能音效联动）、footsteps（脚步增强）、spatialhaptics（方位振动）、distancefade（距离衰减）、followimpact（跟随命中方向）。", "機能名：lighting（ライト）、haptics（振動の一括切り替え）、combathaptics（戦闘振動）、playersfx（自分の効果音）、footsteps（足音の強化）、spatialhaptics（振動の方向）、distancefade（距離による減衰）、followimpact（着弾方向への補正）。"),
+#if BCEF_DIAGNOSTICS
         ["Enemy haptics: active"] = ("敌方振动：运行中", "敵の振動：動作中"),
+#endif
         ["Screen effects"] = ("画面特效", "画面エフェクト"),
         ["Enable screen effect haptics"] = ("启用画面特效振动", "画面エフェクトの振動を有効にする"),
         ["Screen effect vibration strength"] = ("画面特效振动强度", "画面エフェクトの振動の強さ"),
         ["Follows camera shake, blur and color-fringe effects. Filters known repeating motion. Pauses in PvP."] = ("跟随镜头震动、模糊和色差，自动过滤已知的循环晃动，PvP 时暂停。", "カメラの揺れ、ぼかし、色収差に連動し、特定の揺れの繰り返しを自動で抑えます。PvP中は停止します。"),
+#if BCEF_DIAGNOSTICS
         ["Screen effect detection unavailable: {0}"] = ("画面特效检测不可用：{0}", "画面エフェクトを検出できません：{0}"),
         ["Screen effect output unavailable: {0}"] = ("画面特效振动输出不可用：{0}", "画面エフェクトの振動を出力できません：{0}"),
         ["Screen effect level: {0:P0}"] = ("画面特效振动强度：{0:P0}", "画面エフェクトの振動：{0:P0}"),
         ["Screen effect blocks: {0}; suppressed: {1}"] = ("画面特效音频块：{0}；已抑制：{1}", "画面エフェクトのブロック：{0}、抑制：{1}"),
         ["Player SFX: waiting for a rumble controller"] = ("玩家技能音效联动：等待支持普通振动的手柄", "自分の効果音：通常振動のコントローラーを待機中"),
+#endif
         ["Vibration output"] = ("振动输出", "振動出力"),
         ["Automatic"] = ("自动", "自動"),
         ["DualSense haptics"] = ("DualSense 触觉反馈", "DualSenseハプティクス"),
@@ -143,49 +167,63 @@ internal sealed partial class UiText
         ["Rumble controller"] = ("普通振动手柄", "通常振動のコントローラー"),
         ["First connected"] = ("首个已连接手柄", "最初に接続されたコントローラー"),
         ["Windows · DualSense or XInput controller · Dalamud API 15"] = ("Windows · DualSense 或 XInput 手柄 · Dalamud API 15", "Windows · DualSenseまたはXInputコントローラー · Dalamud API 15"),
+#if BCEF_DIAGNOSTICS
         ["Regular rumble unavailable: {0}"] = ("普通振动不可用：{0}", "通常振動を使用できません：{0}"),
         ["Regular rumble: controller {0}"] = ("普通振动：手柄 {0}", "通常振動：コントローラー {0}"),
         ["Regular rumble: waiting for an XInput controller"] = ("普通振动：等待 XInput 手柄", "通常振動：XInputコントローラーを待機中"),
         ["Vibration output: native DualSense haptics"] = ("振动输出：原生 DualSense 触觉反馈", "振動出力：DualSenseネイティブハプティクス"),
+#endif
         ["Controller 1"] = ("手柄 1", "コントローラー 1"),
         ["Controller 2"] = ("手柄 2", "コントローラー 2"),
         ["Controller 3"] = ("手柄 3", "コントローラー 3"),
         ["Controller 4"] = ("手柄 4", "コントローラー 4"),
         ["Player hit reactions"] = ("挨打时振动", "被ダメージ時の振動"),
         ["Includes basic attacks. Uses Enemy vibration strength."] = ("普攻挨打也会振动，强度跟随「敌方振动强度」。", "通常攻撃も対象です。敵の振動の強さを使います。"),
+#if BCEF_DIAGNOSTICS
         ["Player hit-reaction blocks: {0}"] = ("角色受击音频块：{0}", "被ダメージ音声ブロック：{0}"),
         ["Enemy actions: skills {0}; basic attacks {1}; unknown {2}"] = ("敌方动作：技能 {0}；普通攻击 {1}；未知 {2}", "敵のアクション：スキル {0}、通常攻撃 {1}、不明 {2}"),
         ["Enemy haptics: detection unavailable"] = ("敌方振动：技能识别不可用", "敵の振動：スキルを識別できません"),
         ["Enemy skill detection unavailable: {0}"] = ("敌方技能识别不可用：{0}", "敵のスキルを識別できません：{0}"),
+#endif
         ["Enable haptics"] = ("启用振动", "振動を有効にする"),
 
         ["Player vibration strength"] = ("我的振动强度", "自分の振動の強さ"),
         ["Footstep amplification"] = ("脚步振动增强", "足音振動の強化"),
         ["Amplifies existing footsteps while unmounted. Requires USB and in-game vibration."] = ("没骑坐骑时增强游戏已有的脚步振动，需要连接 USB 并开启游戏内振动。", "マウントに乗っていない間、既存の足音振動を強めます。USB接続とゲーム内の振動設定が必要です。"),
         ["Saved. Enable Player SFX to use this setting."] = ("已保存，开启「玩家技能音效联动」后生效。", "保存しました。この設定を使うには、自分の効果音による振動をオンにしてください。"),
+#if BCEF_DIAGNOSTICS
         ["Haptics: enabled"] = ("振动：总开关已开启", "振動：一括スイッチがオン"),
         ["Haptics: off — your choices are kept"] = ("振动：总开关已关闭，各项选择已保留", "振動：一括スイッチがオフ（各項目の設定は保持）"),
         ["Player SFX: off"] = ("玩家技能音效联动：已关闭", "自分の効果音の振動：オフ"),
         ["Player SFX: paused in background"] = ("玩家技能音效联动：切到后台，已暂停", "自分の効果音の振動：非アクティブのため停止"),
         ["Player SFX: ready — use a skill"] = ("玩家技能音效联动：准备好了，放个技能试试", "自分の効果音の振動：準備完了（スキルを使ってください）"),
         ["Player SFX strength: 0 — native effects only"] = ("玩家技能音效联动：强度为零，只保留原生效果", "自分の効果音の強さ：0（標準の振動のみ）"),
+#endif
         ["Regular enemy skills"] = ("小怪技能", "通常の敵のスキル"),
         ["Enemy vibration strength"] = ("敌方振动强度", "敵の振動の強さ"),
         ["During duty boss fights, also includes NPC casting, warning cues and basic attacks."] = ("副本 Boss 战中，NPC 的施法、预警和普攻音效也会触发振动。", "コンテンツのボス戦では、NPCの詠唱・予告音・通常攻撃も含みます。"),
+#if BCEF_DIAGNOSTICS
         ["Ground-effect audio unavailable: {0}"] = ("场地音效采集不可用：{0}", "フィールドの効果音を取得できません：{0}"),
         ["Active ground-effect sources: {0}"] = ("当前场地音源：{0}", "再生中のフィールド効果音：{0}"),
+#endif
         ["Excludes basic attacks. Enemies seen before a boss fight stay in this category."] = ("不响应普攻。Boss 开战前已识别的小怪，开战后仍算在这里。", "通常攻撃を除外します。ボス戦の前に確認した敵はこの分類のままです。"),
+#if BCEF_DIAGNOSTICS
         ["Enemy blocks: bosses {0}; regular enemies {1}"] = ("敌方音频块：Boss {0}；小怪 {1}", "敵の音声ブロック：ボス {0}、通常の敵 {1}"),
+#endif
         ["inactive"] = ("未启用", "無効"),
+#if BCEF_DIAGNOSTICS
         ["Boss SFX rule: {0}; remembered regular enemies: {1}"] = ("Boss 音效规则：{0}；已记录小怪：{1}", "ボス効果音ルール：{0}、記録済みの通常の敵：{1}"),
         ["Enemy haptics: off"] = ("敌方振动：已关闭", "敵の振動：オフ"),
         ["Enemy haptics: paused in PvP"] = ("敌方振动：PvP 中已暂停", "敵の振動：PvP中は停止"),
         ["Enemy haptics: paused in background"] = ("敌方振动：后台已暂停", "敵の振動：非アクティブのため停止"),
         ["Enemy haptics: waiting for sound detection"] = ("敌方振动：等待音效检测就绪", "敵の振動：音声の検出準備中"),
+#endif
         ["Lighting"] = ("灯光", "ライティング"),
         ["Haptics"] = ("振动", "振動"),
         ["Diagnostics"] = ("诊断", "診断"),
+#if BCEF_DIAGNOSTICS
         ["Diagnostics is only available for development installs."] = ("诊断功能仅在通过开发插件流程加载时可用。", "診断機能は、開発用プラグインとして読み込んだ場合のみ利用できます。"),
+#endif
         ["/bcef opens settings. /bcef info opens the guide."] = ("/bcef 打开设置；/bcef info 查看使用说明。", "/bcef で設定、/bcef info で使い方を開きます。"),
         ["Game audio is processed locally. No extra controller drivers or services are installed. There is no microphone recording, telemetry or automatic upload."] = ("游戏音频只在本机处理，不会安装额外的手柄驱动或服务，也不会录制麦克风、收集遥测数据或自动上传。", "ゲーム音声はPC内で処理します。追加のドライバーやサービスは不要で、マイクの録音、利用状況の収集、自動アップロードは行いません。"),
         ["Plays left, then right, using your current balance."] = ("按当前平衡设置，依次振动左、右侧。", "現在のバランスで、左、右の順に振動します。"),
@@ -196,7 +234,9 @@ internal sealed partial class UiText
         ["Unknown command or value. Use /bcef help for syntax."] = ("命令或参数不正确。输入 /bcef help 查看用法。", "コマンドまたは値が正しくありません。/bcef help で使い方を確認してください。"),
         ["Saved. Enable haptics to use this setting."] = ("已保存。开启振动后，此设置才会生效。", "保存しました。この設定を使うには、振動をオンにしてください。"),
         ["Saved. Enable spatial haptics to use this setting."] = ("已保存。开启方位振动后，此设置才会生效。", "保存しました。この設定を使うには、音の方向を振動に反映する設定をオンにしてください。"),
+#if BCEF_DIAGNOSTICS
         ["/bcef opens settings. /bcef info opens the guide. /bcef trace starts or stops diagnostics."] = ("/bcef 打开设置；/bcef info 查看使用说明；/bcef trace 开始或停止记录诊断数据。", "/bcef で設定、/bcef info で使い方を開きます。/bcef trace で診断データの記録を開始・停止します。"),
+#endif
         ["Usage: /bcef <feature> <on|off|toggle>"] = ("用法：/bcef <功能> <on|off|toggle>（开启、关闭、切换）", "使い方：/bcef <機能> <on|off|toggle>（オン・オフ・切り替え）"),
         ["Info"] = ("使用说明", "使い方"),
         ["Before you start"] = ("使用须知", "はじめに"),
@@ -228,10 +268,12 @@ internal sealed partial class UiText
 
         ["Credits"] = ("致谢", "謝辞"),
         ["Built with Dalamud. Controller support draws on DS4Windows; audio bindings draw on FFXIVClientStructs. Their licenses and credits are included with the plugin."] = ("基于 Dalamud 开发。手柄支持参考了 DS4Windows，音频绑定参考了 FFXIVClientStructs。相关许可与署名随插件一同提供。", "Dalamudを使用しています。コントローラー対応にはDS4Windows、音声バインディングにはFFXIVClientStructsを参考にしています。各プロジェクトのライセンスとクレジットを同梱しています。"),
+#if BCEF_DIAGNOSTICS
         ["Recording"] = ("诊断记录", "診断データの記録"),
         ["Saved recordings on disk: {0:F2} MiB"] = ("已保存记录占用空间：{0:F2} MiB", "保存済みの記録の使用容量：{0:F2} MiB"),
         ["Saved recordings on disk: unavailable"] = ("已保存记录占用空间：暂时无法读取", "保存済みの記録の使用容量：取得できません"),
         ["Live status"] = ("运行状态", "動作状況"),
+#endif
         ["Close"] = ("关闭", "閉じる"),
         ["Reset to defaults"] = ("恢复默认设置", "初期設定に戻す"),
         ["Restore defaults for this tab."] = ("恢复当前标签页的默认设置。", "このタブの設定を初期状態に戻します。"),
@@ -326,6 +368,7 @@ internal sealed partial class UiText
         ["LED cycle (seconds)"] = ("LED 循环时间（秒）", "LEDの周期（秒）"),
         ["LB LED cycle (seconds)"] = ("LB 灯光循环时间（秒）", "LB表示の周期（秒）"),
         ["Controls LB blink and loading. The cast/use flash keeps its own timing."] = ("调整 LB 闪烁和加载的快慢，不改变咏唱／使用时的快闪节奏。", "LBの点滅とローディングの周期です。詠唱・使用時の速い点滅は別の速さです。"),
+#if BCEF_DIAGNOSTICS
         ["Limit Break mode is not selected."] = ("尚未选择极限技模式。", "LB表示モードが選択されていません。"),
         ["Limit Break LEDs paused."] = ("极限技灯光已暂停。", "LB表示は一時停止中です。"),
         ["Limit Break detection unavailable: {0}"] = ("无法检测极限技：{0}", "LBの検出を利用できません：{0}"),
@@ -337,16 +380,19 @@ internal sealed partial class UiText
         ["Your Limit Break used — fast flash"] = ("已使用极限技，快速闪烁中", "LBを使用：速く点滅"),
         ["Instant-LB flashing unavailable: {0}. Gauge and cast LEDs remain active."] = ("瞬发 LB 闪烁不可用：{0}。量谱和咏唱显示仍可使用。", "即時発動LBの点滅を利用できません：{0}。ゲージと詠唱の表示は引き続き使えます。"),
         ["LB observation errors: {0}"] = ("LB 检测错误：{0}", "LB検出エラー：{0}"),
+#endif
         ["Amplify native footstep vibration"] = ("增强原生脚步振动", "標準の足音振動を強める"),
         ["Footstep vibration"] = ("脚步振动强度", "足音振動の強さ"),
         ["Native footstep strength varies by race."] = ("不同种族的原生脚步振动强度不同，手感也会有差别。", "標準の足音振動の強さは種族によって異なります。"),
         ["100% is native strength. Mount and speaker effects are unaffected."] = ("100% 为原生强度，不影响坐骑和扬声器效果。", "100%は標準の強さです。マウントやスピーカーの効果は変わりません。"),
+#if BCEF_DIAGNOSTICS
         ["Native footstep amplifier: off"] = ("原生脚步增强：关闭", "足音振動の増幅：オフ"),
         ["Native footstep amplifier: paused in background"] = ("原生脚步增强：后台暂停", "足音振動の増幅：バックグラウンドで一時停止中"),
         ["Native footstep amplifier: waiting for an unmounted character"] = ("原生脚步增强：等待角色下坐骑", "足音振動の増幅：マウントに乗っていないキャラクターを待機中"),
         ["Footstep vibration: 100% — native strength"] = ("脚步振动：100%，保持原生强度", "足音振動：100%（標準の強さ）"),
         ["Native footstep amplifier: ready — walk or run"] = ("原生脚步增强：准备好了，走两步或跑起来试试", "足音振動の増幅：準備完了（歩く・走るで確認）"),
         ["Footstep blocks amplified: {0}"] = ("已增强的脚步音频块：{0}", "増幅した足音ブロック：{0}"),
+#endif
         ["Spatial feedback"] = ("方位反馈", "音の方向"),
         ["Spatial haptics"] = ("方位振动", "音の方向を振動に反映"),
         ["Follow skill impacts"] = ("跟随技能命中方向", "スキルの着弾方向に寄せる"),
@@ -365,6 +411,7 @@ internal sealed partial class UiText
         ["Full strength within (yalms)"] = ("完整强度范围（米）", "最大の強さを保つ距離（m）"),
         ["Fade to zero at (yalms)"] = ("振动消失距离（米）", "振動が止まる距離（m）"),
         ["Version {0}"] = ("版本 {0}", "バージョン {0}"),
+#if BCEF_DIAGNOSTICS
         ["FFXIV active"] = ("FFXIV 在前台", "FFXIVを操作中"),
         ["Background protected — custom output paused"] = ("后台保护中，自定义输出已暂停", "別のアプリを操作中：追加の出力は一時停止"),
         ["Recording SFX: {0:F0}s elapsed"] = ("音效记录中：已记录 {0:F0} 秒", "サウンドを記録中：{0:F0}秒経過"),
@@ -375,8 +422,10 @@ internal sealed partial class UiText
         ["Storage is slow. Recording stopped; waiting for saved files."] = ("保存速度较慢，已停止记录，正在等待文件保存。", "保存に時間がかかるため、記録を停止しました。保存が終わるまでお待ちください。"),
         ["Lighting output"] = ("灯光输出", "ライトの出力"),
         ["SFX capture"] = ("音效采集", "サウンドの取得"),
+#endif
         ["Combat haptics"] = ("战斗振动", "戦闘振動"),
         ["Limit Break detection"] = ("极限技检测", "LBの検出"),
+#if BCEF_DIAGNOSTICS
         ["Custom lighting: enabled"] = ("自定义灯光：已开启", "ライトのカスタマイズ：オン"),
         ["Custom lighting: off"] = ("自定义灯光：已关闭", "ライトのカスタマイズ：オフ"),
         ["Lighting writes: {0}"] = ("灯光写入次数：{0}", "ライトの書き込み回数：{0}"),
@@ -393,7 +442,9 @@ internal sealed partial class UiText
         ["Your sounds cannot be identified on this game version. Choose All combat sounds for lighting."] = ("当前游戏版本无法识别你的音效，灯光可以改用「所有战斗音效」。", "このゲームバージョンでは自分の音を判別できません。ライトには「すべての戦闘音」を選んでください。"),
         ["SFX lighting: paused"] = ("音效灯光：已暂停", "音に連動するライト：一時停止"),
         ["SFX lighting: ready"] = ("音效灯光：已就绪", "音に連動するライト：準備完了"),
+#endif
         ["SFX light level"] = ("音效灯光强度", "音に連動するライトの強さ"),
+#if BCEF_DIAGNOSTICS
         ["SFX RMS: {0:F4}; light level: {1:P0}"] = ("音效 RMS：{0:F4}；灯光强度：{1:P0}", "音のRMS：{0:F4}、ライトの強さ：{1:P0}"),
         ["SFX blocks: {0}; other voices skipped: {1}"] = ("音效块：{0}；跳过的其他声音：{1}", "音声ブロック：{0}、除外したほかの音：{1}"),
         ["SFX VFX: yours {0}; other {1}; unknown {2}"] = ("音效特效来源：自己 {0}；其他 {1}；未知 {2}", "音のエフェクト発生元：自分 {0}、ほか {1}、不明 {2}"),
@@ -407,15 +458,19 @@ internal sealed partial class UiText
         ["Your sounds cannot be identified on this game version. Added feedback is paused."] = ("当前游戏版本无法识别你的音效，额外振动已暂停。", "このゲームバージョンでは自分の音を判別できないため、追加の振動は一時停止中です。"),
         ["Native haptics unavailable: {0}"] = ("原生振动不可用：{0}", "標準の振動処理を利用できません：{0}"),
         ["Waiting for a supported game audio mixer."] = ("正在等待兼容的游戏音频混音器。", "対応するゲームのミキサーを待っています。"),
+#endif
         ["Added combat strength: 0 — native effects only"] = ("额外战斗振动强度为 0，仅保留原生效果", "追加の振動の強さ：0 — 標準の振動のみ"),
+#if BCEF_DIAGNOSTICS
         ["Spatial haptics unavailable: {0}. "] = ("方位振动不可用：{0}。", "音の方向を反映できません：{0}。"),
         ["Added feedback paused while distance fade is on."] = ("距离衰减开启时，额外振动将暂停。", "距離による減衰がオンのため、追加の振動は一時停止します。"),
         ["Using original combat haptics."] = ("正在使用原有的非方位战斗振动。", "方向を反映しない通常の戦闘振動を使います。"),
         ["Waiting for your character and an active gameplay camera."] = ("正在等待角色和可用的游戏镜头。", "キャラクターとゲームのカメラを待っています。"),
         ["Left grip gain"] = ("左侧振动强度", "左グリップの強さ"),
         ["Right grip gain"] = ("右侧振动强度", "右グリップの強さ"),
+#endif
         ["camera"] = ("镜头", "カメラ"),
         ["character"] = ("角色", "キャラクター"),
+#if BCEF_DIAGNOSTICS
         ["Last sound: {0:F1} yalms from {1}; balance {2:+0.00;-0.00;0.00}"] = ("最近音效：距{1} {0:F1} 米；左右平衡 {2:+0.00;-0.00;0.00}", "直近の音：{1}から{0:F1}m、左右バランス {2:+0.00;-0.00;0.00}"),
         ["Distance fade: waiting for camera position"] = ("距离衰减：正在等待镜头位置", "距離による減衰：カメラの位置を待っています"),
         ["Distance fade ({0}): full at {1:F1}; zero at {2:F1} yalms"] = ("距离衰减（{0}）：{1:F1} 米内保持完整强度，{2:F1} 米处为零", "距離による減衰（{0}）：{1:F1}mまで最大、{2:F1}mで停止"),
@@ -424,12 +479,15 @@ internal sealed partial class UiText
         ["Spatial blocks: {0}; original-route fallbacks: {1}"] = ("方位处理块：{0}；原路径回退：{1}", "方向を反映したブロック：{0}、元の経路に戻したブロック：{1}"),
         ["Distance cutoff: {0}; missing position/listener: {1}"] = ("距离截断：{0}；缺少音源或参考位置：{1}", "距離で除外：{0}、音源や基準の位置が不明：{1}"),
         ["Player-origin blocks biased: {0}; impact cue: {1}"] = ("偏向命中方向的角色音频块：{0}；命中参考：{1}", "着弾方向に寄せたブロック：{0}、着弾の参照：{1}"),
+#endif
         ["active"] = ("有效", "あり"),
         ["none"] = ("无", "なし"),
+#if BCEF_DIAGNOSTICS
         ["Game vibration mixer detected"] = ("已检测到游戏振动混音器", "ゲームの振動用ミキサーを検出しました"),
         ["Waiting for the first eligible skill sound"] = ("正在等待可用于振动的技能音效", "振動に使えるスキル音を待っています"),
         ["Select an SFX effect or enable haptics, then wait for capture to be ready."] = ("请先选择音效灯光或启用振动，再等待音效采集就绪。", "音に連動するライトか振動を有効にして、サウンドの準備が整うまでお待ちください。"),
         ["Recording stopped: {0}"] = ("记录已停止：{0}", "記録を停止しました：{0}"),
+#endif
         ["Loading preview…"] = ("正在加载预览…", "プレビューを読み込み中…"),
         ["Custom lighting off"] = ("自定义灯光已关闭", "ライトのカスタマイズはオフ"),
         ["Live preview"] = ("实时预览", "リアルタイムプレビュー"),

@@ -35,6 +35,7 @@ internal static unsafe class RumbleChecks
     internal static void Run(Action<bool, string> check)
     {
         CheckAudioRouting(check);
+        CheckLinearSfxOutput(check);
         CheckScreenCoexistence(check);
         CheckStrengthTest(check);
         var config = new Configuration();
@@ -232,6 +233,32 @@ internal static unsafe class RumbleChecks
         output.Configure(settings, true, true); // Existing DS5 mode remains the default.
         check(!output.Prepare(null, true, 2, 0).HasOutput && !output.RumbleSignal.Active,
             "DualSense routing fell back to regular rumble without being selected");
+    }
+
+    private static void CheckLinearSfxOutput(Action<bool, string> check)
+    {
+        var output = new NativeHapticOutput(null, 0, 0, 0);
+        var settings = new HapticSettings(Enabled: true, Strength: 1, BossEnabled: true,
+            RegularEnemyEnabled: true, EnemyStrength: 1, Spatial: false, DistanceFalloff: false,
+            RumbleStrength: 1);
+        output.SetEnemyContext(true);
+        output.Configure(settings, true, true, useRumble: true);
+        var devices = new Devices(); devices.Connected[0] = true;
+        using var session = new RumbleSession(devices, () => false);
+        session.Select(HapticOutputMode.XInput, 0, true, 0);
+        var pcm = new float[2048]; Array.Fill(pcm, 0.0125f);
+        var seconds = 0.0;
+        foreach (var enemy in new[] { EnemySoundKind.None, EnemySoundKind.Boss, EnemySoundKind.Regular })
+        {
+            var frame = output.Prepare(null, enemy == EnemySoundKind.None, 2, 0, enemy: enemy);
+            fixed (float* samples = pcm) output.Mix(frame, samples, pcm.Length, 0);
+            session.Tick(output.RumbleSignal, output.CurrentSettings, true, seconds);
+            check(devices.Plugin[0] == RumbleMotors.FromImpact(0.1f),
+                $"Quiet {enemy} SFX did not retain its original linear XInput motor level: {devices.Plugin[0]}");
+            session.Tick(output.RumbleSignal, output.CurrentSettings, true, seconds + 0.3);
+            check(devices.Plugin[0] == default, "A completed linear SFX pulse left rumble running");
+            seconds++;
+        }
     }
 
     private static void CheckStrengthTest(Action<bool, string> check)

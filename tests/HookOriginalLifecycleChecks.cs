@@ -76,7 +76,7 @@ internal static unsafe class HookOriginalLifecycleChecks
         var second = Invoke(type, guard, "SetOutput", new object[] { (nint)456, (nint)0, (uint)78 });
         check(second && calls == 2 && lastFile == 456 && lastLength == 78,
             "An entered HID-output detour did not preserve the original after hook disposal");
-        CheckSourceForwarding(check, plugin);
+        if (ProductionBoundaryChecks.Diagnostics(plugin)) CheckSourceForwarding(check, plugin);
         CheckRotationForwarding(check, plugin);
     }
 

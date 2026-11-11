@@ -21,14 +21,16 @@ internal static unsafe class ScreenObserverActivationChecks
     internal static void Run(Action<bool, string> check, Assembly plugin)
     {
         var type = plugin.GetType("DualSenseLighting.Windows.GameScreenEffects", true)!;
-        foreach (var name in new[] { "UpdateMotion", "SetTracing" })
+        var diagnostics = ProductionBoundaryChecks.Diagnostics(plugin);
+        foreach (var name in diagnostics ? new[] { "UpdateMotion", "SetTracing" } : new[] { "UpdateMotion" })
         {
             var called = Calls(type.GetMethod(name, Hidden)! ).ToArray();
             check(!called.Any(m => m.Name.Contains("Scan", StringComparison.Ordinal) ||
                 m is ConstructorInfo && m.DeclaringType?.Name is "SecondaryMotionObserver" or "ScreenEffectSourceObserver"),
                 "Compiled " + name + " still scans or constructs an observer during activation");
         }
-        foreach (var dev in new[] { false, true }) CheckConstructor(check, plugin, dev);
+        foreach (var dev in diagnostics ? new[] { false, true } : new[] { false })
+            CheckConstructor(check, plugin, dev);
     }
 
     private static void CheckConstructor(Action<bool, string> check, Assembly plugin, bool dev)
@@ -69,23 +71,25 @@ internal static unsafe class ScreenObserverActivationChecks
             var settingsType = plugin.GetType("DualSenseLighting.Core.HapticSettings", true)!;
             var settingsCtor = settingsType.GetConstructors().Single(c => c.GetParameters().Length > 1);
             Set(output, "screenSettings", settingsCtor.Invoke(settingsCtor.GetParameters().Select(p => p.DefaultValue).ToArray()));
-            var owner = constructor.Invoke(new[] { interop, scanner, output, (object)dev });
+            var owner = constructor.Invoke(ProductionBoundaryChecks.Diagnostics(plugin)
+                ? new[] { interop, scanner, output, (object)dev }
+                : new[] { interop, scanner, output });
             var motionType = plugin.GetType("DualSenseLighting.Windows.SecondaryMotionObserver", true)!;
-            var sourceType = plugin.GetType("DualSenseLighting.Windows.ScreenEffectSourceObserver", true)!;
+            var sourceType = plugin.GetType("DualSenseLighting.Windows.ScreenEffectSourceObserver");
             string Pattern(Type t, string n) => (string)t.GetField(n, BindingFlags.Static | BindingFlags.NonPublic)!.GetRawConstantValue()!;
             check(scans.Count(x => x == Pattern(motionType, "ProducerSignature")) == 1 &&
-                scans.Count(x => x == Pattern(sourceType, "ConstructorSignature")) == (dev ? 1 : 0),
+                (sourceType == null || scans.Count(x => x == Pattern(sourceType, "ConstructorSignature")) == (dev ? 1 : 0)),
                 "Background constructor did not prepare motion once and quake tracing only for dev installs");
             check(acquired == 1 && enabled == 0 && type.GetField("motionBindingError", Hidden)!.GetValue(owner) != null &&
-                (!dev || type.GetField("sourceTraceError", Hidden)!.GetValue(owner) != null),
+                (!dev || sourceType == null || type.GetField("sourceTraceError", Hidden)!.GetValue(owner) != null),
                 "Optional binding failure poisoned base capture or enabled a hook during preparation");
             var count = scans.Count;
-            type.GetMethod("SetTracing")!.Invoke(owner, new object[] { true });
+            if (sourceType != null) type.GetMethod("SetTracing")!.Invoke(owner, new object[] { true });
             type.GetMethod("UpdateMotion", Hidden)!.Invoke(owner, new object[] { true, true });
-            check(scans.Count == count && type.GetField("timing", Hidden)!.GetValue(owner) != null,
+            check(scans.Count == count && (sourceType == null || type.GetField("timing", Hidden)!.GetValue(owner) != null),
                 "First tracing/motion activation retried unsupported scanning or lost independent recording");
             // Stop without filesystem work; this fixture checks preparation/activation, not archive IO.
-            Set(owner, "timing", null); Set(owner, "traceSave", Task.CompletedTask);
+            if (sourceType != null) { Set(owner, "timing", null); Set(owner, "traceSave", Task.CompletedTask); }
             type.GetMethod("Dispose")!.Invoke(owner, null);
             check(disposed == 1, "Prepared base camera hook was not disposed after optional binding failures");
         }

@@ -14,6 +14,11 @@ internal static class DiagnosticsAccessChecks
 
     internal static void Run(Action<bool, string> check, Assembly plugin)
     {
+        if (!ProductionBoundaryChecks.Diagnostics(plugin))
+        {
+            ProductionBoundaryChecks.Run(check, plugin);
+            return;
+        }
         var uiType = plugin.GetType("DualSenseLighting.Ui.SettingsUi", true)!;
         var configType = plugin.GetType("DualSenseLighting.Configuration", true)!;
         var recorderType = plugin.GetType("DualSenseLighting.DiagnosticRecordingCoordinator", true)!;

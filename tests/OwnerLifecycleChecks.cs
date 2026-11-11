@@ -42,7 +42,8 @@ internal static unsafe class OwnerLifecycleChecks
             () => CheckGuardAcquisition(check, plugin), () => CheckGuardEnableRollback(check, plugin),
             () => CheckGuardDispose(check, plugin), () => CheckCaptureDispose(check, plugin),
             () => CheckEffectConstructorRollback(check, plugin), () => CheckNestedEnemyDispose(check, plugin),
-            () => CheckSourceObserverAcquisition(check, plugin), () => CheckSourceObserverLifecycle(check, plugin),
+            () => { if (ProductionBoundaryChecks.Diagnostics(plugin)) CheckSourceObserverAcquisition(check, plugin); },
+            () => { if (ProductionBoundaryChecks.Diagnostics(plugin)) CheckSourceObserverLifecycle(check, plugin); },
             () => CheckRotationObserverLifecycle(check, plugin), () => CheckMotionSessionAndGuard(check, plugin),
             () => CheckMotionFilterPermission(check, plugin), () => CheckFirstCameraFilter(check, plugin),
             () => CheckXInputDispose(check, plugin), () => CheckWorkerFinally(check, plugin),
@@ -264,12 +265,13 @@ internal static unsafe class OwnerLifecycleChecks
             foreach (var name in hooks)
                 Set(type, capture, name, Hook(Field(type, name).FieldType,
                     () => { order.Add(name); if (name == failed) throw failure; }));
-            Set(type, capture, "tracing", 1);
+            if (ProductionBoundaryChecks.Diagnostics(plugin)) Set(type, capture, "tracing", 1);
             try { Invoke(type, capture, "Dispose"); check(false, "Capture disposal hid hook cleanup failure"); }
             catch (AggregateException error)
             { check(order.SequenceEqual(hooks) && Flatten(error).Contains(failure),
                 "Actual capture disposal skipped later hooks after " + failed + " failed"); }
-            check((int)Field(type, "tracing").GetValue(capture)! == 0, "Capture retained tracing during disposal");
+            if (ProductionBoundaryChecks.Diagnostics(plugin))
+                check((int)Field(type, "tracing").GetValue(capture)! == 0, "Capture retained tracing during disposal");
             Invoke(type, capture, "Dispose");
             check(order.Count == hooks.Length, "Repeated actual capture disposal repeated native hook cleanup");
         }
@@ -467,32 +469,44 @@ internal static unsafe class OwnerLifecycleChecks
 
     private static void CheckMotionSessionAndGuard(Action<bool, string> check, Assembly plugin)
     {
-        var recordingType = PluginType(plugin, "Core.ScreenEffectSourceRecording");
-        var sessionType = PluginType(plugin, "Windows.SecondaryMotionSession");
-        var sampleType = PluginType(plugin, "Core.SecondaryVectorSample");
-        var recording = New(recordingType, 0L);
-        var session = New(sessionType, recording, null);
-        var sample = New(sampleType, 100L, 200L, 300L, 0, true, .1f, .2f, .3f);
-        int Count()
+        if (ProductionBoundaryChecks.Diagnostics(plugin))
         {
-            var snapshot = Invoke(recordingType, recording, "Snapshot")!;
-            var events = snapshot.GetType().GetProperty("Events")!.GetValue(snapshot)!;
-            return (int)events.GetType().GetProperty("Length")!.GetValue(events)!;
+            var recordingType = PluginType(plugin, "Core.ScreenEffectSourceRecording");
+            var sessionType = PluginType(plugin, "Windows.SecondaryMotionSession");
+            var sampleType = PluginType(plugin, "Core.SecondaryVectorSample");
+            var recording = New(recordingType, 0L);
+            var session = New(sessionType, recording, null);
+            var sample = New(sampleType, 100L, 200L, 300L, 0, true, .1f, .2f, .3f);
+            int Count()
+            {
+                var snapshot = Invoke(recordingType, recording, "Snapshot")!;
+                var events = snapshot.GetType().GetProperty("Events")!.GetValue(snapshot)!;
+                return (int)events.GetType().GetProperty("Length")!.GetValue(events)!;
+            }
+            Invoke(sessionType, session, "Observe", sample, true, 1L);
+            check(Count() == 1, "Active motion session did not record its position observation");
+            Invoke(sessionType, session, "Retire", 2L);
+            var afterRetire = Count();
+            Invoke(sessionType, session, "Observe", sample, true, 3L);
+            Invoke(sessionType, session, "Reset", 100L, 200L, 300L, (uint)0, (uint)0, 4L);
+            Invoke(sessionType, session, "Gap", 5L);
+            Invoke(sessionType, session, "Retire", 6L);
+            check(Count() == afterRetire, "Retired motion callbacks mutated their recording or repeated retirement");
+            var next = New(sessionType, recording, null);
+            Invoke(sessionType, next, "Observe", sample, false, 7L);
+            check(Count() == afterRetire + 1, "Retiring an old motion session prevented the new session from recording");
+            Invoke(sessionType, session, "Observe", sample, false, 8L);
+            check(Count() == afterRetire + 1, "An old callback mutated recording after a new motion session was admitted");
         }
-        Invoke(sessionType, session, "Observe", sample, true, 1L);
-        check(Count() == 1, "Active motion session did not record its position observation");
-        Invoke(sessionType, session, "Retire", 2L);
-        var afterRetire = Count();
-        Invoke(sessionType, session, "Observe", sample, true, 3L);
-        Invoke(sessionType, session, "Reset", 100L, 200L, 300L, (uint)0, (uint)0, 4L);
-        Invoke(sessionType, session, "Gap", 5L);
-        Invoke(sessionType, session, "Retire", 6L);
-        check(Count() == afterRetire, "Retired motion callbacks mutated their recording or repeated retirement");
-        var next = New(sessionType, recording, null);
-        Invoke(sessionType, next, "Observe", sample, false, 7L);
-        check(Count() == afterRetire + 1, "Retiring an old motion session prevented the new session from recording");
-        Invoke(sessionType, session, "Observe", sample, false, 8L);
-        check(Count() == afterRetire + 1, "An old callback mutated recording after a new motion session was admitted");
+        else
+        {
+            var sessionType = PluginType(plugin, "Windows.SecondaryMotionSession");
+            var session = New(sessionType, new object?[] { null });
+            check((bool)sessionType.GetProperty("Active", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(session)!, "Production session did not activate");
+            Invoke(sessionType, session, "Retire", 2L);
+            Invoke(sessionType, session, "Retire", 3L);
+            check(!(bool)sessionType.GetProperty("Active", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(session)!, "Production session retirement was not retained");
+        }
         var guardType = PluginType(plugin, "Core.ScreenEffectFilterGuard");
         var kind = PluginType(plugin, "Core.ScreenEffectKind");
         var guard = New(guardType);
@@ -536,7 +550,7 @@ internal static unsafe class OwnerLifecycleChecks
         var session = Field(type, "motionSession").GetValue(owner)!;
         var sessionType = session.GetType();
         check(Field(sessionType, "Filter").GetValue(session) != null &&
-            Field(sessionType, "Recording").GetValue(session) == null && (int)Field(observerType, "enabled").GetValue(observer)! == 1,
+            (!ProductionBoundaryChecks.Diagnostics(plugin) || Field(sessionType, "Recording").GetValue(session) == null) && (int)Field(observerType, "enabled").GetValue(observer)! == 1,
             "Normal screen filtering required recording or failed to activate its fixed matcher");
         Invoke(type, owner, "UpdateMotion", true, false);
         check(Field(type, "motionSession").GetValue(owner) == null &&
@@ -586,7 +600,8 @@ internal static unsafe class OwnerLifecycleChecks
             Set(type, owner, "postGlobal", postGlobal); Set(type, owner, "cameraGlobal", cameraGlobal);
             Set(type, owner, "motionFilter", filter);
             var sessionType = PluginType(plugin, "Windows.SecondaryMotionSession");
-            Set(type, owner, "motionSession", New(sessionType, null, filter));
+            Set(type, owner, "motionSession", ProductionBoundaryChecks.Diagnostics(plugin)
+                ? New(sessionType, null, filter) : New(sessionType, filter));
             Set(type, owner, "motionObserver", RuntimeHelpers.GetUninitializedObject(PluginType(plugin, "Windows.SecondaryMotionObserver")));
             // Warm the reader before measuring a fresh epoch's first data frame.
             Invoke(type, owner, "Read", camera, context);
@@ -752,10 +767,14 @@ internal static unsafe class OwnerLifecycleChecks
         Invoke(saves.GetType(), saves, "MarkDirty", 1000d); Set(type, instance, "saves", saves);
         var captureType = PluginType(plugin, "Windows.SfxAudioCapture");
         var directory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "plugin-lifecycle-" + Guid.NewGuid());
-        var recorder = New(PluginType(plugin, "DiagnosticRecordingCoordinator"), directory,
-            System.IO.Path.Combine(directory, "screen-haptics-timing.json"), config, log,
-            ConstantGetter(captureType, null), "test", clock);
-        Set(type, instance, "recording", recorder); Set(type, instance, "session", Session(plugin));
+        if (ProductionBoundaryChecks.Diagnostics(plugin))
+        {
+            var recorder = New(PluginType(plugin, "DiagnosticRecordingCoordinator"), directory,
+                System.IO.Path.Combine(directory, "screen-haptics-timing.json"), config, log,
+                ConstantGetter(captureType, null), "test", clock);
+            Set(type, instance, "recording", recorder);
+        }
+        Set(type, instance, "session", Session(plugin));
         var guardType = PluginType(plugin, "Windows.GameOutputGuard"); var guard = RuntimeHelpers.GetUninitializedObject(guardType);
         var guardCalls = 0;
         Set(guardType, guard, "setOutput", Hook(Field(guardType, "setOutput").FieldType, () => { guardCalls++; throw new InvalidOperationException("guard cleanup"); }));
@@ -805,7 +824,8 @@ internal static unsafe class OwnerLifecycleChecks
             var retiredSettings = Field(type, "settings").GetValue(instance);
             var retiredHaptics = Field(type, "hapticSettings").GetValue(instance);
             var configurationBefore = System.Text.Json.JsonSerializer.Serialize(config, config.GetType());
-            foreach (var owner in new[] { "ui", "recording", "saves", "guard", "chat" }) Set(type, instance, owner, null);
+            foreach (var owner in new[] { "ui", "saves", "guard", "chat" }) Set(type, instance, owner, null);
+            if (ProductionBoundaryChecks.Diagnostics(plugin)) Set(type, instance, "recording", null);
             var callbackErrors = new List<string>();
             foreach (var callback in new (string Name, object?[] Arguments)[]
             {

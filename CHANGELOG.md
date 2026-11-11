@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.20.0 — Performance and production build cleanup
+
+- Reduce audio CPU work by skipping unnecessary sound-ownership checks and sharing validated loudness measurements between SFX lighting and haptics.
+- Skip unused enemy cast reads while preserving encounter history and friendly-NPC exclusions.
+- Compile Diagnostics, recording, timing counters and inspection probes out of regular installs. Keep them in a separate development build.
+- Verify both build variants, native playback preservation and package boundaries; confirm available features on the Chinese client. Whole-game FPS gains remain unmeasured, and international 7.58 gameplay verification is deferred.
+
 ## 0.18.0 — Better controller experience for FFXIV
 
 - Restore Chinese installer descriptions for development installs after the SDK migration; keep public packaging tied to standard SDK metadata.

@@ -4,7 +4,11 @@ using System;
 
 namespace DualSenseLighting.Core;
 
-public enum PluginCommandKind { Invalid, Open, Help, Info, Trace, Switch }
+public enum PluginCommandKind { Invalid, Open, Help, Info,
+#if BCEF_DIAGNOSTICS
+    Trace,
+#endif
+    Switch }
 public enum ControllerFeature { Lighting, CombatHaptics, Footsteps, SpatialHaptics, DistanceFade, FollowImpact, PlayerSfx, Haptics }
 public enum FeatureSwitch { On, Off, Toggle }
 
@@ -19,7 +23,9 @@ public readonly record struct PluginCommand(PluginCommandKind Kind, ControllerFe
             {
                 "help" => PluginCommandKind.Help,
                 "info" => PluginCommandKind.Info,
+#if BCEF_DIAGNOSTICS
                 "trace" => PluginCommandKind.Trace,
+#endif
                 _ => PluginCommandKind.Invalid,
             });
         if (words.Length != 2) return new(PluginCommandKind.Invalid);

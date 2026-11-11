@@ -76,7 +76,7 @@ Features: `lighting`, `haptics`, `combathaptics`, `playersfx`, `footsteps`, `spa
 
 ## Help and feedback
 
-**Diagnostics** and `/bcef trace` are available only for plugins loaded through the development flow. Regular installs can report problems through **About → GitHub**. On a development install, check Diagnostics for connection and output errors. For a missing or unwanted reaction, run `/bcef trace` before the effect, reproduce it, then run it again to stop. Recordings contain diagnostic metadata, not audio; nothing uploads automatically. Review files before sharing. Size, locations and confirmed cleanup are available in Diagnostics.
+Regular packages do not contain diagnostics. **Diagnostics** and `/bcef trace` require a [development build](docs/RELEASING.md#development-builds) loaded through Dalamud’s development flow. Regular installs can report problems through **About → GitHub**. On a development install, check Diagnostics for connection and output errors. For a missing or unwanted reaction, run `/bcef trace` before the effect, reproduce it, then run it again to stop. Recordings contain diagnostic metadata, not audio; nothing uploads automatically. Review files before sharing. Size, locations and confirmed cleanup are available in Diagnostics.
 
 Support can vary by client, patch and controller. See the [user guide](docs/USER-GUIDE.md), [coverage limits](docs/ENEMY-HAPTICS-COVERAGE.md) and [QA report](docs/QA-REPORT.md).
 

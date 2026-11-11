@@ -38,6 +38,7 @@ internal static class Program
         await runner.Run(nameof(CheckSfxLoudness), CheckSfxLoudness);
         await runner.Run(nameof(CheckSfxColors), CheckSfxColors);
         await runner.Run(nameof(CheckSfxAudioLayout), CheckSfxAudioLayout);
+        await runner.Run(nameof(AudioCapturePerformanceChecks), () => AudioCapturePerformanceChecks.Run(Assert));
         await runner.Run(nameof(CheckHaptics), CheckHaptics);
         await runner.Run(nameof(HapticEnableCueChecks), () => HapticEnableCueChecks.Run(Assert));
         await runner.Run(nameof(ScreenEffectHapticChecks), () => ScreenEffectHapticChecks.Run(Assert));

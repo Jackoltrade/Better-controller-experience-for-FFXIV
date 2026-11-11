@@ -3,12 +3,16 @@ param(
     [string]$DalamudLibPath,
     [switch]$Probe,
     [string]$DotnetPath,
-    [switch]$LockedRestore
+    [switch]$LockedRestore,
+    [switch]$Development
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
-$pluginOutput = Join-Path $projectRoot 'artifacts\build\plugin'
-$publishOutput = Join-Path $projectRoot 'artifacts\plugin'
+$flavor = if ($Development) { 'development' } else { 'production' }
+$diagnostics = if ($Development) { 'true' } else { 'false' }
+$pluginOutput = Join-Path $projectRoot "artifacts\build\$flavor"
+$publishOutput = Join-Path $projectRoot $(if ($Development) { 'artifacts\dev-plugin' } else { 'artifacts\plugin' })
+$pluginIntermediate = Join-Path $projectRoot "artifacts\obj\$flavor\"
 $checksOutput = Join-Path $projectRoot 'artifacts\checks'
 foreach ($directory in @($pluginOutput, $checksOutput)) {
     New-Item -ItemType Directory -Force -Path $directory | Out-Null
@@ -61,27 +65,30 @@ if (-not ($sdks | Where-Object { $_ -match '^10\.' })) {
     throw '.NET 10 SDK is required. Install it or pass -DotnetPath pointing to its dotnet.exe.'
 }
 $project = Join-Path $projectRoot 'src\DualSenseLighting\BetterControllerExperienceForFFXIV.csproj'
-$restoreArguments = @('restore', $project, "-p:DalamudLibPath=$DalamudLibPath")
+$buildProperties = @("-p:DalamudLibPath=$DalamudLibPath", "-p:EnableDiagnostics=$diagnostics", "-p:BaseIntermediateOutputPath=$pluginIntermediate")
+$restoreArguments = @('restore', $project) + $buildProperties
 if ($LockedRestore) { $restoreArguments += '--locked-mode' }
 Invoke-Dotnet -Arguments $restoreArguments
-Invoke-Dotnet -Arguments @('build', $project, '-c', 'Release', '--no-restore', "-p:DalamudLibPath=$DalamudLibPath", '-o', $pluginOutput)
+Invoke-Dotnet -Arguments (@('build', $project, '-c', 'Release', '--no-restore', '-o', $pluginOutput) + $buildProperties)
 Invoke-Dotnet -Arguments @('build', (Join-Path $projectRoot 'tests\LightingChecks.csproj'), '-c', 'Release', '-o', $checksOutput)
 
 Invoke-Dotnet -Arguments @((Join-Path $checksOutput 'LightingChecks.dll'), '--plugin', (Join-Path $pluginOutput 'DualSenseLighting.dll'), '--dalamud', $DalamudLibPath)
-Invoke-Dotnet -Arguments @('run', '--project', (Join-Path $projectRoot 'tools\VerifyAssembly\VerifyAssembly.csproj'), '-c', 'Release', '--', (Join-Path $pluginOutput 'DualSenseLighting.dll'), (Join-Path $projectRoot 'src\DualSenseLighting\DualSenseLighting.json'), $DalamudLibPath)
+Invoke-Dotnet -Arguments @('run', '--project', (Join-Path $projectRoot 'tools\VerifyAssembly\VerifyAssembly.csproj'), '-c', 'Release', '--', (Join-Path $pluginOutput 'DualSenseLighting.dll'), (Join-Path $projectRoot 'src\DualSenseLighting\DualSenseLighting.json'), $DalamudLibPath, $diagnostics)
 if ($Probe) {
     Invoke-Dotnet -Arguments @((Join-Path $checksOutput 'LightingChecks.dll'), '--probe')
 }
 # Stage the exact standard Packager result only after all checks pass. Its
 # generated manifest/ZIP remain unchanged; the separate dev companion gets CN copy.
 $standard = Join-Path $pluginOutput 'DualSenseLighting'
-if (-not (Test-Path (Join-Path $standard 'latest.zip'))) { throw 'DalamudPackager did not produce a Release package.' }
+if (-not $Development -and -not (Test-Path (Join-Path $standard 'latest.zip'))) { throw 'DalamudPackager did not produce a production Release package.' }
+if ($Development -and (Test-Path (Join-Path $standard 'latest.zip'))) { throw 'A development build must not produce an installable ZIP.' }
 New-Item -ItemType Directory -Force -Path $publishOutput | Out-Null
 foreach ($file in @('DualSenseLighting.dll', 'build-verification.json', 'LICENSE.txt', 'LICENSE-HidLibrary.txt', 'LICENSE-FFXIVClientStructs.txt', 'THIRD-PARTY-NOTICES.txt')) {
     Copy-Item (Join-Path $pluginOutput $file) $publishOutput -Force
 }
-Copy-Item $standard $publishOutput -Recurse -Force
-Write-DevelopmentManifest -SourcePath (Join-Path $projectRoot 'src\DualSenseLighting\DualSenseLighting.json') -GeneratedPath (Join-Path $standard 'DualSenseLighting.json') -DestinationPath (Join-Path $publishOutput 'DualSenseLighting.json')
+if (-not $Development) { Copy-Item $standard $publishOutput -Recurse -Force }
+$generatedManifest = if ($Development) { Join-Path $pluginOutput 'DualSenseLighting.json' } else { Join-Path $standard 'DualSenseLighting.json' }
+Write-DevelopmentManifest -SourcePath (Join-Path $projectRoot 'src\DualSenseLighting\DualSenseLighting.json') -GeneratedPath $generatedManifest -DestinationPath (Join-Path $publishOutput 'DualSenseLighting.json')
 $imageOutput = Join-Path $publishOutput 'images'
 New-Item -ItemType Directory -Force -Path $imageOutput | Out-Null
 Copy-Item (Join-Path $pluginOutput 'images\icon.png') (Join-Path $imageOutput 'icon.png') -Force

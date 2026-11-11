@@ -7,7 +7,7 @@ For official main-repository review, see [Official Dalamud listing](OFFICIAL-LIS
 ## Before a release
 
 1. Finish the [QA checks](QA-REPORT.md), including an in-game load/unload and focus/reconnect smoke test on the intended client build. Record what was actually tested; a native-mixer fixture does not establish compatibility with a different game patch.
-2. Update version in the project, `Plugin.cs`'s assembly attribute and `DualSenseLighting.json`. They must agree. Version `0.19.8.0` uses tag `v0.19.8`.
+2. Update version in the project, `Plugin.cs`'s assembly attribute and `DualSenseLighting.json`. They must agree. Version `0.20.0.0` uses tag `v0.20.0`.
 3. Add Afdian/Ko-fi profile URLs to `Core/PluginInfo.cs` when the maintainer supplies them. Empty URLs intentionally keep those buttons disabled; do not invent profiles. Test each real destination when adding it.
 4. Confirm source and all third-party licenses are included in the repository. Do not add `work/`, user configuration, diagnostic traces, native research binaries or private screenshots to a release.
 5. Use matching **Dalamud API 15** libraries and .NET 10 SDK. The CI default is Dalamud's official staging ZIP; override `DALAMUD_DOWNLOAD_URL` or the manual workflow input if that feed has moved to another API. The metadata verifier rejects API mismatches.
@@ -20,7 +20,7 @@ The checked-in JSON is the standard packager's metadata source. DalamudPackager 
 ./tools/build.ps1 -DalamudLibPath 'C:\path\to\Dalamud' -LockedRestore
 dotnet ./artifacts/checks/LightingChecks.dll --benchmark
 python -m unittest discover -s tests -p "test_*.py" -v
-python tools/package-release.py --tag v0.19.8
+python tools/package-release.py --tag v0.20.0
 ```
 
 On WSL, `python3 tools/build-wsl.py --locked-restore` runs the same Windows .NET 10 SDK build and verification. Pass `--dotnet-path /mnt/c/path/to/sdk/dotnet.exe` for a portable SDK. The offline Roslyn fallback is no longer used.
@@ -34,6 +34,21 @@ The checks cover report-field preservation, focus loss, reconnects, cancellation
 The SDK pins dependency versions in `src/DualSenseLighting/packages.lock.json`. After intentional dependency updates, restore without `-LockedRestore`, review the lockfile, then run locked restore and checks again. Commit the project, packaging target and lockfile together.
 
 The standard Release build produces `DualSenseLighting/latest.zip`, `DualSenseLighting/DualSenseLighting.json` and `DualSenseLighting/images/icon.png` under its output directory. `tools/build.ps1` stages them under `artifacts/plugin/` after checks pass. CI uploads them separately as `official-dalamud-package`. Its ZIP contains only the DLL, generated manifest and four license notices; Dalamud handles the icon as a sidecar.
+
+### Development builds
+
+Production is the default and compiles diagnostics out of the DLL. For local
+recording and framework timing, explicitly run:
+
+```powershell
+./tools/build.ps1 -DalamudLibPath 'C:\path\to\Dalamud' -LockedRestore -Development
+```
+
+Load `artifacts/dev-plugin/DualSenseLighting.dll` through Dalamud's development
+flow. This separate optimized build includes diagnostics but still checks `IsDev`
+before exposing them. Its output and intermediate directories are separate from
+production, and it produces no installer ZIP. Public packaging rejects a build
+unless its verified metadata declares `DiagnosticsEnabled: false`.
 
 The public packaging tool requires that exact standard ZIP and sidecars, an optimized x64 DLL and matching identity, version, API level, source and SHA-256 proof. It writes:
 

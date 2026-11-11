@@ -231,12 +231,14 @@ public static unsafe class GameAudioLayout
         [FieldOffset(0xB9)] public byte IsPositional;
     }
 
+#if BCEF_DIAGNOSTICS
     public readonly record struct SoundReservation(int Slot, int SoundId, int PlaybackId, bool Owned,
         nint ResourceHandle, uint SoundNumber, byte Origin, nint SourceActor, nint SourceDraw, int TimelineOwnerIndex,
         bool IsPositional = false, Vector3? Position = null, EnemySoundKind Enemy = EnemySoundKind.None,
         EnemyActionTag Action = default, EnemyActorRole? EnemyRole = null, uint NameId = 0, uint BaseId = 0,
         uint OwnerId = 0, uint BossOwnerNameId = 0, uint EffectOwnerGetterRva = 0, HapticImpactPosition? Impact = null,
         bool SelfTargetedExecution = false);
+#endif
 
     public readonly record struct EnemyActor(nint Actor, uint EntityId, nint DrawObject, int ObjectIndex, EnemySoundKind Kind,
         EnemyActorRole Role = EnemyActorRole.Combatant, uint NameId = 0, uint BaseId = 0,
@@ -317,10 +319,12 @@ public static unsafe class GameAudioLayout
         private readonly PlayerIdentity?[] owners = new PlayerIdentity?[Capacity];
         private readonly long[] playbackLinks = new long[Capacity];
         private readonly int[] playbackGenerations = new int[Capacity];
+#if BCEF_DIAGNOSTICS
         private readonly byte[] origins = new byte[Capacity];
         private readonly uint[] effectOwnerGetters = new uint[Capacity];
         private readonly nint[] sourceActors = new nint[Capacity], sourceDraws = new nint[Capacity];
         private readonly int[] timelineOwners = new int[Capacity];
+#endif
         private readonly EnemyActionTag[] enemyActions = new EnemyActionTag[Capacity];
         private readonly HapticImpactPosition?[] impacts = new HapticImpactPosition?[Capacity];
         private readonly bool[] selfTargetedExecutions = new bool[Capacity];
@@ -417,6 +421,7 @@ public static unsafe class GameAudioLayout
         }
 
         // Framework-only diagnostic snapshot; native sound callbacks use ActorOf instead.
+#if BCEF_DIAGNOSTICS
         public EnemyActor[] EnemyActors()
         {
             var roster = Volatile.Read(ref enemies);
@@ -425,6 +430,7 @@ public static unsafe class GameAudioLayout
             return result;
         }
 
+#endif
         public void Acquired(SoundData* sound, PlayerIdentity? caster, byte origin = 0, nint sourceActor = 0, nint sourceDraw = 0,
             int timelineOwnerIndex = -1, EnemyActionTag action = default, uint effectOwnerGetterRva = 0,
             HapticImpactPosition? impact = null, bool selfTargetedExecution = false)
@@ -440,9 +446,11 @@ public static unsafe class GameAudioLayout
             Interlocked.Increment(ref cueGenerations[slot]);
             Volatile.Write(ref playbackGenerations[slot], 0);
             Volatile.Write(ref playbackLinks[slot], 0);
+#if BCEF_DIAGNOSTICS
             origins[slot] = origin; sourceActors[slot] = sourceActor; sourceDraws[slot] = sourceDraw;
             timelineOwners[slot] = timelineOwnerIndex;
             effectOwnerGetters[slot] = effectOwnerGetterRva;
+#endif
             enemyActions[slot] = action;
             impacts[slot] = impact is { IsValid: true } ? impact : null;
             selfTargetedExecutions[slot] = selfTargetedExecution;
@@ -590,6 +598,7 @@ public static unsafe class GameAudioLayout
         }
 
         // Diagnostic snapshots run on the framework thread, never the mixer thread.
+#if BCEF_DIAGNOSTICS
         public SoundReservation[] Snapshot()
         {
             if (pool == null) return Array.Empty<SoundReservation>();
@@ -615,6 +624,7 @@ public static unsafe class GameAudioLayout
             Array.Resize(ref result, count);
             return result;
         }
+#endif
     }
 
     public static bool IsCombatSound(byte busId, uint flags) => (busId is 2 or 10) && (flags & 4) == 0;

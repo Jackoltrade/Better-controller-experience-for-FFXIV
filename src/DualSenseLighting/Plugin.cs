@@ -24,7 +24,7 @@ using DualSenseLighting.Core;
 using DualSenseLighting.Windows;
 using DualSenseLighting.Ui;
 
-[assembly: System.Reflection.AssemblyVersion("0.19.8.0")]
+[assembly: System.Reflection.AssemblyVersion("0.20.0.0")]
 [assembly: System.Reflection.AssemblyTitle(PluginInfo.Name)]
 [assembly: System.Reflection.AssemblyProduct(PluginInfo.Name)]
 [assembly: System.Runtime.Versioning.SupportedOSPlatform("windows10.0")]
@@ -84,11 +84,15 @@ public sealed partial class Plugin : IDalamudPlugin
     private string? lastError;
     private bool reportedGuardError;
     private bool reportedEnemyRelationError;
+#if BCEF_DIAGNOSTICS
     private readonly DiagnosticRecordingCoordinator recording;
+#endif
     private bool commandRegistered;
     private int disposed;
+#if BCEF_DIAGNOSTICS
     private int measureUpdates;
     private readonly UpdateTiming updateTiming = new();
+#endif
     private long hapticEnableCueDeadline;
     private GameAudioLayout.EnemyActor[] enemyActors;
     private GameAudioLayout.EnemyActor[] enemyCandidates;
@@ -125,8 +129,10 @@ public sealed partial class Plugin : IDalamudPlugin
         if (savedConfiguration == null) configuration.Enabled = configuration.HapticEnabled = false;
         saves = new ConfigurationSaveScheduler(() => pluginInterface.SavePluginConfig(configuration),
             error => log.Warning(error, "Configuration could not be saved; retrying in five seconds."));
+#if BCEF_DIAGNOSTICS
         recording = new DiagnosticRecordingCoordinator(pluginInterface.AssemblyLocation.DirectoryName!, TraceArchive.ScreenTimingPath, configuration, log,
             () => Volatile.Read(ref audioCapture), PluginVersion, clock);
+#endif
         setupReady = configuration.HasCompletedSetup;
         settings = configuration.Snapshot(requireSetup: true);
         hapticSettings = configuration.HapticsSnapshot(requireSetup: true);
@@ -139,14 +145,25 @@ public sealed partial class Plugin : IDalamudPlugin
             guard = new GameOutputGuard(interop, () => Volatile.Read(ref settings), () => clock.Elapsed.TotalSeconds,
                 () => Volatile.Read(ref sfxLevel), () => Volatile.Read(ref limitBreakState),
                 setupReady && (configuration.Enabled || configuration.HapticEnabled));
-            ui = new SettingsUi(configuration, uiText, pluginInterface, textures, session, guard, recording, saves, clock,
+            ui = new SettingsUi(configuration, uiText, pluginInterface, textures, session, guard,
+#if BCEF_DIAGNOSTICS
+                recording,
+#endif
+                saves, clock,
                 () => Volatile.Read(ref settings), () => Volatile.Read(ref hapticSettings),
                 () => new UiRuntimeState(Volatile.Read(ref audioCapture), limitBreakCapture, audioError, limitBreakError,
                     rumbleError, Volatile.Read(ref lastError), Volatile.Read(ref sfxLevel), Volatile.Read(ref sfxRms),
                     BluetoothOutput, UsesRegularRumble, ActiveRumble.Slot, bossEncounter.Count, Volatile.Read(ref limitBreakState), clientState.IsPvP,
-                    Volatile.Read(ref measureUpdates) != 0, updateTiming, audioInitialization != null),
+#if BCEF_DIAGNOSTICS
+                    Volatile.Read(ref measureUpdates) != 0, updateTiming,
+#endif
+                    audioInitialization != null),
                 Changed, PublishSettings, Save, request => Interlocked.Exchange(ref rumbleTestRequested, request),
-                () => { if (commandInfo != null) commandInfo.HelpMessage = uiText.Get("Configure lighting and haptics. Use /bcef help for feature commands."); }, ReportError, enabled => Volatile.Write(ref measureUpdates, enabled ? 1 : 0));
+                () => { if (commandInfo != null) commandInfo.HelpMessage = uiText.Get("Configure lighting and haptics. Use /bcef help for feature commands."); }, ReportError
+#if BCEF_DIAGNOSTICS
+                , enabled => Volatile.Write(ref measureUpdates, enabled ? 1 : 0)
+#endif
+                );
             windowOpen = ui.IsOpen;
             commandInfo = new CommandInfo(OnCommand) { HelpMessage = T("Configure lighting and haptics. Use /bcef help for feature commands.") };
             commandRegistered = commands.AddHandler(Command, commandInfo);
@@ -276,10 +293,12 @@ public sealed partial class Plugin : IDalamudPlugin
         {
             case PluginCommandKind.Open: Open(); return;
             case PluginCommandKind.Info: ui.ShowInfo(); Open(); return;
+#if BCEF_DIAGNOSTICS
             case PluginCommandKind.Trace:
                 if (ui.RequestTraceToggle()) Open();
                 else chat.Print(PluginInfo.ChatPrefix + T("Diagnostics is only available for development installs."));
                 return;
+#endif
             case PluginCommandKind.Help: PrintCommandHelp(); return;
             case PluginCommandKind.Invalid:
                 chat.PrintError(PluginInfo.ChatPrefix + T("Unknown command or value. Use /bcef help for syntax."));
@@ -329,9 +348,13 @@ public sealed partial class Plugin : IDalamudPlugin
 
     private void PrintCommandHelp()
     {
+#if BCEF_DIAGNOSTICS
         chat.Print(PluginInfo.ChatPrefix + T(ui.DiagnosticsAvailable
             ? "/bcef opens settings. /bcef info opens the guide. /bcef trace starts or stops diagnostics."
             : "/bcef opens settings. /bcef info opens the guide."));
+#else
+        chat.Print(PluginInfo.ChatPrefix + T("/bcef opens settings. /bcef info opens the guide."));
+#endif
         chat.Print(T("Usage: /bcef <feature> <on|off|toggle>"));
         chat.Print(T("Features: lighting, haptics, combathaptics, playersfx, footsteps, spatialhaptics, distancefade, followimpact."));
     }
@@ -354,22 +377,36 @@ public sealed partial class Plugin : IDalamudPlugin
     private void Update(IFramework framework)
     {
         if (Volatile.Read(ref disposed) != 0) return;
+#if BCEF_DIAGNOSTICS
         var timing = updateTiming.Begin(Volatile.Read(ref measureUpdates) != 0);
         try { UpdateCore(framework, ref timing); }
         finally { timing.Complete(); }
+#else
+        UpdateCore(framework);
+#endif
     }
 
-    private unsafe void UpdateCore(IFramework _, ref UpdateTiming.Frame timing)
+    private unsafe void UpdateCore(IFramework _
+#if BCEF_DIAGNOSTICS
+        , ref UpdateTiming.Frame timing
+#endif
+        )
     {
         ui.ProcessInput(keyState);
+#if BCEF_DIAGNOSTICS
         recording.Update();
+#endif
         if (!Volatile.Read(ref setupReady))
         {
+#if BCEF_DIAGNOSTICS
             timing.Next(UpdateTiming.Phase.SaveGuard);
+#endif
             saves.TrySaveDue(clock.Elapsed.TotalSeconds);
             return;
         }
+#if BCEF_DIAGNOSTICS
         timing.Next(UpdateTiming.Phase.Observers);
+#endif
         // Scanning a large executable must not block a game frame. The optional observer
         // remains inactive until its completed initialization is published to the worker.
         var snapshot = Volatile.Read(ref settings);
@@ -389,7 +426,11 @@ public sealed partial class Plugin : IDalamudPlugin
             clock.Elapsed.TotalSeconds, lbEnabled && Native.IsCurrentProcessForeground()) ?? LimitBreakState.Empty;
         Volatile.Write(ref limitBreakState, lb);
         if (audioInitialization == null && (snapshot.Enabled && LightingEffects.IsSfx(snapshot.Effect) || Volatile.Read(ref hapticSettings).NeedsAudio))
-            audioInitialization = Task.Run(() => new SfxAudioCapture(interop, scanner, data, ActionTargetPosition, pluginInterface.IsDev));
+            audioInitialization = Task.Run(() => new SfxAudioCapture(interop, scanner, data, ActionTargetPosition
+#if BCEF_DIAGNOSTICS
+                , pluginInterface.IsDev
+#endif
+                ));
         if (audioInitialization?.IsCompleted == true && Volatile.Read(ref audioCapture) == null && audioError == null)
         {
             try { Volatile.Write(ref audioCapture, audioInitialization.GetAwaiter().GetResult()); }
@@ -402,7 +443,9 @@ public sealed partial class Plugin : IDalamudPlugin
         var capture = Volatile.Read(ref audioCapture);
         if (capture != null)
         {
+#if BCEF_DIAGNOSTICS
             timing.Next(UpdateTiming.Phase.PlayerPublication);
+#endif
             // ObjectTable is read on the framework thread only. The draw-object field
             // follows the pinned GameObject layout; callbacks receive an immutable identity.
             var player = objects.LocalPlayer;
@@ -412,20 +455,32 @@ public sealed partial class Plugin : IDalamudPlugin
             if (!validPlayer) address = 0;
             capture.SetPlayer(address, validPlayer ? entityId : 0, fields.DrawObject,
                 validPlayer ? player?.Position : null, validPlayer && player?.CurrentMount != null);
+#if BCEF_DIAGNOSTICS
             timing.Next(UpdateTiming.Phase.RosterArena);
+#endif
             UpdateEnemyActors(capture, validPlayer);
+#if BCEF_DIAGNOSTICS
             timing.Next(UpdateTiming.Phase.ScreenEffects);
+#endif
             capture.UpdateScreenEffects(address != 0 && !clientState.IsPvP && !condition[ConditionFlag.BetweenAreas] &&
                 !condition[ConditionFlag.BetweenAreas51] && Native.IsCurrentProcessForeground(), clientState.TerritoryType, address);
+#if BCEF_DIAGNOSTICS
             timing.Next(UpdateTiming.Phase.RecordingSample);
+#endif
+#if BCEF_DIAGNOSTICS
             recording.Sample(capture, Volatile.Read(ref hapticSettings), objects);
+#endif
         }
         else
         {
+#if BCEF_DIAGNOSTICS
             timing.Next(UpdateTiming.Phase.RosterArena);
+#endif
             UpdateEnemyActors(null, (objects.LocalPlayer?.Address ?? 0) != 0);
         }
+#if BCEF_DIAGNOSTICS
         timing.Next(UpdateTiming.Phase.SaveGuard);
+#endif
         saves.TrySaveDue(clock.Elapsed.TotalSeconds);
         if (!reportedGuardError && guard.Errors > 0)
         {
@@ -470,7 +525,11 @@ public sealed partial class Plugin : IDalamudPlugin
         }
         var localPlayer = objects.LocalPlayer;
         var playerInCombat = localPlayer != null && (localPlayer.StatusFlags & StatusFlags.InCombat) != 0;
-        if (enemyDuty == 0 && (capture == null || !allowed && !recording.Active))
+        if (enemyDuty == 0 && (capture == null || !allowed
+#if BCEF_DIAGNOSTICS
+            && !recording.Active
+#endif
+            ))
         {
             bossEncounter.Update(territory, 0, localPlayer?.EntityId ?? 0, false, false);
             capture?.SetEnemies(ReadOnlySpan<GameAudioLayout.EnemyActor>.Empty, territory, false);
@@ -543,22 +602,37 @@ public sealed partial class Plugin : IDalamudPlugin
         // Only independently classified hostile enemies enter regular history.
         // Neutral/preloaded boss performers are never marked as trash.
         var selected = bossEncounter.SelectRoster(enemyCandidates.AsSpan(0, count), enemyActors);
-        capture?.SetEnemies(enemyActors.AsSpan(0, selected), territory, allowed,
+        capture?.SetEnemies(enemyActors.AsSpan(0, selected), territory, allowed
+#if BCEF_DIAGNOSTICS
+            ,
             new(enemyDuty, enemyQueueSize, enemyPartySize, enemyAllianceParties, playerInCombat, bossInCombat,
-                bossEncounter.Active, bossEncounter.Count, bossEncounter.Saturated));
+                bossEncounter.Active, bossEncounter.Count, bossEncounter.Saturated)
+#endif
+            );
         // Publish the roster first so a newly discovered actor retains this
         // cast on its existing identity without changing roster equality.
-        for (var i = 0; i < selected; i++)
+        if (capture != null)
         {
-            var source = enemyActors[i];
-            if (source.ObjectIndex < 0 || source.ObjectIndex >= objects.Length) continue;
-            if (objects[source.ObjectIndex] is IBattleChara casting && casting.Address == source.Actor &&
-                casting.EntityId == source.EntityId && casting.IsCasting && casting.CastActionType == 1)
-                capture?.ObserveEnemyCast(source.Actor, source.EntityId, casting.CastActionId, casting.CastActionType);
+            for (var i = 0; i < selected; i++)
+            {
+                var source = enemyActors[i];
+                if (source.ObjectIndex < 0 || source.ObjectIndex >= objects.Length) continue;
+                if (objects[source.ObjectIndex] is IBattleChara casting && casting.Address == source.Actor &&
+                    casting.EntityId == source.EntityId && casting.IsCasting && casting.CastActionType == 1)
+                    capture.ObserveEnemyCast(source.Actor, source.EntityId, casting.CastActionId, casting.CastActionType);
+            }
         }
         capture?.UpdateArena(territory, allowed && bossEncounter.Active &&
-            (haptics.BossEnabled || recording.Active),
-            prepare: playerPresent && !clientState.IsPvP && enemyDuty != 0 && (haptics.BossEnabled || recording.Active));
+            (haptics.BossEnabled
+#if BCEF_DIAGNOSTICS
+                || recording.Active
+#endif
+            ),
+            prepare: playerPresent && !clientState.IsPvP && enemyDuty != 0 && (haptics.BossEnabled
+#if BCEF_DIAGNOSTICS
+                || recording.Active
+#endif
+            ));
     }
 
     private void Changed()
@@ -609,12 +683,16 @@ public sealed partial class Plugin : IDalamudPlugin
             () => { if (hapticSettings != null) Volatile.Write(ref hapticSettings, hapticSettings with
                 { Enabled = false, BossEnabled = false, RegularEnemyEnabled = false, FootstepAmplifier = false, HitReactions = false, ScreenEffects = false }); },
             () => Volatile.Write(ref limitBreakState, LimitBreakState.Empty),
+#if BCEF_DIAGNOSTICS
             () => recording.StopTrace(),
+#endif
             () => stop.Cancel(),
             () => worker?.GetAwaiter().GetResult(),
             () => DisposeInitialization(audioInitialization),
             () => DisposeInitialization(limitBreakInitialization),
+#if BCEF_DIAGNOSTICS
             () => recording.Shutdown(),
+#endif
             () => rumble?.Dispose(),
             () => bluetoothRumble?.Dispose(),
             () => rumbleDevices?.Dispose(),
