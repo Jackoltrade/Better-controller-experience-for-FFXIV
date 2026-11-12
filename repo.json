@@ -3,7 +3,7 @@
     "Author": "Jackoltrade",
     "Name": "Better controller experience for FFXIV",
     "InternalName": "DualSenseLighting",
-    "AssemblyVersion": "0.19.8.0",
+    "AssemblyVersion": "0.20.1.0",
     "Description": "Customize DualSense lighting and feel skills, enemy effects and screen shake through vibration. Supports detailed USB DualSense haptics and regular rumble on Bluetooth DualSense or Xbox-compatible XInput controllers.",
     "ApplicableVersion": "any",
     "RepoUrl": "https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV",
@@ -27,9 +27,9 @@
     "PunchlineLoc": "让手柄体验更爽：DualSense 灯光、触觉反馈，也支持普通手柄。",
     "IsTestingExclusive": false,
     "IsHide": false,
-    "DownloadLinkInstall": "https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/releases/download/v0.19.8/latest.zip",
-    "DownloadLinkUpdate": "https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/releases/download/v0.19.8/latest.zip",
-    "DownloadLinkTesting": "https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/releases/download/v0.19.8/latest.zip",
-    "LastUpdate": 1794099162
+    "DownloadLinkInstall": "https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/releases/download/v0.20.1/latest.zip",
+    "DownloadLinkUpdate": "https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/releases/download/v0.20.1/latest.zip",
+    "DownloadLinkTesting": "https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/releases/download/v0.20.1/latest.zip",
+    "LastUpdate": 1794493724
   }
 ]
