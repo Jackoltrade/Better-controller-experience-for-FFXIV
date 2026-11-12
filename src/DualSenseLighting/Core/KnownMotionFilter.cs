@@ -130,7 +130,10 @@ internal sealed partial class KnownMotionFilter
     }
     private void Clear()
     {
-        foreach (var source in sources) { source.Used = false; source.Position.Clear(); source.Rotation.Clear(); }
+        // Every observation enters under this lock and sets clockSeen first.
+        // After a clear, repeated inactive invalidations need no track traversal.
+        if (clockSeen)
+            foreach (var source in sources) { source.Used = false; source.Position.Clear(); source.Rotation.Clear(); }
         for (var channel = 0; channel < 2; channel++) for (var slot = 0; slot < 2; slot++) latest[channel, slot] = -1;
         clockSeen = false;
     }

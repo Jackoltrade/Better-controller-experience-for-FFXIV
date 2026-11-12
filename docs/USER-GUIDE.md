@@ -8,7 +8,7 @@ Custom DualSense lighting and game-driven vibration for Final Fantasy XIV, built
 
 **Windows x64 · Dalamud API 15**
 
-Diagnostics and diagnostic commands described in this guide are available only for development installs.
+Diagnostics and diagnostic commands described in this guide require an explicit `-Development` build loaded through Dalamud's development flow. See [Development builds](RELEASING.md#development-builds).
 
 [Source](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV) · [Releases](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/releases) · [Report an issue](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/issues) · [Support on Ko-fi](https://ko-fi.com/K7C122MEWU)
 
@@ -67,6 +67,8 @@ Enabling testing builds in Dalamud is not required.
 2. Extract the entire ZIP into a dedicated folder.
 3. In `/xlsettings` → **Experimental** → **Dev Plugin Locations**, add that folder's `DualSenseLighting.dll`.
 4. Enable the plugin in `/xlplugins` → **Dev Tools**.
+
+The release ZIP and `artifacts/plugin/` contain production builds; loading them through Dev Plugin Locations does not enable Diagnostics. For recording, use the [separate development build](RELEASING.md#development-builds).
 
 Use one installation at a time. Disable the old **Steam Lighting Guard** before loading this plugin, and remove the dev-plugin entry when moving to the installer. The DLL/internal ID remains `DualSenseLighting` to retain existing settings and development paths. Disable or uninstall the plugin through the same installer used to load it.
 
@@ -189,7 +191,7 @@ Enabling combat feedback gives two short confirmation vibrations, including whil
 
 ## Commands
 
-`/bcef` opens settings. `/bcef help` lists commands; `/bcef info` opens the guide; `/bcef trace` starts or stops a diagnostic recording and opens Diagnostics. Update existing macros to use `/bcef`.
+`/bcef` opens settings. `/bcef help` lists commands; `/bcef info` opens the guide. On a development build loaded through Dalamud's development flow, `/bcef trace` starts or stops a diagnostic recording and opens Diagnostics. Update existing macros to use `/bcef`.
 
 Use `/bcef <feature> on`, `off` or `toggle`, for example `/bcef combathaptics off`:
 
@@ -208,7 +210,7 @@ Commands ignore case, save automatically and work in macros without opening sett
 
 ## Diagnostics and privacy
 
-This section applies only to development installs. Dalamud's regular installer and repository testing releases do not show Diagnostics or enable `/bcef trace`. A Release build loaded as a development plugin retains both.
+Diagnostics and `/bcef trace` require an explicit `-Development` build from `artifacts/dev-plugin/`, loaded through Dalamud's development flow. Regular release ZIPs and the production DLL in `artifacts/plugin/` have diagnostics compiled out, even when loaded as development plugins. See [Development builds](RELEASING.md#development-builds).
 
 Diagnostics shows controller connections, focus, output selection/errors, motor test results, sound ownership counters, calculated grip gains and Limit Break status.
 
@@ -262,7 +264,15 @@ The script can discover local XIVLauncher/XIVLauncherCN libraries; `DALAMUD_HOME
 python3 tools/build-wsl.py
 ```
 
-The scripts use `Dalamud.NET.Sdk/15.0.0`, build optimized x64 code, run controller/core/localization checks, verify DLL identity/version/API and publish to `artifacts/plugin/`. The standard package is `artifacts/plugin/DualSenseLighting/latest.zip`; the public packaging step adds translated installer metadata and READMEs. Use `-LockedRestore` / `--locked-restore` to verify the committed dependency lockfile. `-Probe` / `--probe` adds a read-only USB/Bluetooth capability check without sending controller output.
+By default, the scripts use `Dalamud.NET.Sdk/15.0.0`, build optimized x64 production code, run controller/core/localization checks, verify DLL identity/version/API and stage it in `artifacts/plugin/`. The standard package is `artifacts/plugin/DualSenseLighting/latest.zip`; the public packaging step adds translated installer metadata and READMEs. Use `-LockedRestore` / `--locked-restore` to verify the committed dependency lockfile. `-Probe` / `--probe` adds a read-only USB/Bluetooth capability check without sending controller output.
+
+For Diagnostics, explicitly build the separate development variant:
+
+```powershell
+./tools/build.ps1 -DalamudLibPath 'C:\path\to\Dalamud' -Development
+```
+
+Load `artifacts/dev-plugin/DualSenseLighting.dll` through Dev Plugin Locations. This optimized build includes diagnostics and produces no installer ZIP. See [Development builds](RELEASING.md#development-builds).
 
 CI also checks build-process arguments and exit codes in Windows PowerShell 5. Run the same regression locally with:
 

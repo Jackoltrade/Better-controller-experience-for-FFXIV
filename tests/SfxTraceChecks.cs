@@ -35,12 +35,15 @@ internal static class SfxTraceChecks
             CompiledAudioPerformanceChecks.Run(check, assembly);
             CompiledRenderChecks.Run(check, assembly);
             IdleRosterChecks.Run(check, assembly);
+            BackgroundRosterChecks.Run(check, assembly);
+            BackgroundOutputGuardChecks.Run(check, assembly);
             ImpactAdapterChecks.Run(check, assembly);
             RegularEffectAdapterChecks.Run(check, assembly);
             GameTargetRelationChecks.Run(check, assembly);
             WindowingChecks.Run(check, assembly);
             SpecialSoundPlaybackChecks.Run(check, assembly);
             ArenaCatalogLifecycleChecks.Run(check, assembly);
+            ArenaPerformanceChecks.Run(check, assembly);
             HookOriginalLifecycleChecks.Run(check, assembly);
             OwnerLifecycleChecks.Run(check, assembly);
             ScreenObserverActivationChecks.Run(check, assembly);

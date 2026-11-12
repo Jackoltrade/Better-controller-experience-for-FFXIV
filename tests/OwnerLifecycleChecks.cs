@@ -605,6 +605,24 @@ internal static unsafe class OwnerLifecycleChecks
             Set(type, owner, "motionObserver", RuntimeHelpers.GetUninitializedObject(PluginType(plugin, "Windows.SecondaryMotionObserver")));
             // Warm the reader before measuring a fresh epoch's first data frame.
             Invoke(type, owner, "Read", camera, context);
+            var readMethod = type.GetMethod("Read", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var directRead = new System.Reflection.Emit.DynamicMethod("ReadQuietCamera", typeof(object), new[] { typeof(nint), typeof(object), typeof(object) }, type, true);
+            var il = directRead.GetILGenerator();
+            il.Emit(System.Reflection.Emit.OpCodes.Ldarg_1); il.Emit(System.Reflection.Emit.OpCodes.Castclass, type);
+            il.Emit(System.Reflection.Emit.OpCodes.Ldarg_0); il.Emit(System.Reflection.Emit.OpCodes.Ldarg_2);
+            il.Emit(System.Reflection.Emit.OpCodes.Castclass, contextType); il.Emit(System.Reflection.Emit.OpCodes.Call, readMethod);
+            il.Emit(System.Reflection.Emit.OpCodes.Ret);
+            var read = directRead.CreateDelegate<Func<nint, object, object, object?>>();
+            var diagnostics = ProductionBoundaryChecks.Diagnostics(plugin);
+            var quiet = read(camera, owner, context);
+            check(diagnostics ? quiet != null && (float)quiet.GetType().GetProperty("Level")!.GetValue(quiet)! == 0 : quiet == null,
+                "Quiet camera publication changed development recording or retained a production sample");
+            if (!diagnostics)
+            {
+                Action quietRead = () => _ = read(camera, owner, context);
+                check(AllocationChecks.MeasureAllocations(quietRead, warmup: 2000, iterations: 1000) == 0,
+                    "The compiled production camera reader still allocates on quiet frames");
+            }
             context = New(contextType); Set(type, owner, "context", context);
             var profiles = (Array)Field(filterType, "patterns").GetValue(filter)!;
             var profile = profiles.GetValue(0)!;

@@ -38,7 +38,15 @@ internal sealed class ArenaSoundEffects : IDisposable
     private int loadGeneration, disposed, enabled;
     private long nextPoll, nextWalk;
     private nint cachedLayout;
-    private Instance[] instances = Array.Empty<Instance>();
+    // Framework-owned scratch. Only published results cross into the audio thread.
+    private readonly byte[] poolSnapshot = new byte[PoolCapacity * SoundSize];
+    private readonly List<Candidate> candidates = new(PoolCapacity);
+    private readonly List<Instance> instances = new();
+    private readonly List<ArenaEffectSource> sources = new();
+    private readonly HashSet<int> duplicateIds = new();
+    private readonly List<MapNode> mapNodes = new();
+    private readonly Stack<nint> mapTodo = new();
+    private readonly HashSet<nint> mapSeen = new();
     private ArenaEffectSource[] published = Array.Empty<ArenaEffectSource>();
 
     private sealed record Catalog(Dictionary<string, HashSet<uint>> Sounds)
@@ -92,7 +100,7 @@ internal sealed class ArenaSoundEffects : IDisposable
         {
             Interlocked.Increment(ref loadGeneration);
             territory = currentTerritory;
-            cachedLayout = 0; instances = Array.Empty<Instance>();
+            cachedLayout = 0; instances.Clear();
             catalog = Catalog.Empty; catalogError = null; nativeError = null;
             Publish(Array.Empty<ArenaEffectSource>());
             nextPoll = nextWalk = 0;
@@ -129,14 +137,14 @@ internal sealed class ArenaSoundEffects : IDisposable
             if (!Read(layout, layoutHeader) || Int(layoutHeader, 0x18) != 7 || UInt(layoutHeader, 0x20) != territory)
                 throw new InvalidOperationException("Arena layout is not ready.");
             if (cachedLayout != layout)
-            { cachedLayout = layout; instances = Array.Empty<Instance>(); nextWalk = 0; }
+            { cachedLayout = layout; instances.Clear(); nextWalk = 0; }
             if (now >= nextWalk)
             {
-                instances = ReadInstances(layout);
+                ReadInstances(layout);
                 nextWalk = now + Stopwatch.Frequency / 10;
             }
-            var result = new List<ArenaEffectSource>();
-            var duplicate = new HashSet<int>();
+            sources.Clear();
+            duplicateIds.Clear();
             foreach (var candidate in candidates)
             {
                 ArenaEffectSource? match = null;
@@ -149,18 +157,25 @@ internal sealed class ArenaSoundEffects : IDisposable
                     match = source;
                 }
                 if (!match.HasValue || ambiguous) continue;
-                if (result.Any(x => x.SoundId == candidate.PlaybackId)) duplicate.Add(candidate.PlaybackId);
-                else result.Add(match.Value);
+                var duplicate = false;
+                foreach (var source in sources)
+                    if (source.SoundId == candidate.PlaybackId) { duplicate = true; break; }
+                if (duplicate) duplicateIds.Add(candidate.PlaybackId);
+                else sources.Add(match.Value);
             }
             if (Pointer(worldGlobal) != world || Pointer(world + 0x20) != layout ||
                 !Read(layout, layoutHeader) || Int(layoutHeader, 0x18) != 7 || UInt(layoutHeader, 0x20) != territory)
                 throw new InvalidOperationException("Arena scene changed during discovery.");
-            result.RemoveAll(x => duplicate.Contains(x.SoundId));
-            Publish(result.OrderBy(x => x.SoundId).ToArray());
+            var kept = 0;
+            for (var i = 0; i < sources.Count; i++)
+                if (!duplicateIds.Contains(sources[i].SoundId)) sources[kept++] = sources[i];
+            sources.RemoveRange(kept, sources.Count - kept);
+            sources.Sort(static (left, right) => left.SoundId.CompareTo(right.SoundId));
+            Publish(CollectionsMarshal.AsSpan(sources));
             nativeError = null;
         }
         catch (Exception error)
-        { Publish(Array.Empty<ArenaEffectSource>()); nativeError = error.Message; cachedLayout = 0; instances = Array.Empty<Instance>(); }
+        { Publish(Array.Empty<ArenaEffectSource>()); nativeError = error.Message; cachedLayout = 0; instances.Clear(); }
     }
 
     private void StartCatalog(uint wanted)
@@ -239,40 +254,43 @@ internal sealed class ArenaSoundEffects : IDisposable
 
     private List<Candidate> Candidates()
     {
-        var result = new List<Candidate>();
-        Span<byte> header = stackalloc byte[SoundSize];
+        candidates.Clear();
+        // Candidate discovery only. TrySource still revalidates every accepted
+        // reservation, resource, playback and instance against live native state.
+        if (!Read(pool, poolSnapshot)) throw new InvalidOperationException("Arena sound pool is unreadable.");
         for (var slot = 0; slot < PoolCapacity; slot++)
         {
             var address = pool + slot * SoundSize;
-            if (!Read(address, header)) throw new InvalidOperationException("Arena sound pool is unreadable.");
+            var header = poolSnapshot.AsSpan(slot * SoundSize, SoundSize);
             var handle = Ptr(header, 0x28);
             var number = UInt(header, 0x7C);
             if (header[0x24] != 1 || handle <= 0 || Int(header, 0xB0) != 1) continue;
             var path = Resource(handle);
             if (path == null || !catalog.Sounds.TryGetValue(path, out var numbers) || !numbers.Contains(number) ||
                 !playback.TryResolve(address, out var id)) continue;
-            result.Add(new(slot, address, handle, number, id, Ptr(header, 0x90), Int(header, 0x98), path));
+            candidates.Add(new(slot, address, handle, number, id, Ptr(header, 0x90), Int(header, 0x98), path));
         }
-        return result;
+        return candidates;
     }
 
-    private Instance[] ReadInstances(nint layout)
+    private void ReadInstances(nint layout)
     {
+        instances.Clear();
         var budget = MaximumMapNodes;
-        var outer = Map(layout + 0x268, 128, ref budget);
-        var groups = outer.Where(x => (byte)x.Key == 7).ToArray();
-        if (groups.Length == 0) return Array.Empty<Instance>();
-        if (groups.Length != 1) throw new InvalidOperationException("Arena sound map is ambiguous.");
-        var result = new List<Instance>();
+        var group = (nint)0;
+        var groups = 0;
+        foreach (var node in Map(layout + 0x268, 128, ref budget))
+            if ((byte)node.Key == 7) { group = node.Value; groups++; }
+        if (groups == 0) return;
+        if (groups != 1) throw new InvalidOperationException("Arena sound map is ambiguous.");
         Span<byte> header = stackalloc byte[0x80];
-        foreach (var node in Map(groups[0].Value, MaximumMapNodes, ref budget))
+        foreach (var node in Map(group, MaximumMapNodes, ref budget))
         {
             if (!Read(node.Value, header) || Ptr(header, 0x10) != layout || header[0x19] != 7 || !TranslationLayout(Ptr(header)) ||
                 node.Key != ((ulong)UInt(header, 0x1C) << 32 | UInt(header, 0x20)))
                 throw new InvalidOperationException("Arena sound instance identity changed.");
-            result.Add(new(node.Value, ULong(header, 0x18), UInt(header, 0x20), Ptr(header, 0x38), Ptr(header)));
+            instances.Add(new(node.Value, ULong(header, 0x18), UInt(header, 0x20), Ptr(header, 0x38), Ptr(header)));
         }
-        return result.ToArray();
     }
 
     private bool TrySource(nint layout, Instance instance, Candidate candidate, out ArenaEffectSource source)
@@ -294,7 +312,12 @@ internal sealed class ArenaSoundEffects : IDisposable
         var position = new Vector3(Float(after, 0x50), Float(after, 0x54), Float(after, 0x58));
         if (!HapticSpatializer.ValidPosition(position)) return false;
         source = new(playbackId, position, candidate.Resource, candidate.Number, candidate.Slot,
-            $"{candidate.Address:X}", $"{instance.Address:X}", UInt(header, 0x1C), instance.SubId);
+#if BCEF_DIAGNOSTICS
+            $"{candidate.Address:X}", $"{instance.Address:X}",
+#else
+            string.Empty, string.Empty,
+#endif
+            UInt(header, 0x1C), instance.SubId);
         return true;
     }
 
@@ -321,21 +344,21 @@ internal sealed class ArenaSoundEffects : IDisposable
         budget -= (int)count;
         Span<byte> node = stackalloc byte[48];
         if (!Read(root, node) || node[25] != 1) throw new InvalidOperationException("Arena map sentinel is invalid.");
-        var todo = new Stack<nint>(); var seen = new HashSet<nint>(); var result = new List<MapNode>();
-        todo.Push(Ptr(node, 8));
-        while (todo.Count > 0)
+        mapTodo.Clear(); mapSeen.Clear(); mapNodes.Clear();
+        mapTodo.Push(Ptr(node, 8));
+        while (mapTodo.Count > 0)
         {
-            var at = todo.Pop();
+            var at = mapTodo.Pop();
             if (at == root) continue;
-            if (at == 0 || !seen.Add(at) || result.Count >= (int)count || !Read(at, node) || node[25] != 0)
+            if (at == 0 || !mapSeen.Add(at) || mapNodes.Count >= (int)count || !Read(at, node) || node[25] != 0)
                 throw new InvalidOperationException("Arena map changed during discovery.");
-            result.Add(new(ULong(node, 32), Ptr(node, 40)));
-            todo.Push(Ptr(node)); todo.Push(Ptr(node, 16));
+            mapNodes.Add(new(ULong(node, 32), Ptr(node, 40)));
+            mapTodo.Push(Ptr(node)); mapTodo.Push(Ptr(node, 16));
         }
         Span<byte> after = stackalloc byte[16];
-        if ((ulong)result.Count != count || !Read(address, after) || !header.SequenceEqual(after))
+        if ((ulong)mapNodes.Count != count || !Read(address, after) || !header.SequenceEqual(after))
             throw new InvalidOperationException("Arena map header changed during discovery.");
-        return result;
+        return mapNodes;
     }
 
     private string? Resource(nint handle)
@@ -352,10 +375,10 @@ internal sealed class ArenaSoundEffects : IDisposable
             ? Encoding.UTF8.GetString(bytes[..(int)length]) : null;
     }
 
-    private void Publish(ArenaEffectSource[] next)
+    private void Publish(ReadOnlySpan<ArenaEffectSource> next)
     {
         var previous = Volatile.Read(ref published);
-        if (!previous.AsSpan().SequenceEqual(next)) Volatile.Write(ref published, next);
+        if (!previous.AsSpan().SequenceEqual(next)) Volatile.Write(ref published, next.ToArray());
     }
 
     public void Dispose()

@@ -483,6 +483,12 @@ internal sealed class GameScreenEffects : IDisposable
                 ScreenEffectHaptics.FreshTicks);
             expiresAt = Math.Min(now + hold, tracker.LastChangeTimestamp + hold);
         }
+        // Motion/filter state above must advance even on a quiet frame. Diagnostic
+        // recordings retain those frames; production can publish quiet without an object.
+#if !BCEF_DIAGNOSTICS
+        if (measured.Effects == ScreenEffectKind.None || !float.IsFinite(measured.Level) || measured.Level <= 0)
+            return null;
+#endif
         var sample = measured.At(now, multiplier, expiresAt);
 #if BCEF_DIAGNOSTICS
         RecordCamera(sample, position, rotation, vectors, epoch, managerLevel, scriptedLevel, scripted, observedScripted?.Timestamp ?? 0, scriptedState);

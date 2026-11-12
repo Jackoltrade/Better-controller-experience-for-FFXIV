@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.20.1 — Lower controller-effect CPU usage
+
+- Reduce active audio-processing work with vectorized loudness measurement while retaining complete sample validation and a scalar fallback.
+- Reduce arena discovery overhead with one bounded sound-pool read and reusable scratch storage; retain live sound, ownership and scene validation.
+- Build Bluetooth output reports with one final checksum, preserving the exact controller bytes and incoming-report validation.
+- Reduce background work without slowing enemy observations or the 33 ms worker: skip unused lighting rendering, already-empty motion-track clearing and output-roster construction when boss combat has closed history enrollment.
+- Preserve regular-enemy history and rebuild the complete roster on the first foreground update. Avoid unused cast reads and quiet-frame allocations.
+- Include the v0.20.0 production cleanup: regular installs omit Diagnostics, recording and timing tools; an explicitly selected development build retains them.
+- Extend compiled-adapter, focus-transition, native-memory and scalar-path checks. Whole-game CPU/FPS gains and physical focus-return latency remain unmeasured.
+
 ## 0.20.0 — Performance and production build cleanup
 
 - Reduce audio CPU work by skipping unnecessary sound-ownership checks and sharing validated loudness measurements between SFX lighting and haptics.

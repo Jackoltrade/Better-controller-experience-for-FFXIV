@@ -2,7 +2,7 @@
   "Author": "Jackoltrade",
   "Name": "Better controller experience for FFXIV",
   "InternalName": "DualSenseLighting",
-  "AssemblyVersion": "0.20.0.0",
+  "AssemblyVersion": "0.20.1.0",
   "RepoUrl": "https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV",
   "IconUrl": "https://raw.githubusercontent.com/Jackoltrade/Better-controller-experience-for-FFXIV/main/src/DualSenseLighting/Assets/icon.png",
   "Description": "Customize DualSense lighting and feel skills, enemy effects and screen shake through vibration. Supports detailed USB DualSense haptics and regular rumble on Bluetooth DualSense or Xbox-compatible XInput controllers.",

@@ -32,6 +32,9 @@ internal static unsafe class CompiledAudioPerformanceChecks
 
     internal static void Run(Action<bool, string> check, Assembly plugin)
     {
+        var rms = plugin.GetType("DualSenseLighting.Core.SfxLoudness", true)!
+            .GetMethod("MeasureRms", All)!.CreateDelegate<PcmAndReportPerformanceChecks.Rms>();
+        PcmAndReportPerformanceChecks.CheckRms(check, rms);
         var settingsType = plugin.GetType("DualSenseLighting.Core.HapticSettings", true)!;
         CheckAdmission(check, plugin, settingsType);
         CheckSharedLevels(check, plugin, settingsType);

@@ -30,6 +30,8 @@ internal static class IdleRosterChecks
         {
             Marshal.Copy(new byte[0x1A0], 0, block, 0x1A0); Marshal.WriteInt32(block + 0x78, 2000);
             foreach (var hasCapture in new[] { false, true })
+            foreach (var enemiesEnabled in new[] { false, true })
+            foreach (var foreground in new[] { false, true })
             {
                 var castingReads = 0; var indexReads = 0;
                 var player = Proxy(playerApi, (m, a) => m.Name switch
@@ -48,24 +50,27 @@ internal static class IdleRosterChecks
                 { "get_Length" => 2, "get_LocalPlayer" => player, "get_Item" => Item((int)a![0]!), _ => null });
                 object Item(int index) { indexReads++; return index == 0 ? player : actor; }
                 var owner = RuntimeHelpers.GetUninitializedObject(type);
+                var recording = type.GetField("recording", All);
+                if (recording != null) recording.SetValue(owner, RuntimeHelpers.GetUninitializedObject(recording.FieldType));
                 F("objects").SetValue(owner, table);
                 F("clientState").SetValue(owner, Proxy(F("clientState").FieldType, (m, a) => m.Name == "get_TerritoryType" ? Value(m.ReturnType, 1) : m.ReturnType.IsValueType ? Activator.CreateInstance(m.ReturnType) : null));
                 F("condition").SetValue(owner, Proxy(F("condition").FieldType, (m, a) => false));
                 F("enemyTerritory").SetValue(owner, 1u); F("enemyDuty").SetValue(owner, 700u);
                 var settingsType = T("Core.HapticSettings"); var ctor = settingsType.GetConstructors().Single(c => c.GetParameters().Length > 1);
-                F("hapticSettings").SetValue(owner, ctor.Invoke(ctor.GetParameters().Select(p => p.Name == "BossEnabled" ? (object)true : p.DefaultValue).ToArray()));
+                F("hapticSettings").SetValue(owner, ctor.Invoke(ctor.GetParameters().Select(p => p.Name == "BossEnabled" ? (object)enemiesEnabled : p.DefaultValue).ToArray()));
                 var state = Activator.CreateInstance(T("Core.BossEncounterState"), 4096)!; F("bossEncounter").SetValue(owner, state);
                 var catalogType = T("Core.EnemyEncounterCatalog"); var catalogCtor = catalogType.GetConstructors().Single();
                 F("enemyEncounters").SetValue(owner, catalogCtor.Invoke(catalogCtor.GetParameters().Select(p => (object)Array.CreateInstance(p.ParameterType.GenericTypeArguments[0], 0)).ToArray()));
                 var actors = Array.CreateInstance(F("enemyActors").FieldType.GetElementType()!, 2);
                 F("enemyActors").SetValue(owner, actors); F("enemyCandidates").SetValue(owner, Array.CreateInstance(actors.GetType().GetElementType()!, 2));
                 var capture = hasCapture ? RuntimeHelpers.GetUninitializedObject(T("Windows.SfxAudioCapture")) : null;
-                type.GetMethod("UpdateEnemyActors", All)!.Invoke(owner, new[] { capture, (object)true });
+                type.GetMethod("UpdateEnemyActors", All)!.Invoke(owner, new[] { capture, (object)true, foreground });
                 check((int)state.GetType().GetProperty("Count")!.GetValue(state)! == 1 &&
                     (uint)actors.GetValue(0)!.GetType().GetProperty("EntityId")!.GetValue(actors.GetValue(0))! == 2000,
                     "Idle capture gating changed remembered regular history or selected roster");
-                check(castingReads == (hasCapture ? 1 : 0) && indexReads == (hasCapture ? 3 : 2),
-                    "A null capture traversed dead cast properties, or a live capture lost cast publication");
+                var castConsumer = hasCapture && enemiesEnabled && foreground;
+                check(castingReads == (castConsumer ? 1 : 0) && indexReads == (castConsumer ? 3 : 2),
+                    "Absent/disallowed enemy capture traversed cast properties, or enabled capture lost cast publication");
             }
         }
         finally { Marshal.FreeHGlobal(block); }

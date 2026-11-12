@@ -24,7 +24,7 @@ using DualSenseLighting.Core;
 using DualSenseLighting.Windows;
 using DualSenseLighting.Ui;
 
-[assembly: System.Reflection.AssemblyVersion("0.20.0.0")]
+[assembly: System.Reflection.AssemblyVersion("0.20.1.0")]
 [assembly: System.Reflection.AssemblyTitle(PluginInfo.Name)]
 [assembly: System.Reflection.AssemblyProduct(PluginInfo.Name)]
 [assembly: System.Runtime.Versioning.SupportedOSPlatform("windows10.0")]
@@ -458,7 +458,7 @@ public sealed partial class Plugin : IDalamudPlugin
 #if BCEF_DIAGNOSTICS
             timing.Next(UpdateTiming.Phase.RosterArena);
 #endif
-            UpdateEnemyActors(capture, validPlayer);
+            UpdateEnemyActors(capture, validPlayer, Native.IsCurrentProcessForeground());
 #if BCEF_DIAGNOSTICS
             timing.Next(UpdateTiming.Phase.ScreenEffects);
 #endif
@@ -476,7 +476,7 @@ public sealed partial class Plugin : IDalamudPlugin
 #if BCEF_DIAGNOSTICS
             timing.Next(UpdateTiming.Phase.RosterArena);
 #endif
-            UpdateEnemyActors(null, (objects.LocalPlayer?.Address ?? 0) != 0);
+            UpdateEnemyActors(null, (objects.LocalPlayer?.Address ?? 0) != 0, Native.IsCurrentProcessForeground());
         }
 #if BCEF_DIAGNOSTICS
         timing.Next(UpdateTiming.Phase.SaveGuard);
@@ -498,7 +498,7 @@ public sealed partial class Plugin : IDalamudPlugin
         return target != null && target.IsValid() && target.GameObjectId == id ? target.Position : null;
     }
 
-    private unsafe void UpdateEnemyActors(SfxAudioCapture? capture, bool playerPresent)
+    private unsafe void UpdateEnemyActors(SfxAudioCapture? capture, bool playerPresent, bool foreground)
     {
         // Keep the full object-table snapshot, including every ownership-chain
         // ancestor and player seed, if Dalamud expands its table after startup.
@@ -510,7 +510,7 @@ public sealed partial class Plugin : IDalamudPlugin
         var territory = clientState.TerritoryType;
         var haptics = Volatile.Read(ref hapticSettings);
         var allowed = playerPresent && !clientState.IsPvP && !condition[ConditionFlag.BetweenAreas] &&
-            !condition[ConditionFlag.BetweenAreas51] && Native.IsCurrentProcessForeground() &&
+            !condition[ConditionFlag.BetweenAreas51] && foreground &&
             (haptics.EnemiesEnabled || haptics.HitReactions);
         if (enemyTerritory != territory)
         {
@@ -601,7 +601,11 @@ public sealed partial class Plugin : IDalamudPlugin
             localPlayer?.EntityId ?? 0, playerInCombat, bossInCombat);
         // Only independently classified hostile enemies enter regular history.
         // Neutral/preloaded boss performers are never marked as trash.
-        var selected = bossEncounter.SelectRoster(enemyCandidates.AsSpan(0, count), enemyActors);
+        // A fighting boss closes regular-history enrollment even before the
+        // player joins combat. Background output is empty, so only its final
+        // selection can be skipped; observation/exclusion/state above still run.
+        var selected = !foreground && bossInCombat ? 0 :
+            bossEncounter.SelectRoster(enemyCandidates.AsSpan(0, count), enemyActors);
         capture?.SetEnemies(enemyActors.AsSpan(0, selected), territory, allowed
 #if BCEF_DIAGNOSTICS
             ,
@@ -611,7 +615,7 @@ public sealed partial class Plugin : IDalamudPlugin
             );
         // Publish the roster first so a newly discovered actor retains this
         // cast on its existing identity without changing roster equality.
-        if (capture != null)
+        if (capture != null && allowed)
         {
             for (var i = 0; i < selected; i++)
             {

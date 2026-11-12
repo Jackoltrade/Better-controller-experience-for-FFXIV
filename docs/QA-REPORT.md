@@ -1,8 +1,58 @@
 # Public test QA report
 
-Version: **0.20.0.0 local release candidate** · Checked: **2026-11-11** · Target: **Windows x64, USB/Bluetooth DualSense, XInput, Dalamud API 15**
+Version: **0.20.1.0 release candidate** · Checked: **2026-11-12** · Target: **Windows x64, USB/Bluetooth DualSense, XInput, Dalamud API 15**
 
-## Current verification: v0.20.0 preparation
+## Current verification: v0.20.1
+
+The project, assembly and source manifest agree on **0.20.1 / 0.20.1.0**.
+The standard locked Windows SDK build and metadata verifier pass for both
+optimized x64/API 15 variants. The actual production DLL passes **62/62 groups,
+594,809 assertions**; the development DLL passes **62/62 groups, 594,887
+assertions**. Both runs have zero skipped and zero failed groups. Assertion
+loops are not independent gameplay tests. Production diagnostics remain excluded.
+
+This candidate includes the foreground and background performance changes in
+the [performance follow-up](optimization/performance-followup-v0.20.0.md) and
+[background CPU review](optimization/background-cpu-feasibility.md). Enemy
+observation and worker cadence remain unchanged. Those documents retain the
+earlier v0.20.0 measurements; they are not whole-game CPU or FPS measurements.
+
+Source SHA-256: `d779e3b5e69d1721134ce074c25ef9a3a010a63f884fbb6465a8bfed7cd28978`.
+Production DLL: `e0b4d1f76180e6f7eaa5dcd3a6c9e289e1fbb075c48f4fc3ba2c5632b75381ff`.
+Development DLL: `e02077ff966a5a8387f26a9fccc270870035838887ba7cc712de9f20d21f81e6`.
+Proofs are in `artifacts/build/production/build-verification.json` and the
+development counterpart. The fresh build/check transcript is
+`work/release-0.20.1/build-20261112-220802.log`.
+
+The initial local dependency audit failed with `NU1900` and `NU1905` because
+.NET could not use the inherited `socks5h` proxy setting. The unchanged,
+fail-closed audit **passes** after using the existing proxy's supported `socks5`
+setting: both the locked production graph and the separately evaluated SDK
+packages restored against the official vulnerability feed without advisory
+warnings. The failed and successful receipts remain in
+`work/release-0.20.1/audit-20261112-220922.log` and
+`work/release-0.20.1/audit-20261112-221415.log`. No audit gate, package version or
+lockfile was changed. Remote CI verification is pending at this point.
+
+Fresh supporting checks also pass: **50 Python tests**, **120 build-process
+assertions**, **49 coverage-process fixtures**, runner failure propagation and
+generated boss-catalog validation. Standard/Japanese local packages were
+created from the verified production DLL. Both isolated coverage runs of these
+exact DLLs also pass all 62 groups with the same assertion counts, with original
+DLL/PDB input hashes unchanged. Coverage is partial managed-code mapping, not
+live native-hook or hardware coverage. Receipts are under
+`work/release-0.20.1/coverage-production/` and `coverage-development/`.
+
+No fresh in-game smoke test, low-spec whole-game CPU/FPS comparison or physical
+focus-to-first-effect latency test was performed for this candidate. The older
+Chinese-client hardware confirmations retain their original scope.
+
+The user now explicitly authorizes **commit and publish a new GitHub release**.
+That instruction supersedes the earlier local-only/no-push instruction recorded
+below. These local verification receipts do not themselves establish that remote
+publication or installer-feed updates have completed.
+
+## Earlier November 11 verification: v0.20.0 preparation
 
 The project, assembly and plugin manifest agree on **0.20.0 / 0.20.0.0**.
 Both optimized build variants pass **61/61 groups with no skips**, normally and
@@ -21,8 +71,9 @@ no confirmed release-blocking code issue.
 The local advisory audit remains unavailable (`NU1900`/`NU1905`). A fully green
 release gate, whole-game FPS improvement and fresh international-client hardware
 coverage are not claimed. The Chinese-client smoke below preceded the rollback
-and version bump. The user's latest instruction is **commit locally; do not
-push yet**, so neither remote CI nor publication has been triggered.
+and version bump. At that time, the user requested **commit locally; do not push
+yet**, so neither remote CI nor publication was triggered by that preparation.
+The current v0.20.1 authorization above supersedes that historical restriction.
 
 ## Earlier November 11 verification: SN30 Pro workaround rollback
 

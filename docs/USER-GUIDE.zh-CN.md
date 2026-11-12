@@ -8,7 +8,7 @@
 
 **Windows x64 · Dalamud API 15**
 
-本指南提到的诊断页和诊断命令仅在通过开发插件流程加载时可用。
+本指南提到的诊断页和诊断命令，需要显式使用 `-Development` 构建开发版，并通过 Dalamud 的开发插件流程加载。详见[开发构建](RELEASING.md#development-builds)。
 
 [项目源码](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV) · [版本下载](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/releases) · [提交问题](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/issues) · [Ko-fi 支持](https://ko-fi.com/K7C122MEWU)
 
@@ -65,6 +65,8 @@
 2. 将整个 ZIP 解压到独立文件夹。
 3. 打开 `/xlsettings` →「实验性」→「开发插件位置」，添加该文件夹中的 `DualSenseLighting.dll`。
 4. 在 `/xlplugins` → **Dev Tools** 中启用插件。
+
+发布 ZIP 和 `artifacts/plugin/` 中都是普通构建；通过开发插件位置加载也不会启用「诊断」。需要记录时，请使用[单独的开发构建](RELEASING.md#development-builds)。
 
 同一时间只保留一种安装方式。加载本插件前，请先停用旧版 **Steam Lighting Guard**；改用安装器时，移除开发插件条目。DLL 与内部标识仍为 `DualSenseLighting`，以保留已有设置和开发路径。停用或卸载时，使用原先加载插件的安装器即可。
 
@@ -187,7 +189,7 @@ USB DualSense 通过游戏原生振动处理，把音效变成更细腻的手感
 
 ## 聊天命令
 
-`/bcef` 打开设置，`/bcef help` 查看命令，`/bcef info` 打开说明，`/bcef trace` 开始或停止诊断记录并打开诊断页。已有宏请改用 `/bcef`。
+`/bcef` 打开设置，`/bcef help` 查看命令，`/bcef info` 打开说明。只有通过 Dalamud 开发插件流程加载的开发构建，才能用 `/bcef trace` 开始或停止诊断记录并打开诊断页。已有宏请改用 `/bcef`。
 
 使用 `/bcef <功能名> on`、`off` 或 `toggle`，例如 `/bcef combathaptics off`：
 
@@ -206,7 +208,7 @@ USB DualSense 通过游戏原生振动处理，把音效变成更细腻的手感
 
 ## 诊断与隐私
 
-本节仅适用于开发插件加载。通过普通插件列表或仓库测试频道安装时，不会显示「诊断」，也不能使用 `/bcef trace`；通过开发流程加载的 Release 构建仍可使用。
+「诊断」和 `/bcef trace` 需要显式使用 `-Development` 构建，并通过 Dalamud 开发插件流程加载 `artifacts/dev-plugin/` 中的开发版。发布 ZIP 和 `artifacts/plugin/` 中的普通 DLL 已移除诊断代码，即使通过开发插件流程加载也不会启用。详见[开发构建](RELEASING.md#development-builds)。
 
 「诊断」提供手柄连接、前后台状态、输出选择与错误、马达测试结果、音效归属计数、计算后的左右强度及极限技状态。
 
@@ -260,7 +262,15 @@ USB DualSense 通过游戏原生振动处理，把音效变成更细腻的手感
 python3 tools/build-wsl.py
 ```
 
-脚本使用 `Dalamud.NET.Sdk/15.0.0` 生成优化的 x64 构建，运行手柄／核心逻辑／翻译检查，校验 DLL 标识、版本与 API，输出至 `artifacts/plugin/`。标准安装包位于 `artifacts/plugin/DualSenseLighting/latest.zip`，公开打包流程会补上安装器翻译和 README。加 `-LockedRestore`／`--locked-restore` 可校验仓库中的依赖锁定文件。`-Probe`／`--probe` 增加只读 USB／蓝牙能力检查，不发送手柄输出指令。
+脚本默认使用 `Dalamud.NET.Sdk/15.0.0` 生成优化的 x64 普通构建，运行手柄／核心逻辑／翻译检查，校验 DLL 标识、版本与 API，输出至 `artifacts/plugin/`。标准安装包位于 `artifacts/plugin/DualSenseLighting/latest.zip`，公开打包流程会补上安装器翻译和 README。加 `-LockedRestore`／`--locked-restore` 可校验仓库中的依赖锁定文件。`-Probe`／`--probe` 增加只读 USB／蓝牙能力检查，不发送手柄输出指令。
+
+需要「诊断」时，请显式构建单独的开发版：
+
+```powershell
+./tools/build.ps1 -DalamudLibPath 'C:\path\to\Dalamud' -Development
+```
+
+通过开发插件位置加载 `artifacts/dev-plugin/DualSenseLighting.dll`。此优化构建包含诊断功能，不生成安装 ZIP。详见[开发构建](RELEASING.md#development-builds)。
 
 CI 也会在 Windows PowerShell 5 中检查构建进程的参数传递和退出状态。可在本机运行同一组检查：
 

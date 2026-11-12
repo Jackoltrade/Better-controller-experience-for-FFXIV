@@ -70,8 +70,8 @@ internal static class ArenaCatalogLifecycleChecks
             empty = catalog.GetField("Empty", BindingFlags.Static | BindingFlags.Public)!.GetValue(null)!;
             arena = RuntimeHelpers.GetUninitializedObject(type);
             Set("catalog", empty); Set("territory", uint.MaxValue);
-            foreach (var field in new[] { "published", "instances" })
-                Set(field, Array.CreateInstance(Field(field).FieldType.GetElementType()!, 0));
+            Set("published", Array.CreateInstance(Field("published").FieldType.GetElementType()!, 0));
+            Set("instances", Activator.CreateInstance(Field("instances").FieldType)!);
             Set("translationTables", new HashSet<nint>());
             update = type.GetMethod("Update")!;
         }

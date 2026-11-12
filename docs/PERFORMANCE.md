@@ -3,6 +3,15 @@
 The November 2026 performance report did not include frame times, hardware details,
 or the enabled features. It establishes a concern to investigate, not an FPS baseline.
 
+Further v0.20.0 research, including measured PCM, arena-read and Bluetooth-report
+prototypes, is recorded in the [follow-up investigation](optimization/performance-followup-v0.20.0.md).
+The feasible candidates are now implemented and verified locally; the follow-up
+includes the actual compiled-DLL comparison and remaining gameplay limits.
+
+An additional [background CPU feasibility review](optimization/background-cpu-feasibility.md)
+records three further changes now implemented and verified locally while
+preserving enemy tracking and the existing focus-return cadence.
+
 ## Implemented changes
 
 - Skip sound-ownership inspection when the enabled features do not need it.
@@ -19,6 +28,23 @@ or the enabled features. It establishes a concern to investigate, not an FPS bas
   attribution remain functional code in both builds.
 - Skip cast-property reads when no audio capture exists. Duty roster/history
   maintenance continues so enemies seen before a boss fight retain their marks.
+- Use portable SIMD for whole-block PCM validation and RMS, retaining double
+  accumulation, tail validation and the scalar fallback.
+- Build locally created Bluetooth reports with one final checksum. Incoming game
+  reports and firmware metadata retain their existing CRC validation.
+- Copy arena pool headers in one bounded read, then retain all live sound,
+  playback, instance and scene validation before publishing a source. Reuse
+  framework scratch collections and allocate a published array only when it changes.
+- Skip enemy-cast reads while enemy output is disallowed, preserving duty history.
+- Avoid quiet screen-sample objects and arena address formatting in production;
+  development builds retain their recording data.
+- Skip final output-roster construction while background boss combat has closed
+  regular-history enrollment. The full duty snapshot, ownership exclusion and
+  combat/history update still run; foreground selection resumes on its first tick.
+- Skip unused background lighting rendering in the native output guard, retaining
+  handle/capability checks, native report validation and background flag edits.
+- Reuse the motion filter's existing clean-state invariant to avoid clearing
+  already-empty tracks. Every invalidation, lock and pending-clear check remains.
 
 ## Evidence and scope
 

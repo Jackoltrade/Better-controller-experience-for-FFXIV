@@ -42,6 +42,7 @@ internal static class KnownMotionFilterChecks
         CheckFalseControls(check);
         CheckAccounting(check);
         CheckUncertainty(check);
+        CheckRepeatedInvalidation(check);
         CheckNonloopAndImmutableBank(check);
         CheckAllocations(check);
     }
@@ -192,6 +193,101 @@ internal static class KnownMotionFilterChecks
             check(task.Wait(TimeSpan.FromSeconds(5)), "Contended native matcher callback blocked");
         }
         check(filter.GetGain(default, new(0, 1, 0), 250) == 1, "Contention loss retained an established match");
+    }
+
+    private static void CheckRepeatedInvalidation(Action<bool, string> check)
+    {
+        static object Read(object target, string field) => target.GetType()
+            .GetField(field, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)!.GetValue(target)!;
+        void Empty(KnownMotionFilter filter)
+        {
+            check(!(bool)Read(filter, "clockSeen") && (int)Read(filter, "invalid") == 0,
+                "Completed invalidation retained a clock or pending invalidation");
+            foreach (var index in (int[,])Read(filter, "latest"))
+                check(index == -1, "Fresh/repeated invalidation retained a latest-source index");
+            foreach (var entry in (Array)Read(filter, "sources"))
+            {
+                check(!(bool)Read(entry!, "Used"), "Invalidation retained an occupied source");
+                foreach (var channel in new[] { "Position", "Rotation" })
+                {
+                    var track = Read(entry!, channel);
+                    check((int)Read(track, "Count") == 0 && !(bool)Read(track, "Observed") &&
+                        !(bool)Read(track, "Known") && !(bool)Read(track, "PhaseReset") &&
+                        (bool)Read(track, "Provisional") && (long)Read(track, "Clock") == 0 &&
+                        (Vector3)Read(track, "Value") == Vector3.Zero,
+                        "Invalidation retained track state in " + channel);
+                }
+            }
+        }
+
+        var filter = Fixture();
+        Empty(filter); // Constructor must initialize latest indexes even without a clock.
+        for (var i = 0; i < 100; i++) filter.Invalidate();
+        Empty(filter);
+        var empty = filter;
+        var bytes = AllocationChecks.MeasureAllocations(empty.Invalidate, warmup: 100, iterations: 1000);
+        check(bytes == 0, $"Repeated inactive invalidation allocated {bytes} bytes");
+
+        // Fill all 32 source slots and both channels. Rotation acquires known
+        // candidates; the position tracks retain observed out-of-bank evidence.
+        for (var phase = 0; phase < 3; phase++)
+        for (var source = 1; source <= 16; source++)
+        for (var slot = 0; slot < 2; slot++)
+        {
+            var value = Sample(.5f + phase * .25f, source, slot);
+            filter.Observe(value, true, phase * 125);
+            filter.Observe(value, false, phase * 125);
+        }
+        for (var source = 1; source <= 16; source++) filter.Realign(source, source + 100, source + 200, 300);
+        var used = 0; var observed = 0; var known = 0;
+        foreach (var entry in (Array)Read(filter, "sources"))
+        {
+            if ((bool)Read(entry!, "Used")) used++;
+            foreach (var channel in new[] { "Position", "Rotation" })
+            {
+                var track = Read(entry!, channel);
+                if ((bool)Read(track, "Observed")) observed++;
+                if ((bool)Read(track, "Known")) known++;
+            }
+        }
+        check(used == 32 && observed == 64 && known == 32,
+            "Invalidation control did not populate all sources and both channel tracks");
+        filter.Invalidate(); Empty(filter);
+        filter.Invalidate(); Empty(filter);
+
+        foreach (var populated in new[] { false, true })
+        {
+            filter = populated ? Match() : Fixture();
+            var captured = filter;
+            var gate = Read(filter, "sync");
+            lock (gate)
+            {
+                var invalidate = Task.Run(captured.Invalidate);
+                check(invalidate.Wait(TimeSpan.FromSeconds(5)), "Contended invalidation blocked a native callback");
+                check((int)Read(filter, "invalid") == 1,
+                    "Contended invalidation lost its pending-clear intent");
+            }
+            check(filter.GetGain(default, populated ? new(0, 1, 0) : default, 251) == 1 &&
+                (int)Read(filter, "invalid") == 0,
+                "The next observation did not consume pending invalidation or retained stale suppression");
+            filter.Invalidate(); Empty(filter);
+        }
+
+        filter = Match(); filter.Invalidate(); filter.Invalidate();
+        // A callback already in progress can reach the filter after a pause.
+        // Repeated invalidation must clear that new evidence as well.
+        filter.Observe(Sample(.5f), false, 1000);
+        check(filter.GetGain(default, new(0, .5f, 0), 1000) == 0,
+            "A late plausible observation failed to reach the normal matching path");
+        filter.Invalidate(); Empty(filter);
+        check(filter.GetGain(default, new(0, .5f, 0), 1000) == 1,
+            "Repeated inactive invalidation skipped late observation state");
+        filter.Invalidate();
+        filter.Observe(Sample(.5f), false, 2000);
+        filter.Observe(Sample(.75f), false, 2125);
+        filter.Observe(Sample(1), false, 2250);
+        check(filter.GetGain(default, new(0, 1, 0), 2250) == 0,
+            "Matching failed to resume after repeated inactive invalidation");
     }
 
     private static void CheckNonloopAndImmutableBank(Action<bool, string> check)

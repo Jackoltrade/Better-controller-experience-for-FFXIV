@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #nullable enable
 using System;
+using System.Numerics;
 using System.Threading;
 
 namespace DualSenseLighting.Core;
@@ -57,8 +58,27 @@ public sealed class SfxLoudness
     {
         if (samples.IsEmpty) return 0;
         double energy = 0;
-        foreach (var sample in samples)
+        var index = 0;
+        if (Vector.IsHardwareAccelerated && samples.Length >= Vector<float>.Count * 2)
         {
+            var lower = Vector<double>.Zero;
+            var upper = Vector<double>.Zero;
+            var limit = new Vector<float>(16);
+            for (; index <= samples.Length - Vector<float>.Count; index += Vector<float>.Count)
+            {
+                var values = new Vector<float>(samples.Slice(index, Vector<float>.Count));
+                // NaN and infinities also fail this comparison. Widen before squaring
+                // to retain the scalar path's double precision and tiny signals.
+                if (!Vector.LessThanOrEqualAll(Vector.Abs(values), limit)) return 0;
+                Vector.Widen(values, out Vector<double> left, out Vector<double> right);
+                lower += left * left;
+                upper += right * right;
+            }
+            energy = Vector.Sum(lower) + Vector.Sum(upper);
+        }
+        for (; index < samples.Length; index++)
+        {
+            var sample = samples[index];
             // Reject an invalid block as a whole instead of turning a bad sample into a flash.
             if (!float.IsFinite(sample) || Math.Abs(sample) > 16) return 0;
             energy += (double)sample * sample;

@@ -7,7 +7,7 @@ For official main-repository review, see [Official Dalamud listing](OFFICIAL-LIS
 ## Before a release
 
 1. Finish the [QA checks](QA-REPORT.md), including an in-game load/unload and focus/reconnect smoke test on the intended client build. Record what was actually tested; a native-mixer fixture does not establish compatibility with a different game patch.
-2. Update version in the project, `Plugin.cs`'s assembly attribute and `DualSenseLighting.json`. They must agree. Version `0.20.0.0` uses tag `v0.20.0`.
+2. Update version in the project, `Plugin.cs`'s assembly attribute and `DualSenseLighting.json`. They must agree. Version `0.20.1.0` uses tag `v0.20.1`.
 3. Add Afdian/Ko-fi profile URLs to `Core/PluginInfo.cs` when the maintainer supplies them. Empty URLs intentionally keep those buttons disabled; do not invent profiles. Test each real destination when adding it.
 4. Confirm source and all third-party licenses are included in the repository. Do not add `work/`, user configuration, diagnostic traces, native research binaries or private screenshots to a release.
 5. Use matching **Dalamud API 15** libraries and .NET 10 SDK. The CI default is Dalamud's official staging ZIP; override `DALAMUD_DOWNLOAD_URL` or the manual workflow input if that feed has moved to another API. The metadata verifier rejects API mismatches.
@@ -20,7 +20,7 @@ The checked-in JSON is the standard packager's metadata source. DalamudPackager 
 ./tools/build.ps1 -DalamudLibPath 'C:\path\to\Dalamud' -LockedRestore
 dotnet ./artifacts/checks/LightingChecks.dll --benchmark
 python -m unittest discover -s tests -p "test_*.py" -v
-python tools/package-release.py --tag v0.20.0
+python tools/package-release.py --tag v0.20.1
 ```
 
 On WSL, `python3 tools/build-wsl.py --locked-restore` runs the same Windows .NET 10 SDK build and verification. Pass `--dotnet-path /mnt/c/path/to/sdk/dotnet.exe` for a portable SDK. The offline Roslyn fallback is no longer used.
@@ -65,7 +65,7 @@ The supplied `thumbnail.png` is copied unchanged to the 512×512 plugin icon, `s
 
 The store entry sets `IsTestingExclusive=false` and uses the verified DLL's actual `AssemblyVersion` and `DalamudApiLevel`. It has no separate `TestingAssemblyVersion` or `TestingDalamudApiLevel`. Each feed points all three download links to its matching versioned ZIP; the testing download link is retained for existing clients without advertising a separate beta. Bundled user guides keep links to other bundled files local; images and technical documents outside the ZIP link to the matching source tag.
 
-The root feed advertises the existing `v0.19.8` package on the normal channel. This metadata change reuses the published ZIP and does not rebuild or replace it. Existing release-hosted feeds will adopt the normal channel when the next release is explicitly published.
+The root feed advertises the last verified published package on the normal channel. Update it only after publishing and verifying the new versioned ZIP; changing the feed does not rebuild or replace that ZIP. Both release-hosted feeds also use the normal channel for newly published releases.
 
 ## Installer descriptions
 

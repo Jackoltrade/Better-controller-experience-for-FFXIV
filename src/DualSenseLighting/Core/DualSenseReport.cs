@@ -45,6 +45,13 @@ public static class DualSenseReport
         }
         if (!enabled) return ReportAction.Unchanged;
 
+        SetLighting(common, frame);
+        if (report.Length == BluetoothLength) SetChecksum(report);
+        return ReportAction.CustomLighting;
+    }
+
+    private static void SetLighting(Span<byte> common, LightingFrame frame)
+    {
         common[1] = (byte)((common[1] & ~0x08) | 0x14);
         common[38] |= 0x03; // Brightness and setup; preserve the improved-rumble bit.
         common[41] = 0x02; // Cancel the controller's boot-time blue pulse.
@@ -55,8 +62,6 @@ public static class DualSenseReport
         common[44] = frame.Red;
         common[45] = frame.Green;
         common[46] = frame.Blue;
-        if (report.Length == BluetoothLength) SetChecksum(report);
-        return ReportAction.CustomLighting;
     }
 
     public static byte[] Create(int length, LightingFrame frame) => Create(length, frame, null, 0);
@@ -71,9 +76,9 @@ public static class DualSenseReport
         {
             report[1] = (byte)((sequence & 15) << 4);
             report[2] = 0x10;
-            SetChecksum(report);
         }
-        if (frame.HasValue) Apply(report, true, true, frame.Value);
+        // This header is locally constructed. Incoming reports still use Apply's validation.
+        if (frame.HasValue) SetLighting(report.AsSpan(bluetooth ? 3 : 1, 47), frame.Value);
         if (rumble.HasValue)
         {
             if (!bluetooth) throw new ArgumentException("Direct rumble is Bluetooth-only.", nameof(rumble));
@@ -82,8 +87,8 @@ public static class DualSenseReport
             if (improvedRumble) common[38] |= 4; // Firmware-supported compatible vibration v2.
             common[2] = (byte)(rumble.Value.High >> 8);
             common[3] = (byte)(rumble.Value.Low >> 8);
-            SetChecksum(report);
         }
+        if (bluetooth) SetChecksum(report);
         return report;
     }
 

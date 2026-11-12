@@ -8,7 +8,7 @@ DualSenseのライトと振動をFFXIVに合わせて楽しめる、Dalamud用�
 
 **Windows x64 · Dalamud API 15**
 
-このガイドの診断タブと診断コマンドは、開発用プラグインとして読み込んだ場合のみ利用できます。
+このガイドの診断タブと診断コマンドは、明示的に `-Development` で作成した開発用ビルドを、Dalamudの開発用プラグインとして読み込んだ場合に限り利用できます。[開発用ビルド](RELEASING.md#development-builds)をご覧ください。
 
 [ソースコード](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV) · [リリース](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/releases) · [不具合を報告](https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV/issues) · [Ko-fiで応援](https://ko-fi.com/K7C122MEWU)
 
@@ -67,6 +67,8 @@ Dalamudのテスト版設定を有効にする必要はありません。
 2. ZIPを使う場合は、全体を専用フォルダーに展開します。
 3. `/xlsettings` → **Experimental** → **Dev Plugin Locations**に、そのフォルダーの `DualSenseLighting.dll` を追加します。
 4. `/xlplugins` → **Dev Tools**で有効にします。
+
+公開ZIPと `artifacts/plugin/` は通常版です。Dev Plugin Locationsで読み込んでも診断は有効になりません。記録には[専用の開発用ビルド](RELEASING.md#development-builds)を使ってください。
 
 同時に複数の方法で読み込まないでください。以前の **Steam Lighting Guard** は先に無効にし、インストーラーへ移行する際は開発用の登録を削除してください。既存の設定と開発用パスを引き継ぐため、DLL名と内部IDは `DualSenseLighting` のままです。無効化・削除は、導入時と同じインストーラーから行えます。
 
@@ -189,7 +191,7 @@ Bluetoothでは、戦闘の方向設定による左右の強さを維持しま�
 
 ## コマンド
 
-`/bcef`で設定、`/bcef help`でコマンド一覧、`/bcef info`で案内を開きます。`/bcef trace`は診断記録を開始・停止し、診断タブを開きます。既存のマクロも `/bcef` に変更してください。
+`/bcef`で設定、`/bcef help`でコマンド一覧、`/bcef info`で案内を開きます。Dalamudの開発用プラグインとして読み込んだ開発用ビルドでは、`/bcef trace`で診断記録を開始・停止し、診断タブを開けます。既存のマクロも `/bcef` に変更してください。
 
 `/bcef <機能名> on`・`off`・`toggle`で切り替えます。例：`/bcef combathaptics off`。
 
@@ -208,7 +210,7 @@ Bluetoothでは、戦闘の方向設定による左右の強さを維持しま�
 
 ## 診断とプライバシー
 
-この節は開発用プラグインとして読み込んだ場合のみ対象です。通常のプラグイン一覧やリポジトリのテスト版からインストールした場合、診断タブと `/bcef trace` は利用できません。開発用として読み込んだ Release ビルドでは利用できます。
+診断タブと `/bcef trace` には、明示的に `-Development` で作成した `artifacts/dev-plugin/` 内のビルドを、Dalamudの開発用プラグインとして読み込む必要があります。公開ZIPと `artifacts/plugin/` 内の通常版DLLには診断コードが含まれず、開発用として読み込んでも有効になりません。[開発用ビルド](RELEASING.md#development-builds)をご覧ください。
 
 診断タブには、接続、アクティブ状態、出力先とエラー、モーターテスト結果、発生元カウンター、計算後の左右の強さ、LB状態がまとまっています。
 
@@ -262,7 +264,15 @@ Bluetoothでは、戦闘の方向設定による左右の強さを維持しま�
 python3 tools/build-wsl.py
 ```
 
-スクリプトは`Dalamud.NET.Sdk/15.0.0`で最適化したx64コードをビルドし、コントローラー・コア処理・翻訳のチェック、DLL名・バージョン・APIの照合を行い、`artifacts/plugin/`に出力します。標準パッケージは`artifacts/plugin/DualSenseLighting/latest.zip`です。公開用のパッケージにはインストーラーの翻訳とREADMEも追加されます。`-LockedRestore` / `--locked-restore`で、リポジトリ内の依存関係ロックファイルを検証できます。`-Probe` / `--probe`は、出力指令を送らないUSB・Bluetoothの読み取り専用チェックを追加します。
+スクリプトは既定で`Dalamud.NET.Sdk/15.0.0`による最適化済みx64の通常版をビルドし、コントローラー・コア処理・翻訳のチェック、DLL名・バージョン・APIの照合を行い、`artifacts/plugin/`に出力します。標準パッケージは`artifacts/plugin/DualSenseLighting/latest.zip`です。公開用のパッケージにはインストーラーの翻訳とREADMEも追加されます。`-LockedRestore` / `--locked-restore`で、リポジトリ内の依存関係ロックファイルを検証できます。`-Probe` / `--probe`は、出力指令を送らないUSB・Bluetoothの読み取り専用チェックを追加します。
+
+診断を使う場合は、専用の開発用ビルドを明示的に作成します。
+
+```powershell
+./tools/build.ps1 -DalamudLibPath 'C:\path\to\Dalamud' -Development
+```
+
+Dev Plugin Locationsで `artifacts/dev-plugin/DualSenseLighting.dll` を読み込みます。この最適化済みビルドには診断機能が含まれ、インストール用ZIPは生成しません。[開発用ビルド](RELEASING.md#development-builds)をご覧ください。
 
 CIではWindows PowerShell 5で、ビルド時の引数の受け渡しと終了コードも確認します。同じチェックをローカルで実行できます。
 

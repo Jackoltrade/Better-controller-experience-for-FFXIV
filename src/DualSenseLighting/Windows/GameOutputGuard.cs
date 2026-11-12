@@ -78,9 +78,17 @@ internal sealed class GameOutputGuard : IDisposable
         if (OwnedLightingHandles.Contains(file) || Marshal.ReadByte(buffer) is not (2 or 0x31)) return;
         // Revalidate handles rather than caching identities across a disconnect/handle reuse.
         if (!Native.TryGetDualSenseCaps(file, out _)) return;
+        ApplyLighting(new Span<byte>((void*)buffer, (int)length), Native.IsCurrentProcessForeground());
+    }
+
+    private void ApplyLighting(Span<byte> report, bool foreground)
+    {
         var snapshot = settings();
-        var action = DualSenseReport.Apply(new Span<byte>((void*)buffer, (int)length),
-            Native.IsCurrentProcessForeground(), snapshot.Enabled, LightingEffects.Render(snapshot, seconds(), sfxLevel(), limitBreak()));
+        // Background flag filtering ignores the lighting frame. Keep native report
+        // validation, but avoid gathering/rendering an effect that cannot be used.
+        var frame = foreground && snapshot.Enabled
+            ? LightingEffects.Render(snapshot, seconds(), sfxLevel(), limitBreak()) : default;
+        var action = DualSenseReport.Apply(report, foreground, snapshot.Enabled, frame);
         if (action == ReportAction.CustomLighting) Interlocked.Increment(ref foregroundReports);
         if (action == ReportAction.BackgroundGuard) Interlocked.Increment(ref backgroundReports);
     }

@@ -1,6 +1,6 @@
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>0.20.0</Version>
+    <Version>0.20.1</Version>
     <Title>Better controller experience for FFXIV</Title>
     <Product>Better controller experience for FFXIV</Product>
     <RepositoryUrl>https://github.com/Jackoltrade/Better-controller-experience-for-FFXIV</RepositoryUrl>

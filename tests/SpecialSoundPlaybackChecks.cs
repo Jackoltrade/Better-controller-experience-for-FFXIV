@@ -217,7 +217,7 @@ internal static unsafe class SpecialSoundPlaybackChecks
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool VirtualFree(nint address, nuint size, uint freeType);
 
-    private sealed class Fixture : IDisposable
+    internal sealed class Fixture : IDisposable
     {
         internal const int ModuleSize = 4096, EntryCount = 512;
         internal readonly byte* Module = (byte*)NativeMemory.AllocZeroed(ModuleSize);
