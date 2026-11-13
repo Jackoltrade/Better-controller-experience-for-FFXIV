@@ -9,7 +9,7 @@ Custom controller lighting and vibration for Final Fantasy XIV. Feel skills, ene
 ## Features
 
 - **Lighting:** RGB effects, sound-reactive colors and animated bottom LEDs, with a live preview and Limit Break display.
-- **Combat haptics:** separate player, boss, regular-enemy and hit-reaction controls, with shared direction and distance settings.
+- **Combat haptics:** separate player, boss, regular-enemy and hit-reaction controls, with shared direction and distance settings. It should work with any player skill VFX mod, but there are so many that I can't test them all.
 - **Screen effects:** vibration follows camera shake and other visual effects.
 - **Footsteps:** optional amplification of native USB DualSense footsteps.
 
